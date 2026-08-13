@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON
 from app.database import Base
 
@@ -18,5 +19,5 @@ class AgentTask(Base):
     error_message = Column(Text, default="", comment="错误信息")
     retry_count = Column(Integer, default=0, comment="重试次数")
     created_by = Column(Integer, ForeignKey("users.id"), comment="创建人ID")
-    created_at = Column(DateTime, default=datetime.utcnow, index=True, comment="创建时间")
+    created_at = Column(DateTime, default=china_now_naive, index=True, comment="创建时间")
     completed_at = Column(DateTime, nullable=True, comment="完成时间")

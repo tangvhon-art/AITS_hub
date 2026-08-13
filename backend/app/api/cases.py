@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -223,7 +224,7 @@ def generate_cases(
         task.output_result = {"case_count": len(result["cases"])}
         task.llm_config_id = result.get("llm_config_id")
         task.token_usage = result.get("token_usage", {})
-        task.completed_at = datetime.now()
+        task.completed_at = china_now_naive()
         db.commit()
 
         return {
@@ -236,6 +237,6 @@ def generate_cases(
     except Exception as e:
         task.status = "failed"
         task.error_message = str(e)
-        task.completed_at = datetime.now()
+        task.completed_at = china_now_naive()
         db.commit()
         raise HTTPException(status_code=500, detail=f"用例生成失败: {str(e)}")

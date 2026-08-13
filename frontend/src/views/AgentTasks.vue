@@ -87,7 +87,7 @@
             <a-tag :color="statusColor(currentTask.status)">{{ statusText(currentTask.status) }}</a-tag>
           </a-descriptions-item>
           <a-descriptions-item label="项目ID">{{ currentTask.project_id || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="创建时间">{{ currentTask.created_at }}</a-descriptions-item>
+          <a-descriptions-item label="创建时间">{{ $formatDateTime(currentTask.created_at) }}</a-descriptions-item>
           <a-descriptions-item label="完成时间">{{ currentTask.completed_at || '-' }}</a-descriptions-item>
         </a-descriptions>
 
@@ -112,6 +112,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/date'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
@@ -142,8 +143,8 @@ const columns = [
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '项目ID', dataIndex: 'project_id', key: 'project_id', width: 80 },
   { title: 'Token消耗', dataIndex: 'token_usage', key: 'token_usage', width: 100 },
-  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170 },
-  { title: '完成时间', dataIndex: 'completed_at', key: 'completed_at', width: 170 },
+  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
+  { title: '完成时间', dataIndex: 'completed_at', key: 'completed_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 80, fixed: 'right' as const },
 ]
 

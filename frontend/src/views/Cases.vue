@@ -182,6 +182,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/date'
 import { ref, reactive, onMounted, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
@@ -229,7 +230,7 @@ const columns = [
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
   { title: '类型', dataIndex: 'case_type', key: 'case_type', width: 100 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
-  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170 },
+  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 140, fixed: 'right' }
 ]
 

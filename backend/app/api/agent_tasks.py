@@ -3,6 +3,7 @@ Agent 任务监控 API + Supervisor 流水线 API
 """
 import json
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -140,7 +141,7 @@ def run_supervisor_pipeline(
 
         task.status = "success"
         task.output_result = result
-        task.completed_at = datetime.now()
+        task.completed_at = china_now_naive()
         db.commit()
 
         return {"task_id": task.id, "status": "success", "result": result}
@@ -148,7 +149,7 @@ def run_supervisor_pipeline(
     except Exception as e:
         task.status = "failed"
         task.error_message = str(e)
-        task.completed_at = datetime.now()
+        task.completed_at = china_now_naive()
         db.commit()
         raise HTTPException(status_code=500, detail=f"流水线执行失败: {str(e)}")
 
@@ -185,7 +186,7 @@ def review_cases(
         task.output_result = result
         task.token_usage = result.get("token_usage", {})
         task.llm_config_id = result.get("llm_config_id")
-        task.completed_at = datetime.now()
+        task.completed_at = china_now_naive()
         db.commit()
 
         return {"task_id": task.id, "result": result}
@@ -193,7 +194,7 @@ def review_cases(
     except Exception as e:
         task.status = "failed"
         task.error_message = str(e)
-        task.completed_at = datetime.now()
+        task.completed_at = china_now_naive()
         db.commit()
         raise HTTPException(status_code=500, detail=f"评审失败: {str(e)}")
 
@@ -233,7 +234,7 @@ def generate_bdd_cases(
         task.output_result = {"bdd_content": result.get("bdd_content"), "scenario_count": result.get("scenario_count")}
         task.token_usage = result.get("token_usage", {})
         task.llm_config_id = result.get("llm_config_id")
-        task.completed_at = datetime.now()
+        task.completed_at = china_now_naive()
         db.commit()
 
         return {"task_id": task.id, "result": result}
@@ -241,7 +242,7 @@ def generate_bdd_cases(
     except Exception as e:
         task.status = "failed"
         task.error_message = str(e)
-        task.completed_at = datetime.now()
+        task.completed_at = china_now_naive()
         db.commit()
         raise HTTPException(status_code=500, detail=f"BDD 生成失败: {str(e)}")
 

@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float
 from app.database import Base
 
@@ -21,4 +22,4 @@ class TestRun(Base):
     executed_by = Column(Integer, ForeignKey("users.id"), comment="执行人ID")
     started_at = Column(DateTime, nullable=True, comment="开始执行时间")
     completed_at = Column(DateTime, nullable=True, comment="执行完成时间")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")

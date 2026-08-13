@@ -2,6 +2,7 @@
 审计日志数据模型
 """
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, JSON
 from app.database import Base
 
@@ -23,4 +24,4 @@ class AuditLog(Base):
     user_agent = Column(String(500), nullable=True, comment="用户代理")
     status = Column(String(20), default="success", comment="操作状态：success/failed")
     error_message = Column(Text, nullable=True, comment="错误信息")
-    created_at = Column(DateTime, default=datetime.utcnow, index=True, comment="操作时间")
+    created_at = Column(DateTime, default=china_now_naive, index=True, comment="操作时间")

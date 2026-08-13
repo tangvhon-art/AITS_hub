@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from app.database import Base
 
@@ -14,5 +15,5 @@ class User(Base):
     full_name = Column(String(100), default="", comment="用户全名")
     is_active = Column(Boolean, default=True, comment="是否启用：0-禁用，1-启用")
     is_admin = Column(Boolean, default=False, comment="是否管理员：0-普通用户，1-管理员")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")

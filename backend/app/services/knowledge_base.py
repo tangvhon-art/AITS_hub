@@ -155,7 +155,7 @@ class KnowledgeBaseService:
                     "title": title,
                     "content": chunk,
                     "chunk_index": i,
-                    "added_at": datetime.now().isoformat(),
+                    "added_at": china_now_naive().isoformat(),
                 })
 
             # 6. 保存

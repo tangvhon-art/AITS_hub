@@ -2,6 +2,7 @@
 缺陷管理 API
 """
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -128,7 +129,7 @@ def update_defect(
     update_data = defect_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(defect, key, value)
-    defect.updated_at = datetime.now()
+    defect.updated_at = china_now_naive()
 
     db.commit()
     db.refresh(defect)
@@ -171,7 +172,7 @@ def update_defect_status(
         raise HTTPException(status_code=404, detail="缺陷不存在")
 
     defect.status = status
-    defect.updated_at = datetime.now()
+    defect.updated_at = china_now_naive()
     db.commit()
     db.refresh(defect)
     return DefectResponse.model_validate(defect)

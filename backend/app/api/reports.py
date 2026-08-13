@@ -3,6 +3,7 @@
 """
 import json
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -84,7 +85,7 @@ def generate_report(
     # 创建报告记录
     report = TestReport(
         project_id=project_id,
-        title=req.title or f"测试报告 - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        title=req.title or f"测试报告 - {china_now_naive().strftime('%Y-%m-%d %H:%M')}",
         report_type=req.report_type,
         status="generating",
         created_by=current_user.id,
@@ -114,7 +115,7 @@ def generate_report(
         report.total_runs = result.get("total_runs", 0)
         report.avg_duration = result.get("avg_duration", 0.0)
         report.status = "completed"
-        report.updated_at = datetime.now()
+        report.updated_at = china_now_naive()
 
         db.commit()
         db.refresh(report)
@@ -145,7 +146,7 @@ def update_report(
     update_data = report_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(report, key, value)
-    report.updated_at = datetime.now()
+    report.updated_at = china_now_naive()
     db.commit()
     db.refresh(report)
     return ReportResponse.model_validate(report)

@@ -2,6 +2,7 @@
 测试计划管理 API
 """
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -75,7 +76,7 @@ def update_environment(project_id: int, env_id: int, data: TestEnvironmentUpdate
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(env, key, value)
-    env.updated_at = datetime.utcnow()
+    env.updated_at = china_now_naive()
     db.commit()
     db.refresh(env)
     return env
@@ -173,7 +174,7 @@ def update_plan(project_id: int, plan_id: int, data: TestPlanUpdate, db: Session
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(plan, key, value)
-    plan.updated_at = datetime.utcnow()
+    plan.updated_at = china_now_naive()
     db.commit()
     db.refresh(plan)
     return plan
@@ -244,7 +245,7 @@ def update_plan_cases(project_id: int, plan_id: int, data: TestPlanCaseUpdate, d
             db.add(plan_case)
 
     plan.total_cases = len(data.case_ids)
-    plan.updated_at = datetime.utcnow()
+    plan.updated_at = china_now_naive()
     db.commit()
     db.refresh(plan)
     return plan
@@ -261,7 +262,7 @@ def execute_plan(project_id: int, plan_id: int, db: Session = Depends(get_db), c
         raise HTTPException(status_code=404, detail="测试计划不存在")
 
     plan.status = "running"
-    plan.updated_at = datetime.utcnow()
+    plan.updated_at = china_now_naive()
     db.commit()
 
     return {"detail": "测试计划已启动", "plan_id": plan_id, "status": "running"}

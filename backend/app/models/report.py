@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float
 from app.database import Base
 
@@ -24,5 +25,5 @@ class TestReport(Base):
     avg_duration = Column(Float, default=0.0, comment="平均执行耗时（秒）")
     file_url = Column(String(500), default="", comment="报告文件路径")
     created_by = Column(Integer, ForeignKey("users.id"), comment="创建人ID")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")

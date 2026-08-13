@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from app.database import Base
 
@@ -17,5 +18,5 @@ class KnowledgeDoc(Base):
     status = Column(String(20), default="pending", comment="状态：pending-待处理，processing-处理中，ready-就绪，failed-失败")
     error_message = Column(Text, default="", comment="处理错误信息")
     created_by = Column(Integer, ForeignKey("users.id"), comment="创建人ID")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")

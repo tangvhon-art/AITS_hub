@@ -1,6 +1,7 @@
 import json
 import time
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -44,7 +45,7 @@ async def run_execution(
         project_id=project_id,
         case_id=exec_request.case_id,
         status="running",
-        started_at=datetime.now(),
+        started_at=china_now_naive(),
         executed_by=current_user.id,
     )
     db.add(test_run)
@@ -99,7 +100,7 @@ async def run_execution(
             test_run.error_message = error_message
             test_run.execution_log = json.dumps(agent.get_execution_log(), ensure_ascii=False)
             test_run.screenshot_url = agent.screenshot_path
-            test_run.completed_at = datetime.now()
+            test_run.completed_at = china_now_naive()
 
             # 更新 Agent 任务记录
             agent_task.status = "success" if final_status == "passed" else "failed"
@@ -110,17 +111,17 @@ async def run_execution(
                 "steps": len(agent.get_execution_log()),
             }
             agent_task.error_message = error_message if final_status == "failed" else None
-            agent_task.completed_at = datetime.now()
+            agent_task.completed_at = china_now_naive()
             db.commit()
 
         except Exception as e:
             error_message = f"执行异常终止: {str(e)}"
             test_run.status = "failed"
             test_run.error_message = error_message
-            test_run.completed_at = datetime.now()
+            test_run.completed_at = china_now_naive()
             agent_task.status = "failed"
             agent_task.error_message = error_message
-            agent_task.completed_at = datetime.now()
+            agent_task.completed_at = china_now_naive()
             db.commit()
             yield f"data: {json.dumps({'type': 'error', 'message': error_message}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'finish', 'status': 'failed', 'result': error_message}, ensure_ascii=False)}\n\n"

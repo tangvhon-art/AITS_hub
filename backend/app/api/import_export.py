@@ -4,6 +4,7 @@
 """
 import json
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from typing import List
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
@@ -79,7 +80,7 @@ def export_cases(
     wb.save(output)
     output.seek(0)
 
-    filename = f"test_cases_{project_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"test_cases_{project_id}_{china_now_naive().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
     return StreamingResponse(
         output,

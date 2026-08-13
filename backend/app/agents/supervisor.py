@@ -97,7 +97,7 @@ class SupervisorEngine:
 
         results = {
             "project_id": project_id,
-            "started_at": datetime.now().isoformat(),
+            "started_at": china_now_naive().isoformat(),
             "steps": [],
             "errors": [],
         }
@@ -226,7 +226,7 @@ class SupervisorEngine:
             report_result = report_agent.generate(
                 project_id=project_id,
                 report_type="full",
-                title=f"测试报告 - {requirement_title or datetime.now().strftime('%Y-%m-%d')}",
+                title=f"测试报告 - {requirement_title or china_now_naive().strftime('%Y-%m-%d')}",
             )
             # 保存报告
             report = TestReport(
@@ -275,7 +275,7 @@ class SupervisorEngine:
                 results["errors"].append(f"通知发送失败: {str(e)}")
 
         self.db.commit()
-        results["completed_at"] = datetime.now().isoformat()
+        results["completed_at"] = china_now_naive().isoformat()
         results["status"] = "completed" if not results["errors"] else "partial"
         return results
 

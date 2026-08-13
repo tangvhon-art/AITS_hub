@@ -166,14 +166,15 @@
         <a-descriptions-item label="预期结果" :span="2">{{ currentDefect.expected_result || '-' }}</a-descriptions-item>
         <a-descriptions-item label="实际结果" :span="2">{{ currentDefect.actual_result || '-' }}</a-descriptions-item>
         <a-descriptions-item label="根因分析" :span="2">{{ currentDefect.root_cause || '-' }}</a-descriptions-item>
-        <a-descriptions-item label="创建时间">{{ currentDefect.created_at }}</a-descriptions-item>
-        <a-descriptions-item label="更新时间">{{ currentDefect.updated_at }}</a-descriptions-item>
+        <a-descriptions-item label="创建时间">{{ $formatDateTime(currentDefect.created_at) }}</a-descriptions-item>
+        <a-descriptions-item label="更新时间">{{ $formatDateTime(currentDefect.updated_at) }}</a-descriptions-item>
       </a-descriptions>
     </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
@@ -215,7 +216,7 @@ const columns = [
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '根因分类', dataIndex: 'root_cause_category', key: 'root_cause_category', width: 100 },
-  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170 },
+  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 180, fixed: 'right' as const },
 ]
 

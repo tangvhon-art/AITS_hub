@@ -79,7 +79,7 @@
               {{ currentLog.status === 'success' ? '成功' : '失败' }}
             </a-tag>
           </a-descriptions-item>
-          <a-descriptions-item label="操作时间" :span="2">{{ currentLog.created_at }}</a-descriptions-item>
+          <a-descriptions-item label="操作时间" :span="2">{{ $formatDateTime(currentLog.created_at) }}</a-descriptions-item>
         </a-descriptions>
         <a-divider>操作详情</a-divider>
         <pre v-if="currentLog.detail && Object.keys(currentLog.detail).length > 0" class="detail-json">

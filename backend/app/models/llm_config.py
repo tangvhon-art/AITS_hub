@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float
 from app.database import Base
 
@@ -20,5 +21,5 @@ class LLMConfig(Base):
     status = Column(String(20), default="active", comment="状态：active-启用，inactive-停用")
     priority = Column(Integer, default=0, comment="降级优先级，数字越小优先级越高")
     description = Column(Text, default="", comment="配置描述")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")

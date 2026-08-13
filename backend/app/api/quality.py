@@ -1,7 +1,8 @@
 """
 质量看板与洞察 API
 """
-from datetime import datetime, timedelta
+from datetime import datetime
+from app.core.timezone import china_now_naive, timedelta
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -85,7 +86,7 @@ def _calculate_metrics(project_id: int, db: Session) -> QualityMetricsResponse:
 
 def _calculate_trend(project_id: int, days: int, db: Session) -> QualityTrendResponse:
     """计算趋势数据"""
-    end_date = datetime.utcnow()
+    end_date = china_now_naive()
     start_date = end_date - timedelta(days=days)
 
     # 通过率趋势（按天）
@@ -217,7 +218,7 @@ def _generate_risk_alerts(project_id: int, db: Session) -> RiskAlertResponse:
     """生成风险预警"""
     alerts = []
     metrics = _calculate_metrics(project_id, db)
-    now = datetime.utcnow()
+    now = china_now_naive()
 
     # 通过率低于阈值
     if metrics.pass_rate < 70 and metrics.total_runs > 0:
@@ -400,5 +401,5 @@ def generate_insight(project_id: int, db: Session = Depends(get_db), current_use
         "insights": insights,
         "metrics": metrics,
         "alerts": alerts,
-        "generated_at": datetime.utcnow().isoformat()
+        "generated_at": china_now_naive().isoformat()
     }

@@ -42,7 +42,7 @@ class BaseAgent(ABC):
     def _log_step(self, action: str, params: Dict[str, Any], status: str, observation: str = ""):
         """记录执行步骤"""
         self.execution_log.append({
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": china_now_naive().isoformat(),
             "action": action,
             "params": params,
             "status": status,

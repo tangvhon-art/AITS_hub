@@ -98,7 +98,7 @@
             <a-tag :color="statusColor(currentDoc.status)">{{ statusText(currentDoc.status) }}</a-tag>
           </a-descriptions-item>
           <a-descriptions-item label="向量块数">{{ currentDoc.chunk_count }}</a-descriptions-item>
-          <a-descriptions-item label="创建时间">{{ currentDoc.created_at }}</a-descriptions-item>
+          <a-descriptions-item label="创建时间">{{ $formatDateTime(currentDoc.created_at) }}</a-descriptions-item>
         </a-descriptions>
         <div class="doc-content">{{ currentDoc.content }}</div>
       </div>
@@ -107,6 +107,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
@@ -139,7 +140,7 @@ const columns = [
   { title: '类型', dataIndex: 'file_type', key: 'file_type', width: 100 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '向量块数', dataIndex: 'chunk_count', key: 'chunk_count', width: 100 },
-  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170 },
+  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 140, fixed: 'right' as const },
 ]
 

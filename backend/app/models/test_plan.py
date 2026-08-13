@@ -2,6 +2,7 @@
 测试计划数据模型
 """
 from datetime import datetime
+from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Boolean
 from app.database import Base
 
@@ -29,8 +30,8 @@ class TestPlan(Base):
     schedule_cron = Column(String(100), nullable=True, comment="Cron 表达式")
     next_run_time = Column(DateTime, nullable=True, comment="下次执行时间")
     created_by = Column(Integer, ForeignKey("users.id"), comment="创建人ID")
-    created_at = Column(DateTime, default=datetime.utcnow, index=True, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
+    created_at = Column(DateTime, default=china_now_naive, index=True, comment="创建时间")
+    updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")
 
 
 class TestPlanCase(Base):
@@ -44,7 +45,7 @@ class TestPlanCase(Base):
     sort_order = Column(Integer, default=0, comment="执行顺序")
     status = Column(String(20), default="pending", comment="执行状态：pending-待执行，running-执行中，passed-通过，failed-失败，skipped-跳过")
     run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=True, comment="关联的执行记录ID")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
 
 
 class TestEnvironment(Base):
@@ -61,5 +62,5 @@ class TestEnvironment(Base):
     is_default = Column(Boolean, default=False, comment="是否默认环境")
     status = Column(String(20), default="active", comment="状态：active-活跃，inactive-停用")
     created_by = Column(Integer, ForeignKey("users.id"), comment="创建人ID")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")

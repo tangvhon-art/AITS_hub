@@ -87,7 +87,7 @@ class ReportGeneratorAgent(BaseAgent):
             self._log_step("llm_call", {}, "success")
 
             report_content = response.content
-            report_title = title or f"测试报告 - {datetime.now().strftime('%Y-%m-%d')}"
+            report_title = title or f"测试报告 - {china_now_naive().strftime('%Y-%m-%d')}"
 
             result = {
                 "title": report_title,
@@ -115,7 +115,7 @@ class ReportGeneratorAgent(BaseAgent):
             # 降级返回基础报告
             basic_content = self._generate_basic_report(stats)
             return {
-                "title": title or f"测试报告 - {datetime.now().strftime('%Y-%m-%d')}",
+                "title": title or f"测试报告 - {china_now_naive().strftime('%Y-%m-%d')}",
                 "content": basic_content,
                 "summary": stats,
                 "report_type": report_type,
