@@ -1,0 +1,407 @@
+<template>
+  <div class="page-container">
+    <div class="page-header">
+      <h2>UI 自动化执行</h2>
+    </div>
+
+    <a-row :gutter="24">
+      <!-- 左侧：执行配置 -->
+      <a-col :xs="24" :lg="8">
+        <a-card title="执行配置">
+          <a-form layout="vertical">
+            <a-alert
+              v-if="currentCaseTitle"
+              :message="`关联用例：${currentCaseTitle}`"
+              type="info"
+              :show-icon="true"
+              style="margin-bottom: 16px"
+            />
+            <a-form-item label="目标 URL">
+              <a-input v-model:value="targetUrl" placeholder="https://example.com" />
+            </a-form-item>
+            <a-form-item label="测试指令">
+              <a-textarea
+                v-model:value="instruction"
+                :rows="6"
+                placeholder="例如：打开登录页，输入用户名 admin，密码 123456，点击登录按钮，验证是否登录成功"
+              />
+            </a-form-item>
+            <a-form-item label="模型配置">
+              <a-select
+                v-model:value="selectedLLMConfig"
+                placeholder="使用默认模型"
+                allow-clear
+                :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
+              />
+            </a-form-item>
+            <a-form-item label="无头模式">
+              <a-switch v-model:checked="headless" />
+            </a-form-item>
+            <a-form-item>
+              <a-button
+                type="primary"
+                :loading="running"
+                @click="startExecution"
+                :disabled="!instruction.trim()"
+                style="margin-right: 8px"
+              >
+                <template #icon>
+                  <PlayCircleOutlined />
+                </template>
+                开始执行
+              </a-button>
+              <a-button v-if="running" danger @click="stopExecution">停止</a-button>
+            </a-form-item>
+          </a-form>
+        </a-card>
+      </a-col>
+
+      <!-- 右侧：执行日志 -->
+      <a-col :xs="24" :lg="16">
+        <a-card>
+          <template #title>
+            <div class="card-header-title">
+              <span>执行日志</span>
+              <a-tag v-if="running" color="processing">执行中...</a-tag>
+              <a-tag v-else-if="lastStatus === 'passed'" color="success">通过</a-tag>
+              <a-tag v-else-if="lastStatus === 'failed'" color="error">失败</a-tag>
+              <a-tag v-else-if="lastStatus === 'error'" color="error">错误</a-tag>
+            </div>
+          </template>
+
+          <div class="log-container" ref="logContainer">
+            <div v-if="executionLog.length === 0" class="empty-log">
+              <a-empty description="等待执行..." :image-style="{ height: 60 }" />
+            </div>
+            <div v-for="(log, idx) in executionLog" :key="idx" class="log-item" :class="log.status">
+              <div class="log-header">
+                <span class="log-step">步骤 {{ log.step }}</span>
+                <span class="log-action">{{ log.action }}</span>
+              </div>
+              <div v-if="log.thought" class="log-thought">💡 {{ log.thought }}</div>
+              <div class="log-detail">{{ log.detail }}</div>
+              <div v-if="log.result" class="log-result">
+                结果: {{ log.result }}
+              </div>
+            </div>
+          </div>
+
+          <div v-if="finalResult" class="final-result" :class="lastStatus">
+            <h4>执行完成</h4>
+            <p>状态: {{ lastStatus === 'passed' ? '通过' : lastStatus === 'failed' ? '失败' : '错误' }}</p>
+            <p>耗时: {{ duration }} 秒</p>
+            <p>步骤数: {{ totalSteps }}</p>
+          </div>
+
+          <div v-if="screenshotBase64" class="screenshot-section">
+            <h4>执行截图</h4>
+            <img :src="`data:image/png;base64,${screenshotBase64}`" alt="执行截图" class="screenshot-img" />
+          </div>
+        </a-card>
+
+        <!-- 历史执行记录 -->
+        <a-card title="历史执行记录" style="margin-top: 24px">
+          <a-spin :spinning="runsLoading">
+            <a-table
+              :columns="runColumns"
+              :data-source="runs"
+              :pagination="false"
+              row-key="id"
+              size="small"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'status'">
+                  <a-tag :color="runStatusColor(record.status)">{{ runStatusLabel(record.status) }}</a-tag>
+                </template>
+              </template>
+            </a-table>
+          </a-spin>
+        </a-card>
+      </a-col>
+    </a-row>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, nextTick, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { message } from 'ant-design-vue'
+import { PlayCircleOutlined } from '@ant-design/icons-vue'
+import { streamExecution, getExecutionRuns } from '@/api/execution'
+import { getLLMConfigs } from '@/api/llm'
+
+const route = useRoute()
+const projectId = Number(route.params.id)
+
+const targetUrl = ref('')
+const instruction = ref('')
+const headless = ref(true)
+const selectedLLMConfig = ref<number | null>(null)
+const llmConfigs = ref<any[]>([])
+const currentCaseId = ref<number | null>(null)
+const currentCaseTitle = ref('')
+
+const running = ref(false)
+const executionLog = ref<any[]>([])
+const lastStatus = ref('')
+const finalResult = ref('')
+const duration = ref(0)
+const totalSteps = ref(0)
+const screenshotBase64 = ref('')
+const logContainer = ref<HTMLElement>()
+
+const runs = ref<any[]>([])
+const runsLoading = ref(false)
+
+const runColumns = [
+  { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
+  { title: '耗时(秒)', dataIndex: 'duration', key: 'duration', width: 100 },
+  { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 180 }
+]
+
+let evtSource: any = null
+
+function runStatusColor(status: string) {
+  const map: Record<string, string> = {
+    passed: 'success',
+    failed: 'error',
+    error: 'error',
+    running: 'processing',
+    pending: 'default'
+  }
+  return map[status] || 'default'
+}
+
+function runStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    passed: '通过',
+    failed: '失败',
+    error: '错误',
+    running: '执行中',
+    pending: '等待中'
+  }
+  return map[status] || status
+}
+
+async function startExecution() {
+  if (!instruction.value.trim()) {
+    message.warning('请输入测试指令')
+    return
+  }
+
+  running.value = true
+  executionLog.value = []
+  lastStatus.value = ''
+  finalResult.value = ''
+  screenshotBase64.value = ''
+
+  evtSource = streamExecution(
+    projectId,
+    {
+      instruction: instruction.value,
+      target_url: targetUrl.value,
+      headless: headless.value,
+      llm_config_id: selectedLLMConfig.value || undefined,
+      case_id: currentCaseId.value || undefined
+    },
+    (event: any) => {
+      if (event.type === 'step') {
+        executionLog.value.push(event)
+      } else if (event.type === 'finish') {
+        lastStatus.value = event.status
+        finalResult.value = event.result
+        executionLog.value.push({
+          step: executionLog.value.length,
+          action: '完成',
+          detail: event.result,
+          status: event.status
+        })
+      } else if (event.type === 'complete') {
+        duration.value = event.duration
+        totalSteps.value = event.steps
+        screenshotBase64.value = event.screenshot_base64 || ''
+      } else if (event.type === 'error') {
+        executionLog.value.push({
+          step: executionLog.value.length,
+          action: '错误',
+          detail: event.message,
+          status: 'error'
+        })
+      } else if (event.type === 'done') {
+        running.value = false
+        fetchRuns()
+      }
+      nextTick(() => {
+        if (logContainer.value) {
+          logContainer.value.scrollTop = logContainer.value.scrollHeight
+        }
+      })
+    },
+    (error: any) => {
+      running.value = false
+      message.error('执行连接中断')
+    }
+  )
+}
+
+function stopExecution() {
+  if (evtSource) {
+    evtSource.close()
+    running.value = false
+    message.info('已停止执行')
+  }
+}
+
+async function fetchRuns() {
+  runsLoading.value = true
+  try {
+    runs.value = await getExecutionRuns(projectId)
+  } finally {
+    runsLoading.value = false
+  }
+}
+
+onMounted(() => {
+  // 从用例页面跳转过来时，自动填充用例信息
+  if (route.query.caseId) {
+    currentCaseId.value = Number(route.query.caseId)
+  }
+  if (route.query.caseTitle) {
+    currentCaseTitle.value = route.query.caseTitle as string
+  }
+  if (route.query.instruction) {
+    instruction.value = decodeURIComponent(route.query.instruction as string)
+  }
+  getLLMConfigs().then(data => { llmConfigs.value = data })
+  fetchRuns()
+})
+</script>
+
+<style scoped>
+.card-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-container {
+  max-height: 420px;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 240px;
+}
+
+.empty-log {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+.log-item {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #2d2d2d;
+  border-radius: 6px;
+  border-left: 3px solid #1677ff;
+}
+
+.log-item.passed {
+  border-left-color: #52c41a;
+}
+
+.log-item.failed,
+.log-item.error {
+  border-left-color: #ff4d4f;
+}
+
+.log-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.log-step {
+  color: #569cd6;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.log-action {
+  color: #6a9955;
+  font-size: 13px;
+}
+
+.log-thought {
+  color: #ce9178;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.log-detail {
+  color: #d4d4d4;
+  font-size: 13px;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+.log-result {
+  margin-top: 6px;
+  font-weight: 600;
+  color: #569cd6;
+}
+
+.final-result {
+  margin-top: 16px;
+  padding: 20px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.final-result.passed {
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+}
+
+.final-result.failed,
+.final-result.error {
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+}
+
+.final-result h4 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.final-result p {
+  margin: 4px 0;
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 14px;
+}
+
+.screenshot-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+}
+
+.screenshot-section h4 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.screenshot-img {
+  width: 100%;
+  border-radius: 4px;
+  border: 1px solid #e8e8e8;
+  cursor: pointer;
+}
+</style>

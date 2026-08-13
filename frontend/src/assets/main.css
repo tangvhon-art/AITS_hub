@@ -1,0 +1,165 @@
+/* Ant Design 风格全局样式 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
+  font-size: 14px;
+  line-height: 1.5715;
+  color: rgba(0, 0, 0, 0.88);
+  background-color: #fafafa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: #1677ff;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+a:hover {
+  color: #4096ff;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* 页面容器 */
+.page-container {
+  padding: 20px 24px;
+  min-height: calc(100vh - 56px - 45px);
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.page-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.88);
+  margin: 0;
+}
+
+/* 卡片样式 */
+.content-card {
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+  padding: 24px;
+}
+
+/* 终端日志样式 */
+.terminal-log {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 16px;
+  border-radius: 8px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.terminal-log .log-step {
+  color: #569cd6;
+  margin-bottom: 4px;
+}
+
+.terminal-log .log-success {
+  color: #6a9955;
+}
+
+.terminal-log .log-error {
+  color: #f48771;
+}
+
+.terminal-log .log-info {
+  color: #d4d4d4;
+}
+
+.terminal-log .log-observation {
+  color: #ce9178;
+  padding-left: 16px;
+}
+
+/* 表单标签 */
+.form-label {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.88);
+  margin-bottom: 8px;
+  display: block;
+}
+
+/* 标签样式 */
+.tag-default {
+  display: inline-block;
+  padding: 0 7px;
+  font-size: 12px;
+  line-height: 20px;
+  border-radius: 4px;
+  border: 1px solid #d9d9d9;
+  color: rgba(0, 0, 0, 0.88);
+  background: #fafafa;
+}
+
+.tag-blue {
+  color: #1677ff;
+  background: #e6f4ff;
+  border-color: #91caff;
+}
+
+.tag-green {
+  color: #52c41a;
+  background: #f6ffed;
+  border-color: #b7eb8f;
+}
+
+.tag-orange {
+  color: #fa8c16;
+  background: #fff7e6;
+  border-color: #ffd591;
+}
+
+.tag-red {
+  color: #ff4d4f;
+  background: #fff2f0;
+  border-color: #ffccc7;
+}
+
+.tag-gray {
+  color: rgba(0, 0, 0, 0.45);
+  background: #fafafa;
+  border-color: #d9d9d9;
+}
