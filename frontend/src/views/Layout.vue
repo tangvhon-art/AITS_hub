@@ -35,6 +35,36 @@
           </template>
           <span>UI 自动化</span>
         </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/defects`">
+          <template #icon>
+            <BugOutlined />
+          </template>
+          <span>缺陷管理</span>
+        </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/reports`">
+          <template #icon>
+            <FileTextOutlined />
+          </template>
+          <span>测试报告</span>
+        </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/knowledge`">
+          <template #icon>
+            <BookOutlined />
+          </template>
+          <span>知识库</span>
+        </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/agent-tasks`">
+          <template #icon>
+            <RobotOutlined />
+          </template>
+          <span>Agent 任务</span>
+        </a-menu-item>
+        <a-menu-item key="/agent-tasks">
+          <template #icon>
+            <RobotOutlined />
+          </template>
+          <span>Agent 任务</span>
+        </a-menu-item>
         <a-menu-item key="/llm-config">
           <template #icon>
             <SettingOutlined />
@@ -110,7 +140,9 @@ import {
   SettingOutlined,
   LogoutOutlined,
   CloseOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  BookOutlined,
+  RobotOutlined
 } from '@ant-design/icons-vue'
 
 interface TabItem {

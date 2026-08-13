@@ -39,6 +39,36 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'UI 自动化执行', icon: 'VideoPlay' }
       },
       {
+        path: 'projects/:id/defects',
+        name: 'Defects',
+        component: () => import('@/views/Defects.vue'),
+        meta: { title: '缺陷管理', icon: 'Bug' }
+      },
+      {
+        path: 'projects/:id/reports',
+        name: 'Reports',
+        component: () => import('@/views/Reports.vue'),
+        meta: { title: '测试报告', icon: 'FileText' }
+      },
+      {
+        path: 'projects/:id/knowledge',
+        name: 'Knowledge',
+        component: () => import('@/views/Knowledge.vue'),
+        meta: { title: '知识库', icon: 'Book' }
+      },
+      {
+        path: 'agent-tasks',
+        name: 'AgentTasks',
+        component: () => import('@/views/AgentTasks.vue'),
+        meta: { title: 'Agent 任务', icon: 'Robot' }
+      },
+      {
+        path: 'projects/:id/agent-tasks',
+        name: 'ProjectAgentTasks',
+        component: () => import('@/views/AgentTasks.vue'),
+        meta: { title: 'Agent 任务', icon: 'Robot' }
+      },
+      {
         path: 'llm-config',
         name: 'LLMConfig',
         component: () => import('@/views/LLMConfig.vue'),

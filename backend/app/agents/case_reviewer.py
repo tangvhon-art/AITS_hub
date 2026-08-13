@@ -50,6 +50,13 @@ class CaseReviewerAgent(BaseAgent):
     def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None):
         super().__init__(db_session, llm_config_id, task_id)
 
+    def run(self, **kwargs) -> Dict[str, Any]:
+        """执行评审"""
+        return self.review(
+            cases=kwargs.get("cases", []),
+            requirement=kwargs.get("requirement", ""),
+        )
+
     def review(self, cases: List[Dict[str, Any]], requirement: str = "") -> Dict[str, Any]:
         """
         评审测试用例

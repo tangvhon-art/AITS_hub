@@ -47,6 +47,15 @@ class DefectAnalyzerAgent(BaseAgent):
     def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None):
         super().__init__(db_session, llm_config_id, task_id)
 
+    def run(self, **kwargs) -> Dict[str, Any]:
+        """执行缺陷分析"""
+        return self.analyze(
+            execution_log=kwargs.get("execution_log", ""),
+            error_message=kwargs.get("error_message", ""),
+            test_case=kwargs.get("test_case"),
+            target_url=kwargs.get("target_url", ""),
+        )
+
     def analyze(
         self,
         execution_log: str = "",

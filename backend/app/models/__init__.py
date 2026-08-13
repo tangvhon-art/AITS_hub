@@ -5,6 +5,9 @@ from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.models.agent_task import AgentTask
 from app.models.llm_config import LLMConfig
+from app.models.defect import Defect
+from app.models.report import TestReport
+from app.models.knowledge_doc import KnowledgeDoc
 
 __all__ = [
     "User",
@@ -14,4 +17,7 @@ __all__ = [
     "TestRun",
     "AgentTask",
     "LLMConfig",
+    "Defect",
+    "TestReport",
+    "KnowledgeDoc",
 ]

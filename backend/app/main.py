@@ -18,6 +18,11 @@ from app.api import (
     cases_router,
     execution_router,
     llm_configs_router,
+    defects_router,
+    reports_router,
+    knowledge_router,
+    agent_tasks_router,
+    agent_tasks_project_router,
 )
 
 logging.basicConfig(
@@ -32,7 +37,10 @@ async def lifespan(app: FastAPI):
     """应用生命周期：启动时创建数据库表"""
     logger.info("正在初始化数据库表...")
     # 导入所有模型确保 Base.metadata 包含所有表
-    from app.models import User, Project, TestRequirement, TestCase, TestRun, AgentTask, LLMConfig
+    from app.models import (
+        User, Project, TestRequirement, TestCase, TestRun,
+        AgentTask, LLMConfig, Defect, TestReport, KnowledgeDoc
+    )
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表初始化完成")
     yield
@@ -67,6 +75,11 @@ app.include_router(requirements_router)
 app.include_router(cases_router)
 app.include_router(execution_router)
 app.include_router(llm_configs_router)
+app.include_router(defects_router)
+app.include_router(reports_router)
+app.include_router(knowledge_router)
+app.include_router(agent_tasks_router)
+app.include_router(agent_tasks_project_router)
 
 
 @app.get("/api/health", tags=["系统"])

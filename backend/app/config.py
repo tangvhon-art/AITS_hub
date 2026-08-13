@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     DEFAULT_LLM_API_KEY: str = ""
     DEFAULT_LLM_MODEL: str = "deepseek-chat"
 
+    # SMTP 邮件配置
+    SMTP_HOST: str = "smtp.example.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "aits@example.com"
+    SMTP_USE_TLS: bool = True
+
+    # RabbitMQ 配置（可选）
+    RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
+    RABBITMQ_ENABLED: bool = False
+
     @property
     def database_url(self) -> str:
         encoded_password = quote_plus(self.DB_PASSWORD)
