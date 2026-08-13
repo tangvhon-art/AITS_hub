@@ -15,7 +15,7 @@ class AgentTaskResponse(BaseModel):
     output_result: Dict[str, Any] = {}
     llm_config_id: Optional[int] = None
     token_usage: Dict[str, Any] = {}
-    error_message: str = ""
+    error_message: Optional[str] = ""
     retry_count: int = 0
     created_by: Optional[int] = None
     created_at: datetime
