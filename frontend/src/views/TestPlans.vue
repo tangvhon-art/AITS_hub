@@ -156,6 +156,33 @@
             </template>
           </template>
         </a-table>
+
+        <a-divider>关联编排套件（{{ linkedSuites.length }}）</a-divider>
+        <a-table
+          :columns="suiteColumns"
+          :data-source="linkedSuites"
+          size="small"
+          :pagination="false"
+          row-key="id"
+          :locale="{ emptyText: '暂无关联编排套件' }"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'last_run'">
+              <span v-if="record.last_run_at">
+                <a-tag :color="getRunStatusColor(record.last_run_status)" size="small">
+                  {{ getRunStatusText(record.last_run_status) }}
+                </a-tag>
+                {{ $formatDateTime(record.last_run_at) }}
+              </span>
+              <span v-else style="color: #999">从未执行</span>
+            </template>
+            <template v-else-if="column.key === 'action'">
+              <a-button type="link" size="small" @click="goToSuite(record.id)">
+                查看编排
+              </a-button>
+            </template>
+          </template>
+        </a-table>
       </div>
     </a-modal>
 
@@ -210,7 +237,7 @@
 <script setup lang="ts">
 import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import {
   PlusOutlined, EnvironmentOutlined
@@ -221,8 +248,10 @@ import {
   type TestPlan, type TestPlanCase, type TestEnvironment
 } from '@/api/testPlans'
 import { getCases, type TestCase } from '@/api/cases'
+import { getSuites, type AutomationSuite } from '@/api/automationSuites'
 
 const route = useRoute()
+const router = useRouter()
 const projectId = Number(route.params.id)
 
 const loading = ref(false)
@@ -237,6 +266,14 @@ const currentPlan = ref<TestPlan | null>(null)
 const planCases = ref<TestPlanCase[]>([])
 const casesLoading = ref(false)
 const allCases = ref<TestCase[]>([])
+const linkedSuites = ref<AutomationSuite[]>([])
+
+const suiteColumns = [
+  { title: '套件名称', dataIndex: 'name' },
+  { title: '步骤数', dataIndex: 'total_steps', width: 80 },
+  { title: '最近执行', key: 'last_run', width: 200 },
+  { title: '操作', key: 'action', width: 100 },
+]
 
 const formData = ref({
   name: '',
@@ -334,6 +371,20 @@ function getCaseStatusText(status?: string) {
     skipped: '已跳过'
   }
   return map[status || ''] || status
+}
+
+function getRunStatusColor(status?: string | null) {
+  const map: Record<string, string> = { passed: 'green', failed: 'red', partial: 'orange', running: 'blue' }
+  return map[status || ''] || 'default'
+}
+
+function getRunStatusText(status?: string | null) {
+  const map: Record<string, string> = { passed: '通过', failed: '失败', partial: '部分通过', running: '执行中' }
+  return map[status || ''] || status
+}
+
+function goToSuite(suiteId: number) {
+  router.push(`/projects/${projectId}/suites`)
 }
 
 function filterCaseOption(input: string, option: any) {
@@ -470,8 +521,11 @@ async function viewPlan(record: TestPlan) {
   casesLoading.value = true
   try {
     planCases.value = await getPlanCases(projectId, record.id!)
+    // 加载关联编排
+    const allSuites = await getSuites(projectId)
+    linkedSuites.value = allSuites.filter(s => s.plan_id === record.id)
   } catch (e: any) {
-    message.error(e.response?.data?.detail || '加载用例失败')
+    message.error(e.response?.data?.detail || '加载失败')
   } finally {
     casesLoading.value = false
   }

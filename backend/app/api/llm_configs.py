@@ -132,7 +132,7 @@ def delete_llm_config(
         raise HTTPException(status_code=404, detail="模型配置不存在")
     if config.is_default:
         raise HTTPException(status_code=400, detail="不能删除默认模型配置，请先设置其他配置为默认")
-    db.delete(config)
+    config.soft_delete()
     db.commit()
 
 

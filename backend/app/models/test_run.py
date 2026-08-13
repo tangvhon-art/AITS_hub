@@ -1,10 +1,10 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float
-from app.database import Base
+from app.database import Base, SoftDeleteMixin
 
 
-class TestRun(Base):
+class TestRun(SoftDeleteMixin, Base):
     __tablename__ = "test_runs"
     __table_args__ = {"comment": "测试执行记录表"}
 

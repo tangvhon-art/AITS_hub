@@ -30,6 +30,9 @@ from app.api import (
     audit_logs_router,
     import_export_router,
     import_export_project_router,
+    automation_scripts_router,
+    automation_suites_router,
+    suite_runs_router,
 )
 
 logging.basicConfig(
@@ -47,7 +50,9 @@ async def lifespan(app: FastAPI):
     from app.models import (
         User, Project, TestRequirement, TestCase, TestRun,
         AgentTask, LLMConfig, Defect, TestReport, KnowledgeDoc,
-        TestPlan, TestPlanCase, TestEnvironment, AuditLog
+        TestPlan, TestPlanCase, TestEnvironment, AuditLog,
+        AutomationScript, AutomationSuite, AutomationSuiteStep,
+        AutomationSuiteRun, AutomationSuiteRunResult
     )
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表初始化完成")
@@ -95,6 +100,9 @@ app.include_router(quality_project_router)
 app.include_router(audit_logs_router)
 app.include_router(import_export_router)
 app.include_router(import_export_project_router)
+app.include_router(automation_scripts_router)
+app.include_router(automation_suites_router)
+app.include_router(suite_runs_router)
 
 
 @app.get("/api/health", tags=["系统"])

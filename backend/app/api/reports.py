@@ -164,6 +164,6 @@ def delete_report(
     report = db.query(TestReport).filter(TestReport.id == report_id, TestReport.project_id == project_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
-    db.delete(report)
+    report.soft_delete()
     db.commit()
     return {"message": "报告已删除"}

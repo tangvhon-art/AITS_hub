@@ -1,10 +1,10 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float
-from app.database import Base
+from app.database import Base, SoftDeleteMixin
 
 
-class LLMConfig(Base):
+class LLMConfig(SoftDeleteMixin, Base):
     __tablename__ = "llm_configs"
     __table_args__ = {"comment": "大模型配置表"}
 

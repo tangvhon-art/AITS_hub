@@ -1,10 +1,10 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON
-from app.database import Base
+from app.database import Base, SoftDeleteMixin
 
 
-class Defect(Base):
+class Defect(SoftDeleteMixin, Base):
     __tablename__ = "defects"
     __table_args__ = {"comment": "缺陷表"}
 

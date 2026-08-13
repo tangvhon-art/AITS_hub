@@ -250,6 +250,6 @@ def delete_knowledge_doc(
     # 从向量库中删除
     knowledge_base_service.delete_document(project_id, doc_id)
 
-    db.delete(doc)
+    doc.soft_delete()
     db.commit()
     return {"message": "文档已删除"}

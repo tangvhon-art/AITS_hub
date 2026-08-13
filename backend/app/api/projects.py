@@ -87,5 +87,5 @@ def delete_project(
         raise HTTPException(status_code=404, detail="项目不存在")
     if project.owner_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="无权删除该项目")
-    db.delete(project)
+    project.soft_delete()
     db.commit()

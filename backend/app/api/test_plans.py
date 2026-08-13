@@ -91,7 +91,7 @@ def delete_environment(project_id: int, env_id: int, db: Session = Depends(get_d
     ).first()
     if not env:
         raise HTTPException(status_code=404, detail="测试环境不存在")
-    db.delete(env)
+    env.soft_delete()
     db.commit()
     return {"detail": "删除成功"}
 
@@ -177,7 +177,9 @@ def update_plan(project_id: int, plan_id: int, data: TestPlanUpdate, db: Session
     if "case_ids" in update_data:
         case_ids = update_data.pop("case_ids") or []
         # 删除旧的关联
-        db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).delete()
+        db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).update(
+        {"is_deleted": True, "deleted_at": china_now_naive()}
+    )
         # 创建新的关联
         for idx, case_id in enumerate(case_ids):
             case = db.query(TestCase).filter(TestCase.id == case_id, TestCase.project_id == project_id).first()
@@ -205,8 +207,10 @@ def delete_plan(project_id: int, plan_id: int, db: Session = Depends(get_db), cu
     if not plan:
         raise HTTPException(status_code=404, detail="测试计划不存在")
 
-    db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).delete()
-    db.delete(plan)
+    db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).update(
+        {"is_deleted": True, "deleted_at": china_now_naive()}
+    )
+    plan.soft_delete()
     db.commit()
     return {"detail": "删除成功"}
 
@@ -251,7 +255,9 @@ def update_plan_cases(project_id: int, plan_id: int, data: TestPlanCaseUpdate, d
     if not plan:
         raise HTTPException(status_code=404, detail="测试计划不存在")
 
-    db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).delete()
+    db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).update(
+        {"is_deleted": True, "deleted_at": china_now_naive()}
+    )
 
     for idx, case_id in enumerate(data.case_ids):
         case = db.query(TestCase).filter(TestCase.id == case_id, TestCase.project_id == project_id).first()

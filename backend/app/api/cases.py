@@ -168,7 +168,7 @@ def delete_case(
     ).first()
     if not case:
         raise HTTPException(status_code=404, detail="用例不存在")
-    db.delete(case)
+    case.soft_delete()
     db.commit()
 
 

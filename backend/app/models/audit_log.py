@@ -4,10 +4,10 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, JSON
-from app.database import Base
+from app.database import Base, SoftDeleteMixin
 
 
-class AuditLog(Base):
+class AuditLog(SoftDeleteMixin, Base):
     """审计日志表"""
     __tablename__ = "audit_logs"
     __table_args__ = {"comment": "审计日志表"}

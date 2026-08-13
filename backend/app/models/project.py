@@ -2,10 +2,10 @@ from datetime import datetime
 from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from sqlalchemy.orm import relationship
-from app.database import Base
+from app.database import Base, SoftDeleteMixin
 
 
-class Project(Base):
+class Project(SoftDeleteMixin, Base):
     __tablename__ = "test_projects"
     __table_args__ = {"comment": "测试项目表"}
 

@@ -115,7 +115,7 @@ def delete_requirement(
     ).first()
     if not requirement:
         raise HTTPException(status_code=404, detail="需求不存在")
-    db.delete(requirement)
+    requirement.soft_delete()
     db.commit()
 
 

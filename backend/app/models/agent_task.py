@@ -1,10 +1,10 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON
-from app.database import Base
+from app.database import Base, SoftDeleteMixin
 
 
-class AgentTask(Base):
+class AgentTask(SoftDeleteMixin, Base):
     __tablename__ = "agent_tasks"
     __table_args__ = {"comment": "Agent任务表"}
 

@@ -35,6 +35,18 @@
           </template>
           <span>UI 自动化</span>
         </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/scripts`">
+          <template #icon>
+            <CodeOutlined />
+          </template>
+          <span>脚本库</span>
+        </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/suites`">
+          <template #icon>
+            <AppstoreOutlined />
+          </template>
+          <span>自动化编排</span>
+        </a-menu-item>
         <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/defects`">
           <template #icon>
             <BugOutlined />
@@ -155,6 +167,8 @@ import {
   FileTextOutlined,
   UnorderedListOutlined,
   PlayCircleOutlined,
+  CodeOutlined,
+  AppstoreOutlined,
   SettingOutlined,
   LogoutOutlined,
   CloseOutlined,

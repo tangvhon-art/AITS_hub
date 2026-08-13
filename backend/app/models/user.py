@@ -1,10 +1,10 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
-from app.database import Base
+from app.database import Base, SoftDeleteMixin
 
 
-class User(Base):
+class User(SoftDeleteMixin, Base):
     __tablename__ = "users"
     __table_args__ = {"comment": "用户表"}
 

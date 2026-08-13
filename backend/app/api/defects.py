@@ -148,7 +148,7 @@ def delete_defect(
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
         raise HTTPException(status_code=404, detail="缺陷不存在")
-    db.delete(defect)
+    defect.soft_delete()
     db.commit()
     return {"message": "缺陷已删除"}
 

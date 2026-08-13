@@ -209,13 +209,20 @@ async function startExecution() {
       if (event.type === 'step') {
         executionLog.value.push(event)
       } else if (event.type === 'finish') {
-        lastStatus.value = event.status
+        // 状态归一化
+        let status = event.status
+        if (['success', 'ok', 'pass', 'passed', 'complete', 'completed'].includes(status?.toLowerCase())) {
+          status = 'passed'
+        } else if (['fail', 'failed', 'error'].includes(status?.toLowerCase())) {
+          status = 'failed'
+        }
+        lastStatus.value = status
         finalResult.value = event.result
         executionLog.value.push({
           step: executionLog.value.length,
           action: '完成',
           detail: event.result,
-          status: event.status
+          status: status
         })
       } else if (event.type === 'complete') {
         duration.value = event.duration

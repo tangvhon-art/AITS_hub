@@ -4,10 +4,10 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Boolean
-from app.database import Base
+from app.database import Base, SoftDeleteMixin
 
 
-class TestPlan(Base):
+class TestPlan(SoftDeleteMixin, Base):
     """测试计划表"""
     __tablename__ = "test_plans"
     __table_args__ = {"comment": "测试计划表"}
@@ -34,7 +34,7 @@ class TestPlan(Base):
     updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")
 
 
-class TestPlanCase(Base):
+class TestPlanCase(SoftDeleteMixin, Base):
     """测试计划-用例关联表"""
     __tablename__ = "test_plan_cases"
     __table_args__ = {"comment": "测试计划-用例关联表"}
@@ -48,7 +48,7 @@ class TestPlanCase(Base):
     created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
 
 
-class TestEnvironment(Base):
+class TestEnvironment(SoftDeleteMixin, Base):
     """测试环境表"""
     __tablename__ = "test_environments"
     __table_args__ = {"comment": "测试环境表"}

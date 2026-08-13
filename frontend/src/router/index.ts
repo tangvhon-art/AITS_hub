@@ -39,6 +39,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'UI 自动化执行', icon: 'VideoPlay' }
       },
       {
+        path: 'projects/:id/scripts',
+        name: 'Scripts',
+        component: () => import('@/views/Scripts.vue'),
+        meta: { title: '自动化脚本库', icon: 'Code' }
+      },
+      {
+        path: 'projects/:id/suites',
+        name: 'AutomationSuites',
+        component: () => import('@/views/AutomationSuites.vue'),
+        meta: { title: '自动化编排', icon: 'Appstore' }
+      },
+      {
+        path: 'projects/:id/suite-runs/:runId',
+        name: 'SuiteRunDetail',
+        component: () => import('@/views/SuiteRunDetail.vue'),
+        meta: { title: '编排执行详情', icon: 'Appstore' }
+      },
+      {
         path: 'projects/:id/defects',
         name: 'Defects',
         component: () => import('@/views/Defects.vue'),
