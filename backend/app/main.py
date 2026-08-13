@@ -23,6 +23,13 @@ from app.api import (
     knowledge_router,
     agent_tasks_router,
     agent_tasks_project_router,
+    test_plans_router,
+    test_plans_project_router,
+    quality_router,
+    quality_project_router,
+    audit_logs_router,
+    import_export_router,
+    import_export_project_router,
 )
 
 logging.basicConfig(
@@ -39,7 +46,8 @@ async def lifespan(app: FastAPI):
     # 导入所有模型确保 Base.metadata 包含所有表
     from app.models import (
         User, Project, TestRequirement, TestCase, TestRun,
-        AgentTask, LLMConfig, Defect, TestReport, KnowledgeDoc
+        AgentTask, LLMConfig, Defect, TestReport, KnowledgeDoc,
+        TestPlan, TestPlanCase, TestEnvironment, AuditLog
     )
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表初始化完成")
@@ -80,6 +88,13 @@ app.include_router(reports_router)
 app.include_router(knowledge_router)
 app.include_router(agent_tasks_router)
 app.include_router(agent_tasks_project_router)
+app.include_router(test_plans_router)
+app.include_router(test_plans_project_router)
+app.include_router(quality_router)
+app.include_router(quality_project_router)
+app.include_router(audit_logs_router)
+app.include_router(import_export_router)
+app.include_router(import_export_project_router)
 
 
 @app.get("/api/health", tags=["系统"])

@@ -107,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { FileAddOutlined, UploadOutlined } from '@ant-design/icons-vue'
@@ -117,7 +117,7 @@ import {
 } from '@/api/knowledge'
 
 const route = useRoute()
-const projectId = computed(() => Number(route.params.projectId))
+const projectId = Number(route.params.id)
 
 const loading = ref(false)
 const creating = ref(false)
@@ -145,10 +145,15 @@ const columns = [
 
 async function loadDocs() {
   loading.value = true
+  if (!projectId) {
+    loading.value = false
+    message.error('缺少项目 ID，无法加载知识库')
+    return
+  }
   try {
     const [docsRes, statsRes] = await Promise.all([
-      getKnowledgeDocs(projectId.value, { page: pagination.value.current, page_size: pagination.value.pageSize }),
-      getKnowledgeStats(projectId.value),
+      getKnowledgeDocs(projectId, { page: pagination.value.current, page_size: pagination.value.pageSize }),
+      getKnowledgeStats(projectId),
     ])
     docs.value = docsRes.items
     pagination.value.total = docsRes.total
@@ -178,7 +183,7 @@ async function handleCreate() {
   }
   creating.value = true
   try {
-    await createKnowledgeDoc(projectId.value, createForm.value)
+    await createKnowledgeDoc(projectId, createForm.value)
     message.success('创建成功')
     createVisible.value = false
     loadDocs()
@@ -191,7 +196,7 @@ async function handleCreate() {
 
 async function handleUpload(file: File) {
   try {
-    await uploadKnowledgeDoc(projectId.value, file)
+    await uploadKnowledgeDoc(projectId, file)
     message.success('上传成功')
     loadDocs()
   } catch (e: any) {
@@ -206,7 +211,7 @@ async function handleSearch() {
     return
   }
   try {
-    const res = await searchKnowledge(projectId.value, searchQuery.value, 5)
+    const res = await searchKnowledge(projectId, searchQuery.value, 5)
     searchResults.value = res.results
   } catch (e: any) {
     message.error(e.response?.data?.detail || '检索失败')
@@ -220,7 +225,7 @@ function viewDoc(record: KnowledgeDoc) {
 
 async function deleteDoc(id: number) {
   try {
-    await deleteDocApi(projectId.value, id)
+    await deleteDocApi(projectId, id)
     message.success('删除成功')
     loadDocs()
   } catch (e: any) {
@@ -237,7 +242,10 @@ function statusText(s?: string) {
   return map[s || ''] || s
 }
 
-onMounted(() => loadDocs())
+onMounted(() => {
+  if (projectId) loadDocs()
+})
+
 </script>
 
 <style scoped>

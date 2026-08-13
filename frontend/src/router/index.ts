@@ -57,16 +57,34 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '知识库', icon: 'Book' }
       },
       {
+        path: 'projects/:id/plans',
+        name: 'TestPlans',
+        component: () => import('@/views/TestPlans.vue'),
+        meta: { title: '测试计划', icon: 'Schedule' }
+      },
+      {
+        path: 'projects/:id/dashboard',
+        name: 'QualityDashboard',
+        component: () => import('@/views/QualityDashboard.vue'),
+        meta: { title: '质量看板', icon: 'Dashboard' }
+      },
+      {
+        path: 'projects/:id/import-export',
+        name: 'ImportExport',
+        component: () => import('@/views/ImportExport.vue'),
+        meta: { title: '数据导入导出', icon: 'Import' }
+      },
+      {
         path: 'agent-tasks',
         name: 'AgentTasks',
         component: () => import('@/views/AgentTasks.vue'),
         meta: { title: 'Agent 任务', icon: 'Robot' }
       },
       {
-        path: 'projects/:id/agent-tasks',
-        name: 'ProjectAgentTasks',
-        component: () => import('@/views/AgentTasks.vue'),
-        meta: { title: 'Agent 任务', icon: 'Robot' }
+        path: 'audit-logs',
+        name: 'AuditLogs',
+        component: () => import('@/views/AuditLogs.vue'),
+        meta: { title: '审计日志', icon: 'FileSearch' }
       },
       {
         path: 'llm-config',

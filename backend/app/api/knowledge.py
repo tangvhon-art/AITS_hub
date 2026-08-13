@@ -180,42 +180,6 @@ async def upload_knowledge_doc(
     return KnowledgeDocResponse.model_validate(doc)
 
 
-@router.get("/{doc_id}", response_model=KnowledgeDocResponse)
-def get_knowledge_doc(
-    project_id: int,
-    doc_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """获取知识库文档详情"""
-    _check_project_access(db, current_user, project_id)
-    doc = db.query(KnowledgeDoc).filter(KnowledgeDoc.id == doc_id, KnowledgeDoc.project_id == project_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="文档不存在")
-    return KnowledgeDocResponse.model_validate(doc)
-
-
-@router.delete("/{doc_id}")
-def delete_knowledge_doc(
-    project_id: int,
-    doc_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """删除知识库文档"""
-    _check_project_access(db, current_user, project_id)
-    doc = db.query(KnowledgeDoc).filter(KnowledgeDoc.id == doc_id, KnowledgeDoc.project_id == project_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="文档不存在")
-
-    # 从向量库中删除
-    knowledge_base_service.delete_document(project_id, doc_id)
-
-    db.delete(doc)
-    db.commit()
-    return {"message": "文档已删除"}
-
-
 @router.post("/search", response_model=KnowledgeSearchResponse)
 def search_knowledge(
     project_id: int,
@@ -253,3 +217,39 @@ def get_knowledge_stats(
         total_docs=stats.get("total_docs", 0),
         total_chunks=stats.get("total_chunks", 0),
     )
+
+
+@router.get("/{doc_id}", response_model=KnowledgeDocResponse)
+def get_knowledge_doc(
+    project_id: int,
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取知识库文档详情"""
+    _check_project_access(db, current_user, project_id)
+    doc = db.query(KnowledgeDoc).filter(KnowledgeDoc.id == doc_id, KnowledgeDoc.project_id == project_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return KnowledgeDocResponse.model_validate(doc)
+
+
+@router.delete("/{doc_id}")
+def delete_knowledge_doc(
+    project_id: int,
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除知识库文档"""
+    _check_project_access(db, current_user, project_id)
+    doc = db.query(KnowledgeDoc).filter(KnowledgeDoc.id == doc_id, KnowledgeDoc.project_id == project_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 从向量库中删除
+    knowledge_base_service.delete_document(project_id, doc_id)
+
+    db.delete(doc)
+    db.commit()
+    return {"message": "文档已删除"}

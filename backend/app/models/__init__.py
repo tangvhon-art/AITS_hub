@@ -8,6 +8,8 @@ from app.models.llm_config import LLMConfig
 from app.models.defect import Defect
 from app.models.report import TestReport
 from app.models.knowledge_doc import KnowledgeDoc
+from app.models.test_plan import TestPlan, TestPlanCase, TestEnvironment
+from app.models.audit_log import AuditLog
 
 __all__ = [
     "User",
@@ -20,4 +22,8 @@ __all__ = [
     "Defect",
     "TestReport",
     "KnowledgeDoc",
+    "TestPlan",
+    "TestPlanCase",
+    "TestEnvironment",
+    "AuditLog",
 ]

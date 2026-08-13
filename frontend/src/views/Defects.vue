@@ -174,14 +174,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { getDefects, createDefect, updateDefect, deleteDefect as deleteDefectApi, type Defect } from '@/api/defects'
 
 const route = useRoute()
-const projectId = computed(() => Number(route.params.projectId))
+const projectId = Number(route.params.id)
 
 const loading = ref(false)
 const defects = ref<Defect[]>([])
@@ -221,8 +221,13 @@ const columns = [
 
 async function loadDefects() {
   loading.value = true
+  if (!projectId) {
+    loading.value = false
+    message.error('缺少项目 ID，无法加载缺陷')
+    return
+  }
   try {
-    const res = await getDefects(projectId.value, {
+    const res = await getDefects(projectId, {
       status: filterStatus.value,
       severity: filterSeverity.value,
       page: pagination.value.current,
@@ -279,10 +284,10 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (editingDefect.value) {
-      await updateDefect(projectId.value, editingDefect.value.id!, formData.value)
+      await updateDefect(projectId, editingDefect.value.id!, formData.value)
       message.success('更新成功')
     } else {
-      await createDefect(projectId.value, formData.value)
+      await createDefect(projectId, formData.value)
       message.success('创建成功')
     }
     modalVisible.value = false
@@ -296,7 +301,7 @@ async function handleSubmit() {
 
 async function deleteDefect(id: number) {
   try {
-    await deleteDefectApi(projectId.value, id)
+    await deleteDefectApi(projectId, id)
     message.success('删除成功')
     loadDefects()
   } catch (e: any) {
@@ -321,7 +326,9 @@ function statusText(s?: string) {
   return map[s || ''] || s
 }
 
-onMounted(() => loadDefects())
+onMounted(() => {
+  if (projectId) loadDefects()
+})
 </script>
 
 <style scoped>

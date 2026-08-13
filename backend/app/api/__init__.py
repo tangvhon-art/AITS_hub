@@ -9,6 +9,13 @@ from app.api.reports import router as reports_router
 from app.api.knowledge import router as knowledge_router
 from app.api.agent_tasks import router as agent_tasks_router
 from app.api.agent_tasks import project_router as agent_tasks_project_router
+from app.api.test_plans import router as test_plans_router
+from app.api.test_plans import project_router as test_plans_project_router
+from app.api.quality import router as quality_router
+from app.api.quality import project_router as quality_project_router
+from app.api.audit_logs import router as audit_logs_router
+from app.api.import_export import router as import_export_router
+from app.api.import_export import project_router as import_export_project_router
 
 __all__ = [
     "auth_router",
@@ -22,4 +29,11 @@ __all__ = [
     "knowledge_router",
     "agent_tasks_router",
     "agent_tasks_project_router",
+    "test_plans_router",
+    "test_plans_project_router",
+    "quality_router",
+    "quality_project_router",
+    "audit_logs_router",
+    "import_export_router",
+    "import_export_project_router",
 ]

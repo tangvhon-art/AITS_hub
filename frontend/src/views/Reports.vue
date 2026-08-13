@@ -87,7 +87,7 @@ import { FileTextOutlined } from '@ant-design/icons-vue'
 import { getReports, generateReport, deleteReport as deleteReportApi, type TestReport } from '@/api/reports'
 
 const route = useRoute()
-const projectId = computed(() => Number(route.params.projectId))
+const projectId = Number(route.params.id)
 
 const loading = ref(false)
 const generating = ref(false)
@@ -128,8 +128,13 @@ const columns = [
 
 async function loadReports() {
   loading.value = true
+  if (!projectId) {
+    loading.value = false
+    message.error('缺少项目 ID，无法加载报告')
+    return
+  }
   try {
-    const res = await getReports(projectId.value, {
+    const res = await getReports(projectId, {
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
     })
@@ -156,7 +161,7 @@ function showGenerateModal() {
 async function handleGenerate() {
   generating.value = true
   try {
-    await generateReport(projectId.value, generateForm.value)
+    await generateReport(projectId, generateForm.value)
     message.success('报告生成成功')
     generateVisible.value = false
     loadReports()
@@ -174,7 +179,7 @@ function viewReport(record: TestReport) {
 
 async function deleteReport(id: number) {
   try {
-    await deleteReportApi(projectId.value, id)
+    await deleteReportApi(projectId, id)
     message.success('删除成功')
     loadReports()
   } catch (e: any) {
@@ -195,7 +200,9 @@ function reportTypeText(t?: string) {
   return map[t || ''] || t
 }
 
-onMounted(() => loadReports())
+onMounted(() => {
+  if (projectId) loadReports()
+})
 </script>
 
 <style scoped>

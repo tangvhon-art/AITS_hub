@@ -112,14 +112,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import { getAgentTasks, getTokenUsage, type AgentTask, type TokenUsageStats } from '@/api/agentTasks'
 
 const route = useRoute()
-const projectId = computed(() => route.params.projectId ? Number(route.params.projectId) : undefined)
+const projectId = computed(() => {
+  const p = route.params.id ?? route.params.projectId
+  const n = Number(p)
+  return Number.isFinite(n) ? n : undefined
+})
 
 const loading = ref(false)
 const tasks = ref<AgentTask[]>([])
@@ -206,7 +210,13 @@ function statusText(s: string) {
   return map[s] || s
 }
 
-onMounted(() => loadTasks())
+onMounted(() => {
+  if (projectId.value) loadTasks()
+})
+
+watch(projectId, (v) => {
+  if (v) loadTasks()
+})
 </script>
 
 <style scoped>

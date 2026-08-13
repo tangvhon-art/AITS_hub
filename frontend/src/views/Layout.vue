@@ -53,17 +53,35 @@
           </template>
           <span>知识库</span>
         </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/agent-tasks`">
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/plans`">
           <template #icon>
-            <RobotOutlined />
+            <ScheduleOutlined />
           </template>
-          <span>Agent 任务</span>
+          <span>测试计划</span>
+        </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/dashboard`">
+          <template #icon>
+            <DashboardOutlined />
+          </template>
+          <span>质量看板</span>
+        </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/import-export`">
+          <template #icon>
+            <ImportOutlined />
+          </template>
+          <span>数据导入导出</span>
         </a-menu-item>
         <a-menu-item key="/agent-tasks">
           <template #icon>
             <RobotOutlined />
           </template>
           <span>Agent 任务</span>
+        </a-menu-item>
+        <a-menu-item key="/audit-logs">
+          <template #icon>
+            <FileSearchOutlined />
+          </template>
+          <span>审计日志</span>
         </a-menu-item>
         <a-menu-item key="/llm-config">
           <template #icon>
@@ -142,7 +160,11 @@ import {
   CloseOutlined,
   ReloadOutlined,
   BookOutlined,
-  RobotOutlined
+  RobotOutlined,
+  ScheduleOutlined,
+  DashboardOutlined,
+  ImportOutlined,
+  FileSearchOutlined
 } from '@ant-design/icons-vue'
 
 interface TabItem {
