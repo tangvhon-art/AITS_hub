@@ -66,6 +66,7 @@ class TestPlanUpdate(BaseModel):
     config: Optional[Dict[str, Any]] = None
     schedule_type: Optional[str] = None
     schedule_cron: Optional[str] = None
+    case_ids: Optional[List[int]] = None
 
 
 class TestPlanCaseUpdate(BaseModel):

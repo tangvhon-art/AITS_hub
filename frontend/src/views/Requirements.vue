@@ -93,7 +93,6 @@
       v-model:open="showGenerateModal"
       title="AI 生成测试用例"
       @ok="doGenerate"
-      :confirm-loading="generating"
     >
       <a-form layout="vertical">
         <a-form-item label="需求">
@@ -118,14 +117,13 @@
 <script setup lang="ts">
 import { formatDateTime } from '@/utils/date'
 import { ref, reactive, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import { getRequirements, createRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateCases as generateCasesApi } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
-const router = useRouter()
 const projectId = Number(route.params.id)
 
 const loading = ref(false)
@@ -137,7 +135,6 @@ const showUploadModal = ref(false)
 const showGenerateModal = ref(false)
 const uploadFile = ref<File | null>(null)
 const generatingReq = ref<any>(null)
-const generating = ref(false)
 const generateCount = ref(10)
 const selectedLLMConfig = ref<number | null>(null)
 const llmConfigs = ref<any[]>([])
@@ -244,7 +241,6 @@ function generateCases(row: any) {
 }
 
 async function doGenerate() {
-  generating.value = true
   try {
     const result: any = await generateCasesApi(projectId, {
       requirement_id: generatingReq.value.id,
@@ -252,12 +248,12 @@ async function doGenerate() {
       count: generateCount.value,
       llm_config_id: selectedLLMConfig.value || undefined
     })
-    message.success(`成功生成 ${result.cases?.length || 0} 条用例`)
+    message.success(`用例生成任务已提交（任务ID: ${result.task_id}），可在Agent任务中查看进度`)
     showGenerateModal.value = false
-    sessionStorage.setItem('generated_cases', JSON.stringify(result.cases))
-    router.push(`/projects/${projectId}/cases`)
-  } finally {
-    generating.value = false
+    // 更新需求状态为已生成
+    fetchRequirements()
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '提交失败，请重试')
   }
 }
 

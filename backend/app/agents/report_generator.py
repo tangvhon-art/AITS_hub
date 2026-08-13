@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy import func
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.core.timezone import china_now_naive
 from app.agents.base_agent import BaseAgent
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun

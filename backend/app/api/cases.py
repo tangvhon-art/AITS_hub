@@ -181,8 +181,8 @@ def generate_cases(
     current_user: User = Depends(get_current_user),
 ):
     """
-    AI 生成测试用例（同步返回，简单场景直接生成）
-    对于大需求，建议使用异步任务
+    AI 生成测试用例（异步执行）
+    提交后立即返回任务ID，生成结果可在Agent任务中查看
     """
     _check_project_access(project_id, db, current_user)
 
@@ -197,46 +197,111 @@ def generate_cases(
         if requirement:
             requirement_content = requirement.content or requirement.title
 
-    if not requirement_content.strip():
+    if not requirement_content or not requirement_content.strip():
         raise HTTPException(status_code=400, detail="需求内容不能为空")
 
     # 创建 Agent 任务记录
     task = AgentTask(
         project_id=project_id,
         agent_type="case_generator",
-        status="running",
-        input_params={"content_length": len(requirement_content), "count": gen_request.count},
+        status="pending",
+        input_params={
+            "content_length": len(requirement_content),
+            "count": gen_request.count,
+            "requirement_id": req_id,
+            "requirement_title": requirement.title if req_id else None,
+        },
+        llm_config_id=gen_request.llm_config_id,
         created_by=current_user.id,
     )
     db.add(task)
     db.commit()
     db.refresh(task)
 
+    # 添加后台任务异步执行
+    background_tasks.add_task(
+        _generate_cases_background,
+        task_id=task.id,
+        project_id=project_id,
+        requirement_content=requirement_content,
+        count=gen_request.count,
+        llm_config_id=gen_request.llm_config_id,
+        req_id=req_id,
+    )
+
+    return {
+        "task_id": task.id,
+        "status": "pending",
+        "message": "用例生成任务已提交，可在Agent任务中查看进度",
+    }
+
+
+def _generate_cases_background(
+    task_id: int,
+    project_id: int,
+    requirement_content: str,
+    count: int,
+    llm_config_id: Optional[int] = None,
+    req_id: Optional[int] = None,
+):
+    """后台执行用例生成"""
+    from app.database import SessionLocal
+    db = SessionLocal()
     try:
-        # 同步生成（MVP-1 简化版，后续改异步）
-        agent = CaseGeneratorAgent(db_session=db, llm_config_id=gen_request.llm_config_id)
+        task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
+        if not task:
+            return
+
+        task.status = "running"
+        db.commit()
+
+        agent = CaseGeneratorAgent(db_session=db, llm_config_id=llm_config_id)
         result = agent.generate(
             requirement_content=requirement_content,
-            count=gen_request.count,
+            count=count,
         )
 
+        # 自动保存生成的用例到数据库
+        cases_saved = 0
+        for case_data in result.get("cases", []):
+            try:
+                case = TestCase(
+                    project_id=project_id,
+                    req_id=req_id,
+                    title=case_data.get("title", ""),
+                    module=case_data.get("module", "默认模块"),
+                    priority=case_data.get("priority", "P2"),
+                    case_type=case_data.get("case_type", "functional"),
+                    preconditions=case_data.get("preconditions", ""),
+                    steps=json.dumps(case_data.get("steps", []), ensure_ascii=False) if isinstance(case_data.get("steps"), list) else case_data.get("steps", "[]"),
+                    expected_result=case_data.get("expected_result", ""),
+                    bdd_content=case_data.get("bdd_content"),
+                    created_by=task.created_by,
+                )
+                db.add(case)
+                cases_saved += 1
+            except Exception:
+                continue
+
+        db.commit()
+
         task.status = "success"
-        task.output_result = {"case_count": len(result["cases"])}
+        task.output_result = {
+            "case_count": len(result.get("cases", [])),
+            "cases_saved": cases_saved,
+            "cases": result.get("cases", []),
+        }
         task.llm_config_id = result.get("llm_config_id")
         task.token_usage = result.get("token_usage", {})
         task.completed_at = china_now_naive()
         db.commit()
 
-        return {
-            "task_id": task.id,
-            "status": "success",
-            "cases": result["cases"],
-            "token_usage": result.get("token_usage", {}),
-        }
-
     except Exception as e:
-        task.status = "failed"
-        task.error_message = str(e)
-        task.completed_at = china_now_naive()
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"用例生成失败: {str(e)}")
+        task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
+        if task:
+            task.status = "failed"
+            task.error_message = str(e)
+            task.completed_at = china_now_naive()
+            db.commit()
+    finally:
+        db.close()

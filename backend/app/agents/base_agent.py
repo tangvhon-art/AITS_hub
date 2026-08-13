@@ -12,6 +12,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.timezone import china_now_naive
 from app.agents.llm_factory import llm_factory
 
 logger = logging.getLogger(__name__)

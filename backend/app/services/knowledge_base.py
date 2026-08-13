@@ -12,6 +12,8 @@ from datetime import datetime
 
 import numpy as np
 
+from app.core.timezone import china_now_naive
+
 logger = logging.getLogger(__name__)
 
 # FAISS 和 sentence-transformers 延迟导入

@@ -131,11 +131,12 @@
             <a-tag :color="getStatusColor(currentPlan.status)">{{ getStatusText(currentPlan.status) }}</a-tag>
           </a-descriptions-item>
           <a-descriptions-item label="优先级">{{ currentPlan.priority }}</a-descriptions-item>
-          <a-descriptions-item label="通过率">{{ currentPlan.pass_rate }}%</a-descriptions-item>
-          <a-descriptions-item label="用例总数">{{ currentPlan.total_cases }}</a-descriptions-item>
-          <a-descriptions-item label="通过/失败">{{ currentPlan.passed_cases }} / {{ currentPlan.failed_cases }}</a-descriptions-item>
+          <a-descriptions-item label="通过率">{{ currentPlan.pass_rate || 0 }}%</a-descriptions-item>
+          <a-descriptions-item label="用例总数">{{ currentPlan.total_cases || 0 }}</a-descriptions-item>
+          <a-descriptions-item label="通过/失败">{{ currentPlan.passed_cases || 0 }} / {{ currentPlan.failed_cases || 0 }}</a-descriptions-item>
+          <a-descriptions-item label="计划描述" :span="2">{{ currentPlan.description || '-' }}</a-descriptions-item>
         </a-descriptions>
-        <a-divider>关联用例</a-divider>
+        <a-divider>关联用例（{{ planCases.length }}）</a-divider>
         <a-table
           :columns="caseColumns"
           :data-source="planCases"
@@ -143,10 +144,15 @@
           size="small"
           :pagination="false"
           row-key="id"
+          :locale="{ emptyText: '暂无关联用例，请在编辑计划中添加' }"
         >
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'status'">
-              <a-tag :color="getCaseStatusColor(record.status)">{{ record.status }}</a-tag>
+            <template v-if="column.key === 'case_title'">
+              <span v-if="record.case_title">{{ record.case_title }}</span>
+              <span v-else style="color: #999">用例已删除（ID: {{ record.case_id }}）</span>
+            </template>
+            <template v-else-if="column.key === 'status'">
+              <a-tag :color="getCaseStatusColor(record.status)">{{ getCaseStatusText(record.status) }}</a-tag>
             </template>
           </template>
         </a-table>
@@ -319,6 +325,17 @@ function getCaseStatusColor(status?: string) {
   return map[status || ''] || 'default'
 }
 
+function getCaseStatusText(status?: string) {
+  const map: Record<string, string> = {
+    pending: '待执行',
+    running: '执行中',
+    passed: '已通过',
+    failed: '失败',
+    skipped: '已跳过'
+  }
+  return map[status || ''] || status
+}
+
 function filterCaseOption(input: string, option: any) {
   return (option.children || '').toLowerCase().includes(input.toLowerCase())
 }
@@ -361,7 +378,7 @@ function handleTableChange(pag: any) {
   loadPlans()
 }
 
-function editPlan(record: TestPlan) {
+async function editPlan(record: TestPlan) {
   editingPlan.value = record
   formData.value = {
     name: record.name,
@@ -373,6 +390,13 @@ function editPlan(record: TestPlan) {
     start_date: record.start_date ? new Date(record.start_date) : null,
     end_date: record.end_date ? new Date(record.end_date) : null,
     case_ids: []
+  }
+  // 加载已关联的用例
+  try {
+    const cases = await getPlanCases(projectId, record.id!)
+    formData.value.case_ids = cases.map(c => c.case_id)
+  } catch (e) {
+    console.error('加载计划用例失败', e)
   }
   showCreateModal.value = true
 }

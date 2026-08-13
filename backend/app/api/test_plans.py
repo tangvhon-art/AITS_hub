@@ -172,6 +172,21 @@ def update_plan(project_id: int, plan_id: int, data: TestPlanUpdate, db: Session
         raise HTTPException(status_code=404, detail="测试计划不存在")
 
     update_data = data.model_dump(exclude_unset=True)
+
+    # 处理关联用例更新
+    if "case_ids" in update_data:
+        case_ids = update_data.pop("case_ids") or []
+        # 删除旧的关联
+        db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).delete()
+        # 创建新的关联
+        for idx, case_id in enumerate(case_ids):
+            case = db.query(TestCase).filter(TestCase.id == case_id, TestCase.project_id == project_id).first()
+            if case:
+                plan_case = TestPlanCase(plan_id=plan_id, case_id=case_id, sort_order=idx)
+                db.add(plan_case)
+        # 更新用例总数
+        plan.total_cases = len(case_ids)
+
     for key, value in update_data.items():
         setattr(plan, key, value)
     plan.updated_at = china_now_naive()
