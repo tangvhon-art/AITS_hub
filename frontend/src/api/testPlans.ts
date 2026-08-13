@@ -32,6 +32,7 @@ export interface TestPlan {
   schedule_type?: string
   schedule_cron?: string
   next_run_time?: string
+  version_id?: number | null
   created_by?: number
   created_at?: string
   updated_at?: string
@@ -73,7 +74,7 @@ export function deleteEnvironment(projectId: number, envId: number) {
 }
 
 // 测试计划
-export function getPlans(projectId: number, params?: { status?: string; page?: number; page_size?: number }) {
+export function getPlans(projectId: number, params?: { status?: string; version_id?: number; page?: number; page_size?: number }) {
   return request.get<TestPlanListResponse>(`/projects/${projectId}/plans`, { params })
 }
 

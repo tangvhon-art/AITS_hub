@@ -14,6 +14,7 @@ class TestPlan(SoftDeleteMixin, Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
     project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=False, index=True, comment="所属项目ID")
+    version_id = Column(Integer, ForeignKey("project_versions.id"), nullable=True, index=True, comment="所属版本ID")
     name = Column(String(200), nullable=False, comment="计划名称")
     description = Column(Text, default="", comment="计划描述")
     status = Column(String(20), default="draft", index=True, comment="状态：draft-草稿，scheduled-已排期，running-执行中，completed-已完成，archived-已归档")

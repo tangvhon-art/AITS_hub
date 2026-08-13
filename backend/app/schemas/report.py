@@ -19,6 +19,7 @@ class ReportGenerateRequest(BaseModel):
     title: Optional[str] = None
     report_type: str = Field(default="full", description="报告类型：summary/execution/defect/full")
     llm_config_id: Optional[int] = None
+    version_id: int = Field(..., description="所属版本ID（必填）")
 
 
 class ReportUpdate(BaseModel):
@@ -41,6 +42,7 @@ class ReportResponse(ReportBase):
     total_runs: int = 0
     avg_duration: float = 0.0
     file_url: str = ""
+    version_id: Optional[int] = None
     created_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime

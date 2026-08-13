@@ -15,6 +15,9 @@ from app.agents.base_agent import BaseAgent
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.models.defect import Defect
+from app.models.test_plan import TestPlan, TestPlanCase
+from app.models.requirement import TestRequirement
+from app.models.project_version import ProjectVersion
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +53,7 @@ class ReportGeneratorAgent(BaseAgent):
             project_id=kwargs.get("project_id", 0),
             report_type=kwargs.get("report_type", "summary"),
             title=kwargs.get("title", ""),
+            version_id=kwargs.get("version_id"),
         )
 
     def generate(
@@ -57,6 +61,7 @@ class ReportGeneratorAgent(BaseAgent):
         project_id: int,
         report_type: str = "summary",
         title: str = "",
+        version_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         生成测试报告
@@ -65,22 +70,34 @@ class ReportGeneratorAgent(BaseAgent):
             project_id: 项目ID
             report_type: 报告类型
             title: 报告标题
+            version_id: 版本ID（按版本过滤数据）
 
         Returns:
             报告内容
         """
         import time
         self.start_time = time.time()
-        self._log_step("report_start", {"project_id": project_id}, "running")
+        self._log_step("report_start", {"project_id": project_id, "version_id": version_id}, "running")
 
-        # 收集统计数据
-        stats = self._collect_stats(project_id)
+        # 收集统计数据（按版本过滤）
+        stats = self._collect_stats(project_id, version_id=version_id)
         self._log_step("stats_collected", stats, "success")
+
+        # 获取版本名称用于提示
+        version_name = ""
+        if version_id:
+            version = self.db.query(ProjectVersion).filter(ProjectVersion.id == version_id).first()
+            version_name = version.name if version else ""
 
         # 生成报告内容
         messages = [
             SystemMessage(content=REPORT_PROMPT),
-            HumanMessage(content=f"项目ID: {project_id}\n报告类型: {report_type}\n\n统计数据:\n{json.dumps(stats, ensure_ascii=False, indent=2)}"),
+            HumanMessage(content=(
+                f"项目ID: {project_id}\n"
+                f"版本: {version_name}\n"
+                f"报告类型: {report_type}\n\n"
+                f"统计数据:\n{json.dumps(stats, ensure_ascii=False, indent=2)}"
+            )),
         ]
 
         try:
@@ -132,52 +149,98 @@ class ReportGeneratorAgent(BaseAgent):
                 "token_usage": self.get_token_usage(),
             }
 
-    def _collect_stats(self, project_id: int) -> Dict[str, Any]:
-        """收集项目统计数据"""
-        # 用例统计
-        total_cases = self.db.query(func.count(TestCase.id)).filter(
-            TestCase.project_id == project_id
-        ).scalar() or 0
+    def _collect_stats(self, project_id: int, version_id: Optional[int] = None) -> Dict[str, Any]:
+        """收集项目统计数据（可按版本过滤）"""
 
-        # 执行统计
-        runs = self.db.query(TestRun).filter(TestRun.project_id == project_id).all()
+        # 构建版本关联的用例子查询（通过 TestPlan → TestPlanCase → TestRun）
+        if version_id is not None:
+            # 版本关联的测试计划 ID 列表
+            plan_ids = [
+                p[0] for p in self.db.query(TestPlan.id).filter(
+                    TestPlan.project_id == project_id,
+                    TestPlan.version_id == version_id,
+                ).all()
+            ]
+            # 版本关联的用例 ID 列表（通过 TestPlanCase）
+            case_ids = []
+            if plan_ids:
+                case_ids = [
+                    c[0] for c in self.db.query(TestPlanCase.case_id).filter(
+                        TestPlanCase.plan_id.in_(plan_ids),
+                    ).distinct().all()
+                ]
+
+            # 用例统计：版本关联的用例
+            if case_ids:
+                total_cases = self.db.query(func.count(TestCase.id)).filter(
+                    TestCase.id.in_(case_ids)
+                ).scalar() or 0
+            else:
+                total_cases = 0
+
+            # 执行统计：版本关联用例的执行记录
+            if case_ids:
+                runs = self.db.query(TestRun).filter(
+                    TestRun.project_id == project_id,
+                    TestRun.case_id.in_(case_ids),
+                ).all()
+            else:
+                runs = []
+        else:
+            # 无版本过滤，查询项目全量数据
+            total_cases = self.db.query(func.count(TestCase.id)).filter(
+                TestCase.project_id == project_id
+            ).scalar() or 0
+            runs = self.db.query(TestRun).filter(TestRun.project_id == project_id).all()
+
         total_runs = len(runs)
         passed_runs = sum(1 for r in runs if r.status == "passed")
         failed_runs = sum(1 for r in runs if r.status == "failed")
         durations = [r.duration for r in runs if r.duration and r.duration > 0]
         avg_duration = sum(durations) / len(durations) if durations else 0.0
-
         pass_rate = (passed_runs / total_runs * 100) if total_runs > 0 else 0.0
 
-        # 缺陷统计
-        total_defects = self.db.query(func.count(Defect.id)).filter(
-            Defect.project_id == project_id
-        ).scalar() or 0
-        open_defects = self.db.query(func.count(Defect.id)).filter(
-            Defect.project_id == project_id,
-            Defect.status.in_(["open", "confirmed", "reopened"]),
-        ).scalar() or 0
+        # 缺陷统计（按版本过滤）
+        defect_query = self.db.query(Defect).filter(Defect.project_id == project_id)
+        if version_id is not None:
+            defect_query = defect_query.filter(Defect.version_id == version_id)
+        defects = defect_query.all()
+
+        total_defects = len(defects)
+        open_defects = sum(1 for d in defects if d.status in ["open", "confirmed", "reopened"])
 
         # 缺陷按严重程度分布
         severity_dist = {}
-        severity_counts = self.db.query(
-            Defect.severity, func.count(Defect.id)
-        ).filter(
-            Defect.project_id == project_id
-        ).group_by(Defect.severity).all()
-        for sev, count in severity_counts:
-            severity_dist[sev] = count
+        for d in defects:
+            severity_dist[d.severity] = severity_dist.get(d.severity, 0) + 1
 
         # 缺陷按根因分类分布
         category_dist = {}
-        category_counts = self.db.query(
-            Defect.root_cause_category, func.count(Defect.id)
-        ).filter(
-            Defect.project_id == project_id,
-            Defect.root_cause_category != "",
-        ).group_by(Defect.root_cause_category).all()
-        for cat, count in category_counts:
-            category_dist[cat] = count
+        for d in defects:
+            if d.root_cause_category:
+                category_dist[d.root_cause_category] = category_dist.get(d.root_cause_category, 0) + 1
+
+        # 版本关联的需求统计
+        requirements_count = 0
+        if version_id is not None:
+            requirements_count = self.db.query(func.count(TestRequirement.id)).filter(
+                TestRequirement.project_id == project_id,
+                TestRequirement.version_id == version_id,
+            ).scalar() or 0
+
+        # 版本关联的测试计划统计
+        plans_count = 0
+        completed_plans = 0
+        if version_id is not None:
+            plans_count = self.db.query(func.count(TestPlan.id)).filter(
+                TestPlan.project_id == project_id,
+                TestPlan.version_id == version_id,
+            ).scalar() or 0
+            completed_plans = self.db.query(func.count(TestPlan.id)).filter(
+                TestPlan.project_id == project_id,
+                TestPlan.version_id == version_id,
+                TestPlan.status == "completed",
+            ).scalar() or 0
 
         return {
             "total_cases": total_cases,
@@ -190,6 +253,9 @@ class ReportGeneratorAgent(BaseAgent):
             "avg_duration": round(avg_duration, 2),
             "severity_distribution": severity_dist,
             "category_distribution": category_dist,
+            "total_requirements": requirements_count,
+            "total_plans": plans_count,
+            "completed_plans": completed_plans,
         }
 
     def _generate_basic_report(self, stats: Dict[str, Any]) -> str:

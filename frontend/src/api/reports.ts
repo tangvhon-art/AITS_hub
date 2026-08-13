@@ -17,6 +17,7 @@ export interface TestReport {
   total_runs?: number
   avg_duration?: number
   file_url?: string
+  version_id?: number | null
   created_by?: number
   created_at?: string
   updated_at?: string
@@ -29,7 +30,7 @@ export interface ReportListResponse {
   items: TestReport[]
 }
 
-export function getReports(projectId: number, params?: { page?: number; page_size?: number }) {
+export function getReports(projectId: number, params?: { version_id?: number; page?: number; page_size?: number }) {
   return request.get<ReportListResponse>(`/projects/${projectId}/reports`, { params })
 }
 
@@ -37,7 +38,7 @@ export function getReport(projectId: number, reportId: number) {
   return request.get<TestReport>(`/projects/${projectId}/reports/${reportId}`)
 }
 
-export function generateReport(projectId: number, data: { title?: string; report_type?: string; llm_config_id?: number }) {
+export function generateReport(projectId: number, data: { title?: string; report_type?: string; version_id: number; llm_config_id?: number }) {
   return request.post<TestReport>(`/projects/${projectId}/reports/generate`, data)
 }
 

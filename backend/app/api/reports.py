@@ -13,6 +13,7 @@ from app.core.deps import get_current_user
 from app.models.user import User
 from app.models.report import TestReport
 from app.models.project import Project
+from app.models.project_version import ProjectVersion
 from app.agents.report_generator import ReportGeneratorAgent
 from app.schemas.report import (
     ReportCreate,
@@ -39,6 +40,7 @@ def list_reports(
     project_id: int,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    version_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -46,6 +48,8 @@ def list_reports(
     _check_project_access(db, current_user, project_id)
 
     query = db.query(TestReport).filter(TestReport.project_id == project_id)
+    if version_id is not None:
+        query = query.filter(TestReport.version_id == version_id)
     total = query.count()
     reports = query.order_by(TestReport.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
@@ -82,10 +86,19 @@ def generate_report(
     """AI 生成测试报告"""
     _check_project_access(db, current_user, project_id)
 
+    # 校验版本存在
+    version = db.query(ProjectVersion).filter(
+        ProjectVersion.id == req.version_id,
+        ProjectVersion.project_id == project_id,
+    ).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="版本不存在，请先选择版本再生成报告")
+
     # 创建报告记录
     report = TestReport(
         project_id=project_id,
-        title=req.title or f"测试报告 - {china_now_naive().strftime('%Y-%m-%d %H:%M')}",
+        version_id=req.version_id,
+        title=req.title or f"{version.name} - 测试报告 - {china_now_naive().strftime('%Y-%m-%d %H:%M')}",
         report_type=req.report_type,
         status="generating",
         created_by=current_user.id,
@@ -101,6 +114,7 @@ def generate_report(
             project_id=project_id,
             report_type=req.report_type,
             title=report.title,
+            version_id=req.version_id,
         )
 
         # 更新报告

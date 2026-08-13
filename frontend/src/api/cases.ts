@@ -41,11 +41,11 @@ export function generateCases(projectId: number, data: { requirement_id?: number
 }
 
 // 需求相关
-export function getRequirements(projectId: number) {
-  return request.get(`/projects/${projectId}/requirements`)
+export function getRequirements(projectId: number, params?: { version_id?: number }) {
+  return request.get(`/projects/${projectId}/requirements`, { params })
 }
 
-export function createRequirement(projectId: number, data: { title: string; content: string }) {
+export function createRequirement(projectId: number, data: { title: string; content: string; version_id?: number }) {
   return request.post(`/projects/${projectId}/requirements`, data)
 }
 

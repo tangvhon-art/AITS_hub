@@ -3,6 +3,15 @@
     <div class="page-header">
       <h2>需求管理</h2>
       <div class="header-actions">
+        <a-select
+          v-model:value="filterVersionId"
+          placeholder="全部版本"
+          allow-clear
+          style="width: 150px; margin-right: 8px"
+          @change="fetchRequirements"
+        >
+          <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+        </a-select>
         <a-button @click="showUploadModal = true" style="margin-right: 8px">
           <template #icon>
             <UploadOutlined />
@@ -27,7 +36,11 @@
         size="middle"
       >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'source'">
+          <template v-if="column.key === 'version'">
+            <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
+            <span v-else style="color: #999">-</span>
+          </template>
+          <template v-else-if="column.key === 'source'">
             <a-tag :color="record.source === 'upload' ? 'green' : 'blue'">
               {{ record.source === 'upload' ? '上传' : '手动' }}
             </a-tag>
@@ -54,6 +67,11 @@
       <a-form layout="vertical">
         <a-form-item label="需求标题" required>
           <a-input v-model:value="reqForm.title" placeholder="请输入需求标题" />
+        </a-form-item>
+        <a-form-item label="所属版本">
+          <a-select v-model:value="reqForm.version_id" placeholder="选择版本（可选）" allow-clear>
+            <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+          </a-select>
         </a-form-item>
         <a-form-item label="需求内容">
           <a-textarea
@@ -122,6 +140,7 @@ import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import { getRequirements, createRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateCases as generateCasesApi } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
+import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -138,19 +157,28 @@ const generatingReq = ref<any>(null)
 const generateCount = ref(10)
 const selectedLLMConfig = ref<number | null>(null)
 const llmConfigs = ref<any[]>([])
+const versions = ref<ProjectVersion[]>([])
+const filterVersionId = ref<number | undefined>(undefined)
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
   { title: '需求标题', dataIndex: 'title', key: 'title', ellipsis: true },
+  { title: '所属版本', dataIndex: 'version_id', key: 'version', width: 120 },
   { title: '来源', dataIndex: 'source', key: 'source', width: 100 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 160, fixed: 'right' }
 ]
 
+function getVersionName(versionId?: number | null) {
+  if (!versionId) return '-'
+  return versions.value.find(v => v.id === versionId)?.name || '-'
+}
+
 const reqForm = reactive({
   title: '',
-  content: ''
+  content: '',
+  version_id: undefined as number | undefined
 })
 
 function statusColor(status: string) {
@@ -174,7 +202,7 @@ function statusLabel(status: string) {
 async function fetchRequirements() {
   loading.value = true
   try {
-    requirements.value = await getRequirements(projectId)
+    requirements.value = await getRequirements(projectId, { version_id: filterVersionId.value })
   } finally {
     loading.value = false
   }
@@ -187,11 +215,12 @@ async function saveRequirement() {
   }
   saving.value = true
   try {
-    await createRequirement(projectId, reqForm)
+    await createRequirement(projectId, { title: reqForm.title, content: reqForm.content, version_id: reqForm.version_id })
     message.success('创建成功')
     showCreateModal.value = false
     reqForm.title = ''
     reqForm.content = ''
+    reqForm.version_id = undefined
     fetchRequirements()
   } finally {
     saving.value = false
@@ -260,6 +289,7 @@ async function doGenerate() {
 onMounted(() => {
   fetchRequirements()
   getLLMConfigs().then(data => { llmConfigs.value = data })
+  getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
 })
 </script>
 

@@ -23,14 +23,18 @@ def _check_project_access(project_id: int, db: Session, user: User) -> Project:
 @router.get("", response_model=List[RequirementResponse])
 def list_requirements(
     project_id: int,
+    version_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """获取需求列表"""
     _check_project_access(project_id, db, current_user)
-    requirements = db.query(TestRequirement).filter(
+    query = db.query(TestRequirement).filter(
         TestRequirement.project_id == project_id
-    ).order_by(TestRequirement.created_at.desc()).all()
+    )
+    if version_id is not None:
+        query = query.filter(TestRequirement.version_id == version_id)
+    requirements = query.order_by(TestRequirement.created_at.desc()).all()
     return requirements
 
 
@@ -49,6 +53,7 @@ def create_requirement(
         content=req_data.content,
         source=req_data.source,
         source_url=req_data.source_url,
+        version_id=req_data.version_id,
         created_by=current_user.id,
     )
     db.add(requirement)

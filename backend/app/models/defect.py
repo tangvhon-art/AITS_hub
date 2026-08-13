@@ -10,6 +10,7 @@ class Defect(SoftDeleteMixin, Base):
 
     id = Column(Integer, primary_key=True, index=True, comment="自增主键")
     project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=False, index=True, comment="所属项目ID")
+    version_id = Column(Integer, ForeignKey("project_versions.id"), nullable=True, index=True, comment="所属版本ID")
     run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=True, index=True, comment="关联执行记录ID")
     case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=True, index=True, comment="关联用例ID")
     title = Column(String(200), nullable=False, comment="缺陷标题")

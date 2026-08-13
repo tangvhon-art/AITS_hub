@@ -3,6 +3,15 @@
     <div class="page-header">
       <h2>测试计划管理</h2>
       <div>
+        <a-select
+          v-model:value="filterVersionId"
+          placeholder="全部版本"
+          allow-clear
+          style="width: 150px; margin-right: 8px"
+          @change="loadPlans"
+        >
+          <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+        </a-select>
         <a-button @click="showEnvModal = true" style="margin-right: 8px">
           <EnvironmentOutlined /> 环境管理
         </a-button>
@@ -22,7 +31,11 @@
         row-key="id"
       >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'status'">
+          <template v-if="column.key === 'version'">
+            <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
+            <span v-else style="color: #999">-</span>
+          </template>
+          <template v-else-if="column.key === 'status'">
             <a-tag :color="getStatusColor(record.status)">{{ getStatusText(record.status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'priority'">
@@ -76,6 +89,13 @@
         </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12">
+            <a-form-item label="所属版本">
+              <a-select v-model:value="formData.version_id" allow-clear placeholder="选择版本（可选）">
+                <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
             <a-form-item label="测试环境">
               <a-select v-model:value="formData.environment_id" allow-clear placeholder="选择测试环境">
                 <a-select-option v-for="env in environments" :key="env.id" :value="env.id">
@@ -84,6 +104,8 @@
               </a-select>
             </a-form-item>
           </a-col>
+        </a-row>
+        <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="调度类型">
               <a-select v-model:value="formData.schedule_type">
@@ -249,6 +271,7 @@ import {
 } from '@/api/testPlans'
 import { getCases, type TestCase } from '@/api/cases'
 import { getSuites, type AutomationSuite } from '@/api/automationSuites'
+import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 
 const route = useRoute()
 const router = useRouter()
@@ -257,6 +280,8 @@ const projectId = Number(route.params.id)
 const loading = ref(false)
 const plans = ref<TestPlan[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
+const versions = ref<ProjectVersion[]>([])
+const filterVersionId = ref<number | undefined>(undefined)
 
 const showCreateModal = ref(false)
 const showDetailModal = ref(false)
@@ -280,6 +305,7 @@ const formData = ref({
   description: '',
   priority: 'P2',
   environment_id: null as number | null,
+  version_id: null as number | null,
   schedule_type: 'manual',
   schedule_cron: '',
   start_date: null as any,
@@ -302,6 +328,7 @@ const envForm = ref({
 
 const columns = [
   { title: '计划名称', dataIndex: 'name', key: 'name' },
+  { title: '所属版本', dataIndex: 'version_id', key: 'version', width: 120 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
   { title: '用例数', dataIndex: 'total_cases', key: 'total_cases', width: 80 },
@@ -309,6 +336,11 @@ const columns = [
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 220, fixed: 'right' as const }
 ]
+
+function getVersionName(versionId?: number | null) {
+  if (!versionId) return '-'
+  return versions.value.find(v => v.id === versionId)?.name || '-'
+}
 
 const caseColumns = [
   { title: '序号', dataIndex: 'sort_order', key: 'sort_order', width: 60 },
@@ -396,7 +428,8 @@ async function loadPlans() {
   try {
     const res = await getPlans(projectId, {
       page: pagination.value.current,
-      page_size: pagination.value.pageSize
+      page_size: pagination.value.pageSize,
+      version_id: filterVersionId.value
     })
     plans.value = res.items
     pagination.value.total = res.total
@@ -436,6 +469,7 @@ async function editPlan(record: TestPlan) {
     description: record.description || '',
     priority: record.priority || 'P2',
     environment_id: record.environment_id || null,
+    version_id: record.version_id || null,
     schedule_type: record.schedule_type || 'manual',
     schedule_cron: record.schedule_cron || '',
     start_date: record.start_date ? new Date(record.start_date) : null,
@@ -459,6 +493,7 @@ function resetForm() {
     description: '',
     priority: 'P2',
     environment_id: null,
+    version_id: null,
     schedule_type: 'manual',
     schedule_cron: '',
     start_date: null,
@@ -582,10 +617,19 @@ async function deleteEnv(record: TestEnvironment) {
   }
 }
 
+async function loadVersions() {
+  try {
+    versions.value = (await getVersions(projectId, { page_size: 200 })).items
+  } catch (e) {
+    console.error('加载版本列表失败', e)
+  }
+}
+
 onMounted(() => {
   loadPlans()
   loadEnvironments()
   loadAllCases()
+  loadVersions()
 })
 </script>
 

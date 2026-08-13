@@ -37,6 +37,7 @@ def list_defects(
     project_id: int,
     status: Optional[str] = None,
     severity: Optional[str] = None,
+    version_id: Optional[int] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -50,6 +51,8 @@ def list_defects(
         query = query.filter(Defect.status == status)
     if severity:
         query = query.filter(Defect.severity == severity)
+    if version_id is not None:
+        query = query.filter(Defect.version_id == version_id)
 
     total = query.count()
     defects = query.order_by(Defect.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
@@ -104,6 +107,7 @@ def create_defect(
         screenshot_url=defect_data.screenshot_url,
         error_log=defect_data.error_log,
         assignee_id=defect_data.assignee_id,
+        version_id=defect_data.version_id,
         created_by=current_user.id,
     )
     db.add(defect)

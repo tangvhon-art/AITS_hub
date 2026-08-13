@@ -21,6 +21,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '项目管理', icon: 'Folder' }
       },
       {
+        path: 'projects/:id/versions',
+        name: 'Versions',
+        component: () => import('@/views/Versions.vue'),
+        meta: { title: '版本管理', icon: 'Tag' }
+      },
+      {
         path: 'projects/:id/requirements',
         name: 'Requirements',
         component: () => import('@/views/Requirements.vue'),

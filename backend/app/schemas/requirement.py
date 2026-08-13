@@ -8,6 +8,7 @@ class RequirementBase(BaseModel):
     content: str = ""
     source: str = "manual"
     source_url: str = ""
+    version_id: Optional[int] = None
 
 
 class RequirementCreate(RequirementBase):
@@ -18,12 +19,14 @@ class RequirementUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     status: Optional[str] = None
+    version_id: Optional[int] = None
 
 
 class RequirementResponse(RequirementBase):
     id: int
     project_id: int
     status: str
+    version_id: Optional[int] = None
     created_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime

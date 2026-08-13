@@ -102,6 +102,7 @@ def delete_environment(project_id: int, env_id: int, db: Session = Depends(get_d
 def list_plans(
     project_id: int,
     status: Optional[str] = None,
+    version_id: Optional[int] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -111,6 +112,8 @@ def list_plans(
     query = db.query(TestPlan).filter(TestPlan.project_id == project_id)
     if status:
         query = query.filter(TestPlan.status == status)
+    if version_id is not None:
+        query = query.filter(TestPlan.version_id == version_id)
 
     total = query.count()
     plans = query.order_by(TestPlan.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
@@ -143,6 +146,7 @@ def create_plan(project_id: int, data: TestPlanCreate, db: Session = Depends(get
         config=data.config or {},
         schedule_type=data.schedule_type,
         schedule_cron=data.schedule_cron,
+        version_id=data.version_id,
         total_cases=len(data.case_ids or []),
         created_by=current_user.id
     )

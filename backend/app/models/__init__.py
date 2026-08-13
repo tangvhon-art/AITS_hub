@@ -10,6 +10,7 @@ from app.models.report import TestReport
 from app.models.knowledge_doc import KnowledgeDoc
 from app.models.test_plan import TestPlan, TestPlanCase, TestEnvironment
 from app.models.audit_log import AuditLog
+from app.models.project_version import ProjectVersion
 from app.models.automation_script import AutomationScript
 from app.models.automation_suite import (
     AutomationSuite,
@@ -33,6 +34,7 @@ __all__ = [
     "TestPlanCase",
     "TestEnvironment",
     "AuditLog",
+    "ProjectVersion",
     "AutomationScript",
     "AutomationSuite",
     "AutomationSuiteStep",

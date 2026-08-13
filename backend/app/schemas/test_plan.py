@@ -49,6 +49,7 @@ class TestPlanBase(BaseModel):
     config: Optional[Dict[str, Any]] = {}
     schedule_type: Optional[str] = "manual"
     schedule_cron: Optional[str] = None
+    version_id: Optional[int] = None
 
 
 class TestPlanCreate(TestPlanBase):
@@ -67,6 +68,7 @@ class TestPlanUpdate(BaseModel):
     schedule_type: Optional[str] = None
     schedule_cron: Optional[str] = None
     case_ids: Optional[List[int]] = None
+    version_id: Optional[int] = None
 
 
 class TestPlanCaseUpdate(BaseModel):
@@ -81,6 +83,7 @@ class TestPlanResponse(TestPlanBase):
     passed_cases: int
     failed_cases: int
     pass_rate: int
+    version_id: Optional[int] = None
     next_run_time: Optional[datetime] = None
     created_by: Optional[int] = None
     created_at: datetime

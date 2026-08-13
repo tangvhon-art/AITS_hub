@@ -13,7 +13,7 @@ from app.models.user import User
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.models.defect import Defect
-from app.models.test_plan import TestPlan
+from app.models.test_plan import TestPlan, TestPlanCase
 from app.schemas.test_plan import (
     QualityMetricsResponse, QualityTrendResponse, TrendDataPoint,
     DefectDistributionItem, QualityDashboardResponse, RiskAlertResponse, RiskAlertItem
@@ -23,71 +23,106 @@ router = APIRouter()
 project_router = APIRouter(prefix="/api/projects/{project_id}")
 
 
-def _calculate_metrics(project_id: int, db: Session) -> QualityMetricsResponse:
-    """计算项目质量指标"""
-    total_cases = db.query(func.count(TestCase.id)).filter(TestCase.project_id == project_id).scalar() or 0
-    active_cases = db.query(func.count(TestCase.id)).filter(
-        TestCase.project_id == project_id,
-        TestCase.status == "active"
-    ).scalar() or 0
+def _get_version_case_ids(project_id: int, version_id: Optional[int], db: Session) -> List[int]:
+    """获取版本关联的用例 ID 列表（通过 TestPlan → TestPlanCase）"""
+    if version_id is None:
+        return []
+    plan_ids = [
+        p[0] for p in db.query(TestPlan.id).filter(
+            TestPlan.project_id == project_id,
+            TestPlan.version_id == version_id,
+        ).all()
+    ]
+    if not plan_ids:
+        return []
+    return [
+        c[0] for c in db.query(TestPlanCase.case_id).filter(
+            TestPlanCase.plan_id.in_(plan_ids),
+        ).distinct().all()
+    ]
 
-    total_runs = db.query(func.count(TestRun.id)).filter(TestRun.project_id == project_id).scalar() or 0
-    passed_runs = db.query(func.count(TestRun.id)).filter(
-        TestRun.project_id == project_id,
-        TestRun.status == "passed"
-    ).scalar() or 0
-    failed_runs = db.query(func.count(TestRun.id)).filter(
-        TestRun.project_id == project_id,
-        TestRun.status == "failed"
-    ).scalar() or 0
+
+def _calculate_metrics(project_id: int, db: Session, version_id: Optional[int] = None) -> QualityMetricsResponse:
+    """计算项目质量指标（支持版本过滤）"""
+    # 按版本过滤时，先获取版本关联的用例 ID
+    case_ids = _get_version_case_ids(project_id, version_id, db) if version_id is not None else None
+
+    # 用例统计
+    if case_ids is not None:
+        total_cases = db.query(func.count(TestCase.id)).filter(TestCase.id.in_(case_ids)).scalar() or 0
+        active_cases = db.query(func.count(TestCase.id)).filter(
+            TestCase.id.in_(case_ids), TestCase.status == "active"
+        ).scalar() or 0
+    else:
+        total_cases = db.query(func.count(TestCase.id)).filter(TestCase.project_id == project_id).scalar() or 0
+        active_cases = db.query(func.count(TestCase.id)).filter(
+            TestCase.project_id == project_id, TestCase.status == "active"
+        ).scalar() or 0
+
+    # 执行统计
+    if case_ids is not None:
+        total_runs = db.query(func.count(TestRun.id)).filter(
+            TestRun.project_id == project_id, TestRun.case_id.in_(case_ids)
+        ).scalar() or 0
+        passed_runs = db.query(func.count(TestRun.id)).filter(
+            TestRun.project_id == project_id, TestRun.case_id.in_(case_ids), TestRun.status == "passed"
+        ).scalar() or 0
+        failed_runs = db.query(func.count(TestRun.id)).filter(
+            TestRun.project_id == project_id, TestRun.case_id.in_(case_ids), TestRun.status == "failed"
+        ).scalar() or 0
+    else:
+        total_runs = db.query(func.count(TestRun.id)).filter(TestRun.project_id == project_id).scalar() or 0
+        passed_runs = db.query(func.count(TestRun.id)).filter(
+            TestRun.project_id == project_id, TestRun.status == "passed"
+        ).scalar() or 0
+        failed_runs = db.query(func.count(TestRun.id)).filter(
+            TestRun.project_id == project_id, TestRun.status == "failed"
+        ).scalar() or 0
 
     pass_rate = round((passed_runs / total_runs * 100), 2) if total_runs > 0 else 0.0
 
-    total_defects = db.query(func.count(Defect.id)).filter(Defect.project_id == project_id).scalar() or 0
-    open_defects = db.query(func.count(Defect.id)).filter(
-        Defect.project_id == project_id,
-        Defect.status.in_(["open", "confirmed", "reopened"])
-    ).scalar() or 0
-    resolved_defects = db.query(func.count(Defect.id)).filter(
-        Defect.project_id == project_id,
-        Defect.status.in_(["resolved", "closed"])
-    ).scalar() or 0
+    # 缺陷统计
+    defect_base = db.query(Defect).filter(Defect.project_id == project_id)
+    if version_id is not None:
+        defect_base = defect_base.filter(Defect.version_id == version_id)
+    total_defects = defect_base.count()
+    open_defects = defect_base.filter(Defect.status.in_(["open", "confirmed", "reopened"])).count()
+    resolved_defects = defect_base.filter(Defect.status.in_(["resolved", "closed"])).count()
 
     defect_density = round((total_defects / total_cases), 2) if total_cases > 0 else 0.0
 
-    avg_duration_result = db.query(func.avg(TestRun.duration)).filter(
-        TestRun.project_id == project_id,
-        TestRun.duration.isnot(None)
-    ).scalar()
+    # 平均耗时
+    if case_ids is not None:
+        avg_duration_result = db.query(func.avg(TestRun.duration)).filter(
+            TestRun.project_id == project_id, TestRun.case_id.in_(case_ids), TestRun.duration.isnot(None)
+        ).scalar()
+    else:
+        avg_duration_result = db.query(func.avg(TestRun.duration)).filter(
+            TestRun.project_id == project_id, TestRun.duration.isnot(None)
+        ).scalar()
     avg_duration = round(float(avg_duration_result or 0), 2)
 
-    total_plans = db.query(func.count(TestPlan.id)).filter(TestPlan.project_id == project_id).scalar() or 0
-    completed_plans = db.query(func.count(TestPlan.id)).filter(
-        TestPlan.project_id == project_id,
-        TestPlan.status == "completed"
-    ).scalar() or 0
+    # 计划统计
+    plan_base = db.query(TestPlan).filter(TestPlan.project_id == project_id)
+    if version_id is not None:
+        plan_base = plan_base.filter(TestPlan.version_id == version_id)
+    total_plans = plan_base.count()
+    completed_plans = plan_base.filter(TestPlan.status == "completed").count()
 
     return QualityMetricsResponse(
-        total_cases=total_cases,
-        active_cases=active_cases,
-        total_runs=total_runs,
-        passed_runs=passed_runs,
-        failed_runs=failed_runs,
-        pass_rate=pass_rate,
-        total_defects=total_defects,
-        open_defects=open_defects,
-        resolved_defects=resolved_defects,
-        defect_density=defect_density,
-        avg_duration=avg_duration,
-        total_plans=total_plans,
-        completed_plans=completed_plans
+        total_cases=total_cases, active_cases=active_cases,
+        total_runs=total_runs, passed_runs=passed_runs, failed_runs=failed_runs,
+        pass_rate=pass_rate, total_defects=total_defects, open_defects=open_defects,
+        resolved_defects=resolved_defects, defect_density=defect_density,
+        avg_duration=avg_duration, total_plans=total_plans, completed_plans=completed_plans
     )
 
 
-def _calculate_trend(project_id: int, days: int, db: Session) -> QualityTrendResponse:
-    """计算趋势数据"""
+def _calculate_trend(project_id: int, days: int, db: Session, version_id: Optional[int] = None) -> QualityTrendResponse:
+    """计算趋势数据（支持版本过滤）"""
     end_date = china_now_naive()
     start_date = end_date - timedelta(days=days)
+    case_ids = _get_version_case_ids(project_id, version_id, db) if version_id is not None else None
 
     # 通过率趋势（按天）
     pass_rate_trend = []
@@ -96,17 +131,24 @@ def _calculate_trend(project_id: int, days: int, db: Session) -> QualityTrendRes
         day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        day_total = db.query(func.count(TestRun.id)).filter(
+        run_base = db.query(func.count(TestRun.id)).filter(
             TestRun.project_id == project_id,
             TestRun.completed_at >= day_start,
             TestRun.completed_at <= day_end
-        ).scalar() or 0
-        day_passed = db.query(func.count(TestRun.id)).filter(
+        )
+        if case_ids is not None:
+            run_base = run_base.filter(TestRun.case_id.in_(case_ids))
+        day_total = run_base.scalar() or 0
+
+        passed_base = db.query(func.count(TestRun.id)).filter(
             TestRun.project_id == project_id,
             TestRun.status == "passed",
             TestRun.completed_at >= day_start,
             TestRun.completed_at <= day_end
-        ).scalar() or 0
+        )
+        if case_ids is not None:
+            passed_base = passed_base.filter(TestRun.case_id.in_(case_ids))
+        day_passed = passed_base.scalar() or 0
 
         rate = round((day_passed / day_total * 100), 2) if day_total > 0 else 0.0
         pass_rate_trend.append(TrendDataPoint(date=day.strftime("%Y-%m-%d"), value=rate))
@@ -118,11 +160,14 @@ def _calculate_trend(project_id: int, days: int, db: Session) -> QualityTrendRes
         day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        day_defects = db.query(func.count(Defect.id)).filter(
+        defect_q = db.query(func.count(Defect.id)).filter(
             Defect.project_id == project_id,
             Defect.created_at >= day_start,
             Defect.created_at <= day_end
-        ).scalar() or 0
+        )
+        if version_id is not None:
+            defect_q = defect_q.filter(Defect.version_id == version_id)
+        day_defects = defect_q.scalar() or 0
         defect_trend.append(TrendDataPoint(date=day.strftime("%Y-%m-%d"), value=float(day_defects)))
 
     # 执行次数趋势
@@ -132,11 +177,14 @@ def _calculate_trend(project_id: int, days: int, db: Session) -> QualityTrendRes
         day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        day_runs = db.query(func.count(TestRun.id)).filter(
+        exec_q = db.query(func.count(TestRun.id)).filter(
             TestRun.project_id == project_id,
             TestRun.created_at >= day_start,
             TestRun.created_at <= day_end
-        ).scalar() or 0
+        )
+        if case_ids is not None:
+            exec_q = exec_q.filter(TestRun.case_id.in_(case_ids))
+        day_runs = exec_q.scalar() or 0
         execution_trend.append(TrendDataPoint(date=day.strftime("%Y-%m-%d"), value=float(day_runs)))
 
     return QualityTrendResponse(
@@ -146,13 +194,17 @@ def _calculate_trend(project_id: int, days: int, db: Session) -> QualityTrendRes
     )
 
 
-def _calculate_defect_distribution(project_id: int, db: Session):
-    """计算缺陷分布"""
+def _calculate_defect_distribution(project_id: int, db: Session, version_id: Optional[int] = None):
+    """计算缺陷分布（支持版本过滤）"""
+    base_filter = [Defect.project_id == project_id]
+    if version_id is not None:
+        base_filter.append(Defect.version_id == version_id)
+
     # 严重程度分布
     severity_data = db.query(
         Defect.severity,
         func.count(Defect.id)
-    ).filter(Defect.project_id == project_id).group_by(Defect.severity).all()
+    ).filter(*base_filter).group_by(Defect.severity).all()
 
     severity_distribution = [
         DefectDistributionItem(category=sev or "unknown", count=cnt)
@@ -163,7 +215,7 @@ def _calculate_defect_distribution(project_id: int, db: Session):
     category_data = db.query(
         Defect.root_cause_category,
         func.count(Defect.id)
-    ).filter(Defect.project_id == project_id).group_by(Defect.root_cause_category).all()
+    ).filter(*base_filter).group_by(Defect.root_cause_category).all()
 
     category_distribution = [
         DefectDistributionItem(category=cat or "other", count=cnt)
@@ -173,34 +225,45 @@ def _calculate_defect_distribution(project_id: int, db: Session):
     return severity_distribution, category_distribution
 
 
-def _calculate_module_pass_rate(project_id: int, db: Session) -> List[Dict[str, Any]]:
-    """计算模块通过率"""
-    modules = db.query(TestCase.module).filter(
+def _calculate_module_pass_rate(project_id: int, db: Session, version_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """计算模块通过率（支持版本过滤）"""
+    # 获取版本关联用例 ID
+    case_ids = _get_version_case_ids(project_id, version_id, db) if version_id is not None else None
+
+    module_q = db.query(TestCase.module).filter(
         TestCase.project_id == project_id,
         TestCase.module.isnot(None)
-    ).distinct().all()
+    )
+    if case_ids is not None:
+        module_q = module_q.filter(TestCase.id.in_(case_ids))
+    modules = module_q.distinct().all()
 
     result = []
     for (module,) in modules:
-        module_cases = db.query(func.count(TestCase.id)).filter(
+        mc_q = db.query(func.count(TestCase.id)).filter(
             TestCase.project_id == project_id,
             TestCase.module == module
-        ).scalar() or 0
+        )
+        if case_ids is not None:
+            mc_q = mc_q.filter(TestCase.id.in_(case_ids))
+        module_cases = mc_q.scalar() or 0
 
-        module_runs = db.query(func.count(TestRun.id)).filter(
+        mr_q = db.query(func.count(TestRun.id)).filter(
             TestRun.project_id == project_id,
             TestRun.case_id.in_(
                 db.query(TestCase.id).filter(TestCase.project_id == project_id, TestCase.module == module)
             )
-        ).scalar() or 0
+        )
+        module_runs = mr_q.scalar() or 0
 
-        module_passed = db.query(func.count(TestRun.id)).filter(
+        mp_q = db.query(func.count(TestRun.id)).filter(
             TestRun.project_id == project_id,
             TestRun.status == "passed",
             TestRun.case_id.in_(
                 db.query(TestCase.id).filter(TestCase.project_id == project_id, TestCase.module == module)
             )
-        ).scalar() or 0
+        )
+        module_passed = mp_q.scalar() or 0
 
         rate = round((module_passed / module_runs * 100), 2) if module_runs > 0 else 0.0
         result.append({
@@ -214,10 +277,10 @@ def _calculate_module_pass_rate(project_id: int, db: Session) -> List[Dict[str, 
     return result
 
 
-def _generate_risk_alerts(project_id: int, db: Session) -> RiskAlertResponse:
-    """生成风险预警"""
+def _generate_risk_alerts(project_id: int, db: Session, version_id: Optional[int] = None) -> RiskAlertResponse:
+    """生成风险预警（支持版本过滤）"""
     alerts = []
-    metrics = _calculate_metrics(project_id, db)
+    metrics = _calculate_metrics(project_id, db, version_id=version_id)
     now = china_now_naive()
 
     # 通过率低于阈值
@@ -295,7 +358,7 @@ def _generate_risk_alerts(project_id: int, db: Session) -> RiskAlertResponse:
         ))
 
     # 模块级风险
-    module_rates = _calculate_module_pass_rate(project_id, db)
+    module_rates = _calculate_module_pass_rate(project_id, db, version_id=version_id)
     for mr in module_rates:
         if mr["pass_rate"] < 60 and mr["total_runs"] > 0:
             alerts.append(RiskAlertItem(
@@ -324,34 +387,41 @@ def _generate_risk_alerts(project_id: int, db: Session) -> RiskAlertResponse:
 
 
 @project_router.get("/quality/metrics", response_model=QualityMetricsResponse)
-def get_quality_metrics(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_quality_metrics(
+    project_id: int,
+    version_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """获取项目质量指标"""
-    return _calculate_metrics(project_id, db)
+    return _calculate_metrics(project_id, db, version_id=version_id)
 
 
 @project_router.get("/quality/trend", response_model=QualityTrendResponse)
 def get_quality_trend(
     project_id: int,
     days: int = Query(7, ge=1, le=90),
+    version_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """获取质量趋势数据"""
-    return _calculate_trend(project_id, days, db)
+    return _calculate_trend(project_id, days, db, version_id=version_id)
 
 
 @project_router.get("/quality/dashboard", response_model=QualityDashboardResponse)
 def get_quality_dashboard(
     project_id: int,
     days: int = Query(7, ge=1, le=90),
+    version_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """获取完整质量看板数据"""
-    metrics = _calculate_metrics(project_id, db)
-    trend = _calculate_trend(project_id, days, db)
-    severity_dist, category_dist = _calculate_defect_distribution(project_id, db)
-    module_pass_rate = _calculate_module_pass_rate(project_id, db)
+    metrics = _calculate_metrics(project_id, db, version_id=version_id)
+    trend = _calculate_trend(project_id, days, db, version_id=version_id)
+    severity_dist, category_dist = _calculate_defect_distribution(project_id, db, version_id=version_id)
+    module_pass_rate = _calculate_module_pass_rate(project_id, db, version_id=version_id)
 
     return QualityDashboardResponse(
         metrics=metrics,
@@ -363,16 +433,26 @@ def get_quality_dashboard(
 
 
 @project_router.get("/quality/alerts", response_model=RiskAlertResponse)
-def get_risk_alerts(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_risk_alerts(
+    project_id: int,
+    version_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """获取风险预警列表"""
-    return _generate_risk_alerts(project_id, db)
+    return _generate_risk_alerts(project_id, db, version_id=version_id)
 
 
 @project_router.post("/quality/insight")
-def generate_insight(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def generate_insight(
+    project_id: int,
+    version_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """生成质量洞察分析（基于规则，后续可接入 LLM）"""
-    metrics = _calculate_metrics(project_id, db)
-    alerts = _generate_risk_alerts(project_id, db)
+    metrics = _calculate_metrics(project_id, db, version_id=version_id)
+    alerts = _generate_risk_alerts(project_id, db, version_id=version_id)
 
     insights = []
 

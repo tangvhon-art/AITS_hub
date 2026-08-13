@@ -17,6 +17,12 @@
           </template>
           <span>项目管理</span>
         </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/versions`">
+          <template #icon>
+            <TagOutlined />
+          </template>
+          <span>版本管理</span>
+        </a-menu-item>
         <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/requirements`">
           <template #icon>
             <FileTextOutlined />
@@ -178,7 +184,8 @@ import {
   ScheduleOutlined,
   DashboardOutlined,
   ImportOutlined,
-  FileSearchOutlined
+  FileSearchOutlined,
+  TagOutlined
 } from '@ant-design/icons-vue'
 
 interface TabItem {
@@ -216,6 +223,24 @@ function loadTabs() {
   if (!openTabs.value.find(t => t.path === '/projects')) {
     openTabs.value.unshift({ path: '/projects', title: '项目管理', closable: false })
   }
+}
+
+// 检测是否为浏览器刷新，若是则只保留当前标签
+function handleRefreshReset() {
+  const nav = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[]
+  const isReload = nav.length > 0 && nav[0].type === 'reload'
+  if (isReload) {
+    const currentPath = route.path
+    const currentTitle = getPageTitle()
+    const kept: TabItem[] = [{ path: '/projects', title: '项目管理', closable: false }]
+    if (currentPath !== '/projects') {
+      kept.push({ path: currentPath, title: currentTitle, closable: true })
+    }
+    openTabs.value = kept
+    saveTabs()
+    return true
+  }
+  return false
 }
 
 // 保存标签页到 localStorage
@@ -289,7 +314,10 @@ watch(
 )
 
 onMounted(() => {
-  loadTabs()
+  const wasRefresh = handleRefreshReset()
+  if (!wasRefresh) {
+    loadTabs()
+  }
   addTab()
   if (!userStore.userInfo) {
     userStore.fetchUserInfo()

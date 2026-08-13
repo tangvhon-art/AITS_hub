@@ -3,6 +3,15 @@
     <div class="page-header">
       <h2>质量看板</h2>
       <div>
+        <a-select
+          v-model:value="selectedVersionId"
+          placeholder="全部版本"
+          allow-clear
+          style="width: 150px; margin-right: 8px"
+          @change="loadAll"
+        >
+          <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+        </a-select>
         <a-select v-model:value="days" style="width: 120px; margin-right: 8px" @change="loadDashboard">
           <a-select-option :value="7">近7天</a-select-option>
           <a-select-option :value="14">近14天</a-select-option>
@@ -150,6 +159,7 @@ import {
   getQualityDashboard, getRiskAlerts, generateInsight,
   type QualityDashboard, type RiskAlertResponse, type InsightResponse
 } from '@/api/quality'
+import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -159,6 +169,8 @@ const loading = ref(false)
 const insightLoading = ref(false)
 const showInsightModal = ref(false)
 const insightData = ref<InsightResponse | null>(null)
+const versions = ref<ProjectVersion[]>([])
+const selectedVersionId = ref<number | undefined>(undefined)
 
 const metrics = ref({
   total_cases: 0,
@@ -301,7 +313,7 @@ function updateCharts(data: QualityDashboard) {
 async function loadDashboard() {
   loading.value = true
   try {
-    const data = await getQualityDashboard(projectId, days.value)
+    const data = await getQualityDashboard(projectId, days.value, selectedVersionId.value)
     metrics.value = data.metrics
     updateCharts(data)
   } catch (e: any) {
@@ -313,7 +325,7 @@ async function loadDashboard() {
 
 async function loadAlerts() {
   try {
-    alerts.value = await getRiskAlerts(projectId)
+    alerts.value = await getRiskAlerts(projectId, selectedVersionId.value)
   } catch (e: any) {
     console.error('加载预警失败', e)
   }
@@ -322,7 +334,7 @@ async function loadAlerts() {
 async function handleGenerateInsight() {
   insightLoading.value = true
   try {
-    insightData.value = await generateInsight(projectId)
+    insightData.value = await generateInsight(projectId, selectedVersionId.value)
     showInsightModal.value = true
   } catch (e: any) {
     message.error(e.response?.data?.detail || '生成洞察失败')
@@ -339,11 +351,19 @@ function handleResize() {
   moduleChart?.resize()
 }
 
+async function loadAll() {
+  loadDashboard()
+  loadAlerts()
+}
+
 onMounted(async () => {
   await nextTick()
   initCharts()
   loadDashboard()
   loadAlerts()
+  if (projectId) {
+    getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
+  }
   window.addEventListener('resize', handleResize)
 })
 

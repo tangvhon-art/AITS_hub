@@ -74,22 +74,22 @@ export interface InsightResponse {
   generated_at: string
 }
 
-export function getQualityMetrics(projectId: number) {
-  return request.get<QualityMetrics>(`/projects/${projectId}/quality/metrics`)
+export function getQualityMetrics(projectId: number, versionId?: number) {
+  return request.get<QualityMetrics>(`/projects/${projectId}/quality/metrics`, { params: { version_id: versionId } })
 }
 
-export function getQualityTrend(projectId: number, days: number = 7) {
-  return request.get<QualityTrend>(`/projects/${projectId}/quality/trend`, { params: { days } })
+export function getQualityTrend(projectId: number, days: number = 7, versionId?: number) {
+  return request.get<QualityTrend>(`/projects/${projectId}/quality/trend`, { params: { days, version_id: versionId } })
 }
 
-export function getQualityDashboard(projectId: number, days: number = 7) {
-  return request.get<QualityDashboard>(`/projects/${projectId}/quality/dashboard`, { params: { days } })
+export function getQualityDashboard(projectId: number, days: number = 7, versionId?: number) {
+  return request.get<QualityDashboard>(`/projects/${projectId}/quality/dashboard`, { params: { days, version_id: versionId } })
 }
 
-export function getRiskAlerts(projectId: number) {
-  return request.get<RiskAlertResponse>(`/projects/${projectId}/quality/alerts`)
+export function getRiskAlerts(projectId: number, versionId?: number) {
+  return request.get<RiskAlertResponse>(`/projects/${projectId}/quality/alerts`, { params: { version_id: versionId } })
 }
 
-export function generateInsight(projectId: number) {
-  return request.post<InsightResponse>(`/projects/${projectId}/quality/insight`)
+export function generateInsight(projectId: number, versionId?: number) {
+  return request.post<InsightResponse>(`/projects/${projectId}/quality/insight`, null, { params: { version_id: versionId } })
 }

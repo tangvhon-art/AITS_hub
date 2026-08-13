@@ -15,6 +15,7 @@ export interface Defect {
   actual_result?: string
   screenshot_url?: string
   error_log?: string
+  version_id?: number | null
   run_id?: number | null
   case_id?: number | null
   assignee_id?: number | null
@@ -30,7 +31,7 @@ export interface DefectListResponse {
   items: Defect[]
 }
 
-export function getDefects(projectId: number, params?: { status?: string; severity?: string; page?: number; page_size?: number }) {
+export function getDefects(projectId: number, params?: { status?: string; severity?: string; version_id?: number; page?: number; page_size?: number }) {
   return request.get<DefectListResponse>(`/projects/${projectId}/defects`, { params })
 }
 

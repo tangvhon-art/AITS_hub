@@ -10,6 +10,7 @@ class TestReport(SoftDeleteMixin, Base):
 
     id = Column(Integer, primary_key=True, index=True, comment="自增主键")
     project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=False, index=True, comment="所属项目ID")
+    version_id = Column(Integer, ForeignKey("project_versions.id"), nullable=True, index=True, comment="所属版本ID")
     title = Column(String(200), nullable=False, comment="报告标题")
     report_type = Column(String(50), default="summary", comment="报告类型：summary-汇总，execution-执行，defect-缺陷，full-完整")
     status = Column(String(20), default="generating", comment="状态：generating-生成中，completed-已完成，failed-生成失败")

@@ -10,6 +10,7 @@ class TestRequirement(SoftDeleteMixin, Base):
 
     id = Column(Integer, primary_key=True, index=True, comment="自增主键")
     project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=False, index=True, comment="所属项目ID")
+    version_id = Column(Integer, ForeignKey("project_versions.id"), nullable=True, index=True, comment="所属版本ID")
     title = Column(String(200), nullable=False, comment="需求标题")
     content = Column(Text, default="", comment="需求内容")
     source = Column(String(50), default="manual", comment="需求来源：manual-手动输入，upload-文档上传，feishu-飞书")

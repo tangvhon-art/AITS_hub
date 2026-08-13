@@ -2,10 +2,21 @@
   <div class="reports-page">
     <div class="page-header">
       <h2>测试报告</h2>
-      <a-button type="primary" @click="showGenerateModal" :loading="generating">
-        <template #icon><FileTextOutlined /></template>
-        AI 生成报告
-      </a-button>
+      <div>
+        <a-select
+          v-model:value="filterVersionId"
+          placeholder="全部版本"
+          allow-clear
+          style="width: 150px; margin-right: 8px"
+          @change="loadReports"
+        >
+          <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+        </a-select>
+        <a-button type="primary" @click="showGenerateModal" :loading="generating">
+          <template #icon><FileTextOutlined /></template>
+          AI 生成报告
+        </a-button>
+      </div>
     </div>
 
     <a-card>
@@ -39,8 +50,13 @@
     </a-card>
 
     <!-- 生成报告弹窗 -->
-    <a-modal v-model:open="generateVisible" title="AI 生成测试报告" @ok="handleGenerate" :confirm-loading="generating">
+    <a-modal v-model:open="generateVisible" title="AI 生成测试报告" @ok="handleGenerate" :confirm-loading="generating" :ok-button-props="{ disabled: !generateForm.version_id }">
       <a-form layout="vertical">
+        <a-form-item label="所属版本" required>
+          <a-select v-model:value="generateForm.version_id" placeholder="请选择版本（必选）">
+            <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="报告标题">
           <a-input v-model:value="generateForm.title" placeholder="留空则自动生成" />
         </a-form-item>
@@ -86,6 +102,7 @@ import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { FileTextOutlined } from '@ant-design/icons-vue'
 import { getReports, generateReport, deleteReport as deleteReportApi, type TestReport } from '@/api/reports'
+import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -94,12 +111,14 @@ const loading = ref(false)
 const generating = ref(false)
 const reports = ref<TestReport[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
+const versions = ref<ProjectVersion[]>([])
+const filterVersionId = ref<number | undefined>(undefined)
 
 const generateVisible = ref(false)
 const detailVisible = ref(false)
 const currentReport = ref<TestReport | null>(null)
 
-const generateForm = ref({ title: '', report_type: 'full' })
+const generateForm = ref({ title: '', report_type: 'full', version_id: undefined as number | undefined })
 
 const renderedContent = computed(() => {
   if (!currentReport.value?.content) return ''
@@ -138,6 +157,7 @@ async function loadReports() {
     const res = await getReports(projectId, {
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
+      version_id: filterVersionId.value,
     })
     reports.value = res.items
     pagination.value.total = res.total
@@ -155,14 +175,18 @@ function handleTableChange(pag: any) {
 }
 
 function showGenerateModal() {
-  generateForm.value = { title: '', report_type: 'full' }
+  generateForm.value = { title: '', report_type: 'full', version_id: undefined }
   generateVisible.value = true
 }
 
 async function handleGenerate() {
+  if (!generateForm.value.version_id) {
+    message.warning('请先选择版本')
+    return
+  }
   generating.value = true
   try {
-    await generateReport(projectId, generateForm.value)
+    await generateReport(projectId, { ...generateForm.value, version_id: generateForm.value.version_id! })
     message.success('报告生成成功')
     generateVisible.value = false
     loadReports()
@@ -202,7 +226,10 @@ function reportTypeText(t?: string) {
 }
 
 onMounted(() => {
-  if (projectId) loadReports()
+  if (projectId) {
+    loadReports()
+    getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
+  }
 })
 </script>
 

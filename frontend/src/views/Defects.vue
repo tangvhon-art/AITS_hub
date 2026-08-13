@@ -11,6 +11,11 @@
     <a-card class="filter-card">
       <a-row :gutter="16">
         <a-col :span="6">
+          <a-select v-model:value="filterVersionId" placeholder="全部版本" allow-clear @change="loadDefects">
+            <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+          </a-select>
+        </a-col>
+        <a-col :span="6">
           <a-select v-model:value="filterStatus" placeholder="状态" allow-clear @change="loadDefects">
             <a-select-option value="open">新建</a-select-option>
             <a-select-option value="confirmed">已确认</a-select-option>
@@ -41,7 +46,11 @@
         row-key="id"
       >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'severity'">
+          <template v-if="column.key === 'version'">
+            <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
+            <span v-else style="color: #999">-</span>
+          </template>
+          <template v-else-if="column.key === 'severity'">
             <a-tag :color="severityColor(record.severity)">{{ severityText(record.severity) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'status'">
@@ -91,6 +100,13 @@
           </a-col>
         </a-row>
         <a-row :gutter="16">
+          <a-col :span="8">
+            <a-form-item label="所属版本">
+              <a-select v-model:value="formData.version_id" allow-clear placeholder="选择版本（可选）">
+                <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
           <a-col :span="8">
             <a-form-item label="优先级">
               <a-select v-model:value="formData.priority">
@@ -180,6 +196,7 @@ import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { getDefects, createDefect, updateDefect, deleteDefect as deleteDefectApi, type Defect } from '@/api/defects'
+import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -188,6 +205,8 @@ const loading = ref(false)
 const defects = ref<Defect[]>([])
 const filterStatus = ref<string>()
 const filterSeverity = ref<string>()
+const filterVersionId = ref<number | undefined>(undefined)
+const versions = ref<ProjectVersion[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 
 const modalVisible = ref(false)
@@ -212,6 +231,7 @@ const formData = ref<Partial<Defect>>({
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
   { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
+  { title: '所属版本', dataIndex: 'version_id', key: 'version', width: 120 },
   { title: '严重程度', dataIndex: 'severity', key: 'severity', width: 100 },
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
@@ -219,6 +239,11 @@ const columns = [
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 180, fixed: 'right' as const },
 ]
+
+function getVersionName(versionId?: number | null) {
+  if (!versionId) return '-'
+  return versions.value.find(v => v.id === versionId)?.name || '-'
+}
 
 async function loadDefects() {
   loading.value = true
@@ -231,6 +256,7 @@ async function loadDefects() {
     const res = await getDefects(projectId, {
       status: filterStatus.value,
       severity: filterSeverity.value,
+      version_id: filterVersionId.value,
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
     })
@@ -257,6 +283,7 @@ function showCreateModal() {
     severity: 'major',
     priority: 'P2',
     status: 'open',
+    version_id: undefined,
     root_cause_category: '',
     reproduce_steps: '',
     expected_result: '',
@@ -327,8 +354,19 @@ function statusText(s?: string) {
   return map[s || ''] || s
 }
 
+async function loadVersions() {
+  try {
+    versions.value = (await getVersions(projectId, { page_size: 200 })).items
+  } catch (e) {
+    console.error('加载版本列表失败', e)
+  }
+}
+
 onMounted(() => {
-  if (projectId) loadDefects()
+  if (projectId) {
+    loadDefects()
+    loadVersions()
+  }
 })
 </script>
 

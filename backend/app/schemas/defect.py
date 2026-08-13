@@ -22,6 +22,7 @@ class DefectBase(BaseModel):
     run_id: Optional[int] = Field(default=None, description="关联执行记录ID")
     case_id: Optional[int] = Field(default=None, description="关联用例ID")
     assignee_id: Optional[int] = Field(default=None, description="指派给")
+    version_id: Optional[int] = Field(default=None, description="所属版本ID")
 
 
 class DefectCreate(DefectBase):
@@ -42,11 +43,13 @@ class DefectUpdate(BaseModel):
     screenshot_url: Optional[str] = None
     error_log: Optional[str] = None
     assignee_id: Optional[int] = None
+    version_id: Optional[int] = None
 
 
 class DefectResponse(DefectBase):
     id: int
     project_id: int
+    version_id: Optional[int] = None
     created_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime
