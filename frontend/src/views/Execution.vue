@@ -113,12 +113,58 @@
                 <template v-if="column.key === 'status'">
                   <a-tag :color="runStatusColor(record.status)">{{ runStatusLabel(record.status) }}</a-tag>
                 </template>
+                <template v-else-if="column.key === 'action'">
+                  <a-button type="link" size="small" @click="viewRunLog(record)">
+                    查看日志
+                  </a-button>
+                </template>
               </template>
             </a-table>
           </a-spin>
         </a-card>
       </a-col>
     </a-row>
+
+    <!-- 历史执行日志弹窗 -->
+    <a-modal
+      v-model:open="showLogModal"
+      :title="`执行日志 #${selectedRunId}`"
+      :footer="null"
+      width="800px"
+    >
+      <a-spin :spinning="logLoading">
+        <div v-if="selectedRunDetail" style="margin-bottom: 12px">
+          <a-descriptions :column="3" size="small">
+            <a-descriptions-item label="状态">
+              <a-tag :color="runStatusColor(selectedRunDetail.status)">{{ runStatusLabel(selectedRunDetail.status) }}</a-tag>
+            </a-descriptions-item>
+            <a-descriptions-item label="耗时">{{ selectedRunDetail.duration }}s</a-descriptions-item>
+            <a-descriptions-item label="执行时间">{{ selectedRunDetail.started_at || selectedRunDetail.created_at }}</a-descriptions-item>
+          </a-descriptions>
+          <a-alert
+            v-if="selectedRunDetail.error_message"
+            type="error"
+            :message="selectedRunDetail.error_message"
+            show-icon
+            style="margin-top: 8px"
+          />
+        </div>
+        <div class="log-container" style="max-height: 500px">
+          <div v-if="historyLog.length === 0" class="empty-log">
+            <a-empty description="无执行日志" :image-style="{ height: 60 }" />
+          </div>
+          <div v-for="(log, idx) in historyLog" :key="idx" class="log-item" :class="log.status">
+            <div class="log-header">
+              <span class="log-step">步骤 {{ idx + 1 }}</span>
+              <span class="log-action">{{ log.action }}</span>
+              <span v-if="log.duration != null" class="log-duration">{{ log.duration }}s</span>
+            </div>
+            <div v-if="log.thought" class="log-thought">💡 {{ log.thought }}</div>
+            <div class="log-detail">{{ log.observation || log.detail || JSON.stringify(log.params || {}) }}</div>
+          </div>
+        </div>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -127,7 +173,7 @@ import { ref, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlayCircleOutlined } from '@ant-design/icons-vue'
-import { streamExecution, getExecutionRuns } from '@/api/execution'
+import { streamExecution, getExecutionRuns, getExecutionRun } from '@/api/execution'
 import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
@@ -157,10 +203,18 @@ const runColumns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
   { title: '耗时(秒)', dataIndex: 'duration', key: 'duration', width: 100 },
-  { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 180 }
+  { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 180 },
+  { title: '操作', key: 'action', width: 100 },
 ]
 
 let evtSource: any = null
+
+// 历史日志查看
+const showLogModal = ref(false)
+const logLoading = ref(false)
+const selectedRunId = ref<number>(0)
+const selectedRunDetail = ref<any>(null)
+const historyLog = ref<any[]>([])
 
 function runStatusColor(status: string) {
   const map: Record<string, string> = {
@@ -269,6 +323,32 @@ async function fetchRuns() {
   }
 }
 
+async function viewRunLog(record: any) {
+  selectedRunId.value = record.id
+  showLogModal.value = true
+  logLoading.value = true
+  historyLog.value = []
+  selectedRunDetail.value = null
+  try {
+    const detail = await getExecutionRun(projectId, record.id)
+    selectedRunDetail.value = detail
+    // 解析执行日志
+    let logData = detail.execution_log
+    if (typeof logData === 'string' && logData) {
+      try {
+        logData = JSON.parse(logData)
+      } catch {
+        logData = []
+      }
+    }
+    historyLog.value = Array.isArray(logData) ? logData : []
+  } catch (e: any) {
+    message.error('加载执行日志失败')
+  } finally {
+    logLoading.value = false
+  }
+}
+
 onMounted(() => {
   // 从用例页面跳转过来时，自动填充用例信息
   if (route.query.caseId) {
@@ -340,6 +420,12 @@ onMounted(() => {
 .log-action {
   color: #6a9955;
   font-size: 13px;
+}
+
+.log-duration {
+  color: #dcdcaa;
+  font-size: 12px;
+  margin-left: auto;
 }
 
 .log-thought {

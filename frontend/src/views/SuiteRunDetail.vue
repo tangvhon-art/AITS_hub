@@ -83,15 +83,43 @@
               <span v-else>-</span>
             </template>
             <template v-else-if="column.key === 'action'">
-              <a-button v-if="record.run_id" type="link" size="small" @click="viewRunDetail(record.run_id)">
-                查看执行
-              </a-button>
+              <a-space>
+                <a-button v-if="record.execution_log" type="link" size="small" @click="viewStepLog(record)">
+                  日志
+                </a-button>
+                <a-button v-if="record.run_id" type="link" size="small" @click="viewRunDetail(record.run_id)">
+                  执行
+                </a-button>
+              </a-space>
             </template>
           </template>
         </a-table>
         <a-empty v-if="results.length === 0" description="暂无执行结果" />
       </a-card>
     </a-spin>
+
+    <!-- 步骤执行日志弹窗 -->
+    <a-modal
+      v-model:open="showStepLogModal"
+      :title="`步骤执行日志 - ${selectedStepName}`"
+      :footer="null"
+      width="720px"
+    >
+      <div class="log-container">
+        <div v-if="stepLogList.length === 0" class="empty-log">
+          <a-empty description="无执行日志" :image-style="{ height: 60 }" />
+        </div>
+        <div v-for="(log, idx) in stepLogList" :key="idx" class="log-item" :class="log.status">
+          <div class="log-header">
+            <span class="log-step">步骤 {{ idx + 1 }}</span>
+            <span class="log-action">{{ log.action }}</span>
+            <span v-if="log.duration != null" class="log-duration">{{ log.duration }}s</span>
+          </div>
+          <div class="log-detail">{{ log.detail || log.observation || JSON.stringify(log.params || {}) }}</div>
+          <div v-if="log.error" class="log-error">{{ log.error }}</div>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -117,7 +145,7 @@ const columns = [
   { title: '耗时', key: 'duration', width: 80 },
   { title: '重试', key: 'retry', width: 80 },
   { title: '错误信息', key: 'error', ellipsis: true },
-  { title: '操作', key: 'action', width: 100 },
+  { title: '操作', key: 'action', width: 120 },
 ]
 
 const isRunning = computed(() => {
@@ -158,6 +186,25 @@ function viewRunDetail(runId: number) {
   router.push(`/projects/${route.params.id}/execution?run_id=${runId}`)
 }
 
+// 步骤日志查看
+const showStepLogModal = ref(false)
+const selectedStepName = ref('')
+const stepLogList = ref<any[]>([])
+
+function viewStepLog(record: any) {
+  selectedStepName.value = record.step_name || ''
+  showStepLogModal.value = true
+  let logData = record.execution_log
+  if (typeof logData === 'string' && logData) {
+    try {
+      logData = JSON.parse(logData)
+    } catch {
+      logData = []
+    }
+  }
+  stepLogList.value = Array.isArray(logData) ? logData : []
+}
+
 function getStatusColor(status?: string) {
   const map: Record<string, string> = {
     passed: 'green', failed: 'red', partial: 'orange',
@@ -193,4 +240,39 @@ onUnmounted(() => {
 .suite-run-detail { padding: 20px; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
 .page-header h2 { margin: 0; font-size: 20px; }
+
+.log-container {
+  max-height: 500px;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 120px;
+}
+.empty-log {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 120px;
+}
+.log-item {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: #2d2d2d;
+  border-radius: 6px;
+  border-left: 3px solid #1677ff;
+}
+.log-item.passed { border-left-color: #52c41a; }
+.log-item.failed { border-left-color: #ff4d4f; }
+.log-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.log-step { color: #569cd6; font-weight: 600; font-size: 13px; }
+.log-action { color: #6a9955; font-size: 13px; }
+.log-duration { color: #dcdcaa; font-size: 12px; margin-left: auto; }
+.log-detail { color: #d4d4d4; font-size: 13px; word-break: break-all; line-height: 1.6; }
+.log-error { color: #f48771; font-size: 13px; margin-top: 4px; }
 </style>

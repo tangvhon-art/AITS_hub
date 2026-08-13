@@ -79,6 +79,9 @@
               <a-button type="primary" @click="handleRun" :loading="running" :disabled="currentScript.status === 'generating'">
                 <PlayCircleOutlined /> 运行
               </a-button>
+              <a-button @click="showHistoryModal = true; loadScriptRuns()">
+                <HistoryOutlined /> 历史
+              </a-button>
               <a-popconfirm title="确定删除该脚本？" @confirm="handleDelete">
                 <a-button danger>删除</a-button>
               </a-popconfirm>
@@ -210,6 +213,82 @@
         </template>
       </a-result>
     </a-modal>
+
+    <!-- 历史执行记录弹窗 -->
+    <a-modal
+      v-model:open="showHistoryModal"
+      :title="`历史执行记录 - ${currentScript?.name || ''}`"
+      :footer="null"
+      width="700px"
+    >
+      <a-spin :spinning="historyLoading">
+        <a-table
+          :columns="historyColumns"
+          :data-source="scriptRuns"
+          :pagination="false"
+          row-key="id"
+          size="small"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'status'">
+              <a-tag :color="record.status === 'passed' ? 'success' : 'error'">
+                {{ record.status === 'passed' ? '通过' : '失败' }}
+              </a-tag>
+            </template>
+            <template v-else-if="column.key === 'duration'">
+              {{ record.duration ? record.duration + 's' : '-' }}
+            </template>
+            <template v-else-if="column.key === 'action'">
+              <a-button type="link" size="small" @click="viewRunLog(record)">查看日志</a-button>
+            </template>
+          </template>
+        </a-table>
+        <a-empty v-if="scriptRuns.length === 0" description="暂无执行记录" />
+      </a-spin>
+    </a-modal>
+
+    <!-- 执行日志详情弹窗 -->
+    <a-modal
+      v-model:open="showLogDetailModal"
+      :title="`执行日志 #${selectedRunId}`"
+      :footer="null"
+      width="760px"
+    >
+      <a-spin :spinning="logDetailLoading">
+        <div v-if="selectedRunDetail" style="margin-bottom: 12px">
+          <a-descriptions :column="3" size="small">
+            <a-descriptions-item label="状态">
+              <a-tag :color="selectedRunDetail.status === 'passed' ? 'success' : 'error'">
+                {{ selectedRunDetail.status === 'passed' ? '通过' : '失败' }}
+              </a-tag>
+            </a-descriptions-item>
+            <a-descriptions-item label="耗时">{{ selectedRunDetail.duration }}s</a-descriptions-item>
+            <a-descriptions-item label="执行时间">{{ selectedRunDetail.started_at || selectedRunDetail.created_at }}</a-descriptions-item>
+          </a-descriptions>
+          <a-alert
+            v-if="selectedRunDetail.error_message"
+            type="error"
+            :message="selectedRunDetail.error_message"
+            show-icon
+            style="margin-top: 8px"
+          />
+        </div>
+        <div class="log-container">
+          <div v-if="logDetailList.length === 0" class="empty-log">
+            <a-empty description="无执行日志" :image-style="{ height: 60 }" />
+          </div>
+          <div v-for="(log, idx) in logDetailList" :key="idx" class="log-item" :class="log.status">
+            <div class="log-header">
+              <span class="log-step">步骤 {{ idx + 1 }}</span>
+              <span class="log-action">{{ log.action }}</span>
+              <span v-if="log.duration != null" class="log-duration">{{ log.duration }}s</span>
+            </div>
+            <div class="log-detail">{{ log.detail || log.observation || JSON.stringify(log.params || {}) }}</div>
+            <div v-if="log.error" class="log-error">{{ log.error }}</div>
+          </div>
+        </div>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -218,13 +297,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
-  PlusOutlined, SearchOutlined, PlayCircleOutlined, ReloadOutlined, EditOutlined
+  PlusOutlined, SearchOutlined, PlayCircleOutlined, ReloadOutlined, EditOutlined, HistoryOutlined
 } from '@ant-design/icons-vue'
 import {
   getScripts, createScript, updateScript, deleteScript,
-  duplicateScript, runScript,
+  duplicateScript, runScript, getScriptRuns,
   type AutomationScript
 } from '@/api/automationScripts'
+import { getExecutionRun } from '@/api/execution'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -262,6 +342,25 @@ const editInfoForm = ref({
   tags: '',
   status: 'active',
 })
+
+// 历史执行记录
+const showHistoryModal = ref(false)
+const historyLoading = ref(false)
+const scriptRuns = ref<any[]>([])
+const historyColumns = [
+  { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
+  { title: '状态', key: 'status', width: 90 },
+  { title: '耗时', key: 'duration', width: 90 },
+  { title: '执行时间', dataIndex: 'started_at', key: 'started_at', width: 180 },
+  { title: '操作', key: 'action', width: 100 },
+]
+
+// 日志详情
+const showLogDetailModal = ref(false)
+const logDetailLoading = ref(false)
+const selectedRunId = ref<number>(0)
+const selectedRunDetail = ref<any>(null)
+const logDetailList = ref<any[]>([])
 
 const filteredScripts = computed(() => {
   let result = scripts.value
@@ -450,6 +549,43 @@ async function handleRun() {
   }
 }
 
+async function loadScriptRuns() {
+  if (!currentScript.value) return
+  historyLoading.value = true
+  try {
+    scriptRuns.value = await getScriptRuns(projectId, currentScript.value.id!)
+  } catch (e: any) {
+    scriptRuns.value = []
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function viewRunLog(record: any) {
+  selectedRunId.value = record.id
+  showLogDetailModal.value = true
+  logDetailLoading.value = true
+  logDetailList.value = []
+  selectedRunDetail.value = null
+  try {
+    const detail = await getExecutionRun(projectId, record.id)
+    selectedRunDetail.value = detail
+    let logData = detail.execution_log
+    if (typeof logData === 'string' && logData) {
+      try {
+        logData = JSON.parse(logData)
+      } catch {
+        logData = []
+      }
+    }
+    logDetailList.value = Array.isArray(logData) ? logData : []
+  } catch (e: any) {
+    message.error('加载执行日志失败')
+  } finally {
+    logDetailLoading.value = false
+  }
+}
+
 function getTypeColor(type?: string) {
   const map: Record<string, string> = {
     ai_generated: 'blue',
@@ -546,4 +682,39 @@ onMounted(() => {
   overflow-y: auto;
   margin: 0;
 }
+
+.log-container {
+  max-height: 500px;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 120px;
+}
+.empty-log {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 120px;
+}
+.log-item {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: #2d2d2d;
+  border-radius: 6px;
+  border-left: 3px solid #1677ff;
+}
+.log-item.passed { border-left-color: #52c41a; }
+.log-item.failed { border-left-color: #ff4d4f; }
+.log-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.log-step { color: #569cd6; font-weight: 600; font-size: 13px; }
+.log-action { color: #6a9955; font-size: 13px; }
+.log-duration { color: #dcdcaa; font-size: 12px; margin-left: auto; }
+.log-detail { color: #d4d4d4; font-size: 13px; word-break: break-all; line-height: 1.6; }
+.log-error { color: #f48771; font-size: 13px; margin-top: 4px; }
 </style>

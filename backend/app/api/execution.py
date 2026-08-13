@@ -80,9 +80,12 @@ async def run_execution(
             llm_config_id=exec_request.llm_config_id,
         )
 
+        start_time = time.time()
         final_status = "failed"
         final_result = ""
         error_message = ""
+        execution_duration = 0.0  # 记录真实执行耗时
+        script_id = None
 
         try:
             async for event in agent.execute(
@@ -95,6 +98,8 @@ async def run_execution(
                     final_result = event.get("result", "")
                     if final_status == "failed":
                         error_message = final_result
+                elif event.get("type") == "complete":
+                    execution_duration = event.get("duration", 0.0)
                 elif event.get("type") == "error":
                     error_message = event.get("message", "")
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -166,6 +171,7 @@ async def run_execution(
                     run_update.error_message = error_message
                     run_update.execution_log = json.dumps(agent.get_execution_log(), ensure_ascii=False)
                     run_update.screenshot_url = agent.screenshot_path
+                    run_update.duration = execution_duration
                     run_update.completed_at = china_now_naive()
 
                 if task_update:
@@ -194,6 +200,7 @@ async def run_execution(
             error_message = f"执行异常终止: {str(e)}"
             test_run.status = "failed"
             test_run.error_message = error_message
+            test_run.duration = round(time.time() - start_time, 2)
             test_run.completed_at = china_now_naive()
             agent_task.status = "failed"
             agent_task.error_message = error_message

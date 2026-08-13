@@ -312,6 +312,7 @@ function handleCommand({ key }: { key: string }) {
 <style scoped>
 .layout-container {
   height: 100vh;
+  overflow: hidden;
 }
 
 .sider {
@@ -367,6 +368,10 @@ function handleCommand({ key }: { key: string }) {
   border-bottom: 1px solid #f0f0f0;
   padding: 6px 12px 0;
   overflow: hidden;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 .tabs-scroll {
@@ -447,6 +452,26 @@ function handleCommand({ key }: { key: string }) {
 .main-content {
   background: #fafafa;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 内容区滚动条 - 缩小宽度，降低对 tabs 的遮挡 */
+.main-content::-webkit-scrollbar {
+  width: 5px;
+}
+
+.main-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.main-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 3px;
+}
+
+.main-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
 }
 
 :deep(.ant-layout-sider) {

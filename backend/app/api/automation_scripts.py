@@ -3,6 +3,7 @@
 """
 import json
 import logging
+import time
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -340,9 +341,13 @@ async def run_script(
     import traceback
     from datetime import datetime
 
-    start_time = datetime.now()
+    start_time = time.time()
+    start_datetime = china_now_naive()
     error_msg = ""
     status_result = "passed"
+    exec_log = [
+        {"action": "script_run", "detail": f"执行脚本: {script.name}", "timestamp": start_time, "status": "running", "script_id": script_id}
+    ]
 
     try:
         # 动态执行脚本
@@ -354,22 +359,30 @@ async def run_script(
         else:
             raise RuntimeError("脚本中未找到 run_test 函数")
 
+        duration = time.time() - start_time
+        exec_log.append({
+            "action": "result", "detail": f"执行成功，耗时: {duration:.2f}s",
+            "timestamp": time.time(), "status": "passed", "duration": round(duration, 3)
+        })
+
     except Exception as e:
         error_msg = str(e)
         status_result = "failed"
+        duration = time.time() - start_time
         traceback.print_exc()
-
-    duration = (datetime.now() - start_time).total_seconds()
+        exec_log.append({
+            "action": "result", "detail": f"执行失败，耗时: {duration:.2f}s, 错误: {error_msg}",
+            "timestamp": time.time(), "status": "failed", "duration": round(duration, 3),
+            "error": error_msg
+        })
 
     # 更新执行记录
     run.status = status_result
     run.error_message = error_msg
-    run.duration = duration
+    run.duration = round(duration, 2)
+    run.started_at = start_datetime
     run.completed_at = china_now_naive()
-    run.execution_log = json.dumps([
-        {"action": "script_run", "detail": f"执行脚本: {script.name}"},
-        {"action": "result", "detail": f"状态: {status_result}, 耗时: {duration:.2f}s, 错误: {error_msg}"},
-    ], ensure_ascii=False)
+    run.execution_log = json.dumps(exec_log, ensure_ascii=False)
     db.commit()
 
     # 更新脚本统计
@@ -409,13 +422,31 @@ def get_script_runs(
     # 通过 source_run_id 关联的执行记录，以及 case_id 关联的执行记录
     runs = db.query(TestRun).filter(
         TestRun.project_id == project_id,
-    ).order_by(TestRun.created_at.desc()).limit(20).all()
+    ).order_by(TestRun.created_at.desc()).limit(50).all()
 
-    # 过滤出与该脚本相关的执行（通过 execution_log 中包含脚本名称或 source_run_id）
+    # 过滤出与该脚本相关的执行（通过 execution_log 中的 script_id 或脚本名称匹配）
     result = []
     for r in runs:
         log = r.execution_log or ""
-        if script.name in log or (script.source_run_id and r.id == script.source_run_id):
+        matched = False
+        # 优先通过 JSON 中的 script_id 匹配
+        if log.startswith("["):
+            try:
+                log_list = json.loads(log)
+                for entry in log_list:
+                    if entry.get("script_id") == script_id:
+                        matched = True
+                        break
+            except (json.JSONDecodeError, TypeError):
+                pass
+        # 兑容旧数据：通过脚本名称匹配
+        if not matched and script.name in log:
+            matched = True
+        # 通过 source_run_id 匹配
+        if not matched and script.source_run_id and r.id == script.source_run_id:
+            matched = True
+
+        if matched:
             result.append({
                 "id": r.id,
                 "status": r.status,
@@ -425,4 +456,4 @@ def get_script_runs(
                 "completed_at": r.completed_at,
                 "created_at": r.created_at,
             })
-    return result
+    return result[:20]

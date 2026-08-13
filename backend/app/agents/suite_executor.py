@@ -288,17 +288,25 @@ class SuiteExecutor:
         for key, value in params.items():
             script_content = script_content.replace(f"{{{{{key}}}}}", str(value))
 
-        # 创建 test_runs 记录
-        run = TestRun(
-            project_id=result.suite_run.project_id if hasattr(result, 'suite_run') else 0,
-            case_id=step.case_id,
-            status="running",
-            execution_log=json.dumps([{"action": "suite_script", "detail": step.step_name}], ensure_ascii=False),
-            started_at=china_now_naive(),
-        )
         # 获取 project_id
         suite_run = self.db.query(AutomationSuiteRun).filter(AutomationSuiteRun.id == result.suite_run_id).first()
-        run.project_id = suite_run.project_id if suite_run else 0
+        project_id = suite_run.project_id if suite_run else 0
+
+        # 创建 test_runs 记录
+        run_start_time = time.time()
+        run_start_datetime = china_now_naive()
+        run = TestRun(
+            project_id=project_id,
+            case_id=step.case_id,
+            status="running",
+            execution_log=json.dumps([{
+                "action": "suite_script",
+                "detail": step.step_name,
+                "timestamp": run_start_time,
+                "status": "running"
+            }], ensure_ascii=False),
+            started_at=run_start_datetime,
+        )
         self.db.add(run)
         self.db.commit()
         self.db.refresh(run)
@@ -313,11 +321,23 @@ class SuiteExecutor:
         else:
             raise RuntimeError("脚本中未找到 run_test 函数")
 
+        # 计算真实执行耗时
+        run_duration = round(time.time() - run_start_time, 2)
+
         # 更新 test_runs
         run.status = "passed"
         run.completed_at = china_now_naive()
-        run.duration = result.duration or 0
+        run.duration = run_duration
+        run.execution_log = json.dumps([
+            {"action": "suite_script", "detail": step.step_name, "timestamp": run_start_time, "status": "running", "script_id": script.id},
+            {"action": "result", "detail": f"执行成功，耗时: {run_duration}s",
+             "timestamp": time.time(), "status": "passed", "duration": run_duration, "script_id": script.id},
+        ], ensure_ascii=False)
         self.db.commit()
+
+        # 将执行日志和耗时写入编排单步结果
+        result.execution_log = run.execution_log
+        result.duration = run_duration
 
         # 更新脚本统计
         script.total_runs = (script.total_runs or 0) + 1
@@ -345,12 +365,19 @@ class SuiteExecutor:
 
         # 创建 test_runs 记录
         suite_run = self.db.query(AutomationSuiteRun).filter(AutomationSuiteRun.id == result.suite_run_id).first()
+        run_start_time = time.time()
+        run_start_datetime = china_now_naive()
         run = TestRun(
             project_id=suite_run.project_id if suite_run else 0,
             case_id=step.case_id,
             status="running",
-            execution_log=json.dumps([{"action": "suite_case", "detail": case.title}], ensure_ascii=False),
-            started_at=china_now_naive(),
+            execution_log=json.dumps([{
+                "action": "suite_case",
+                "detail": case.title,
+                "timestamp": run_start_time,
+                "status": "running"
+            }], ensure_ascii=False),
+            started_at=run_start_datetime,
         )
         self.db.add(run)
         self.db.commit()
@@ -363,9 +390,22 @@ class SuiteExecutor:
         if "run_test" in local_vars and callable(local_vars["run_test"]):
             await local_vars["run_test"]()
 
+        # 计算真实执行耗时
+        run_duration = round(time.time() - run_start_time, 2)
+
         run.status = "passed"
         run.completed_at = china_now_naive()
+        run.duration = run_duration
+        run.execution_log = json.dumps([
+            {"action": "suite_case", "detail": case.title, "timestamp": run_start_time, "status": "running"},
+            {"action": "result", "detail": f"执行成功，耗时: {run_duration}s",
+             "timestamp": time.time(), "status": "passed", "duration": run_duration},
+        ], ensure_ascii=False)
         self.db.commit()
+
+        # 将执行日志和耗时写入编排单步结果
+        result.execution_log = run.execution_log
+        result.duration = run_duration
 
     def stop(self) -> None:
         """停止执行"""

@@ -54,7 +54,7 @@ a:hover {
 /* 页面容器 */
 .page-container {
   padding: 20px 24px;
-  min-height: calc(100vh - 56px - 45px);
+  min-height: 100%;
 }
 
 .page-header {

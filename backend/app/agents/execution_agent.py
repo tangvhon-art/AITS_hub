@@ -139,6 +139,7 @@ class ExecutionAgent:
         self.llm_config_id = llm_config_id
         self.execution_log: List[Dict[str, Any]] = []
         self.screenshot_path: str = ""
+        self._step_start_time: float = 0  # 当前步骤开始时间
 
     async def execute(
         self,
@@ -179,6 +180,7 @@ class ExecutionAgent:
 
                 # 如果有起始 URL，先导航
                 if target_url:
+                    self._step_start_time = time.time()
                     yield {"type": "step", "step": step_count, "action": "navigate", "detail": f"导航到 {target_url}"}
                     try:
                         await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
@@ -187,11 +189,12 @@ class ExecutionAgent:
                         yield {"type": "step", "step": step_count, "action": "navigate_error", "detail": error_message}
                         yield {"type": "finish", "status": "failed", "result": error_message}
                         step_count += 1
-                        self._log_step("navigate_browser", {"url": target_url}, "failed", error_message)
+                        self._log_step("navigate_browser", {"url": target_url}, "failed", error_message, time.time() - self._step_start_time)
                         return
                     await page.wait_for_timeout(1000)
                     step_count += 1
                     self._log_step("navigate_browser", {"url": target_url}, "success", "")
+                    self._step_start_time = time.time()  # 为下一步设置起始时间
 
                 # Agent 循环
                 while step_count < max_steps:
@@ -199,7 +202,7 @@ class ExecutionAgent:
                     if time.time() - start_time > max_duration:
                         error_message = f"执行超时（超过 {max_duration} 秒），任务终止"
                         yield {"type": "finish", "status": "failed", "result": error_message}
-                        self._log_step("timeout", {}, "failed", error_message)
+                        self._log_step("timeout", {}, "failed", error_message, time.time() - self._step_start_time if self._step_start_time else 0)
                         break
 
                     # 调用 LLM 获取下一步动作
@@ -212,7 +215,7 @@ class ExecutionAgent:
                         error_message = f"大模型调用失败: {str(llm_e)}"
                         yield {"type": "step", "step": step_count, "action": "llm_error", "detail": error_message}
                         yield {"type": "finish", "status": "failed", "result": error_message}
-                        self._log_step("llm_invoke", {}, "failed", error_message)
+                        self._log_step("llm_invoke", {}, "failed", error_message, time.time() - self._step_start_time if self._step_start_time else 0)
                         break
 
                     messages.append(AIMessage(content=response.content))
@@ -238,10 +241,11 @@ class ExecutionAgent:
                     }
 
                     # 执行动作
+                    action_start_time = time.time()
                     if action == "finish":
                         result = action_input.get("result", "")
                         status = action_input.get("status", "passed")
-                        self._log_step(action, action_input, status, result)
+                        self._log_step(action, action_input, status, result, time.time() - action_start_time)
                         yield {"type": "finish", "status": status, "result": result}
                         break
 
@@ -251,10 +255,11 @@ class ExecutionAgent:
                         error_message = f"工具执行失败（{action}）: {str(tool_e)}"
                         yield {"type": "step", "step": step_count, "action": "tool_error", "detail": error_message}
                         yield {"type": "finish", "status": "failed", "result": error_message}
-                        self._log_step(action, action_input, "failed", error_message)
+                        self._log_step(action, action_input, "failed", error_message, time.time() - action_start_time)
                         break
 
-                    self._log_step(action, action_input, "success", observation[:200])
+                    step_duration = time.time() - action_start_time
+                    self._log_step(action, action_input, "success", observation[:200], step_duration)
 
                     # 截图
                     if action in ("click_element", "fill_input", "navigate_browser"):
@@ -273,7 +278,7 @@ class ExecutionAgent:
                 else:
                     error_message = "达到最大步数限制（20步），任务未完成"
                     yield {"type": "finish", "status": "failed", "result": error_message}
-                    self._log_step("max_steps", {}, "failed", error_message)
+                    self._log_step("max_steps", {}, "failed", error_message, time.time() - self._step_start_time if self._step_start_time else 0)
 
             except Exception as e:
                 error_message = f"执行异常: {str(e)}"
@@ -394,7 +399,7 @@ class ExecutionAgent:
         except Exception as e:
             return f"执行失败: {str(e)}"
 
-    def _log_step(self, action: str, params: Dict, status: str, observation: str):
+    def _log_step(self, action: str, params: Dict, status: str, observation: str, duration: float = 0):
         """记录执行步骤"""
         self.execution_log.append({
             "timestamp": time.time(),
@@ -402,6 +407,7 @@ class ExecutionAgent:
             "params": params,
             "status": status,
             "observation": observation,
+            "duration": round(duration, 3),
         })
 
     def get_execution_log(self) -> List[Dict[str, Any]]:
