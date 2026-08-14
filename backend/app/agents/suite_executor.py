@@ -25,6 +25,7 @@ from app.models.automation_suite import (
 from app.models.automation_script import AutomationScript
 from app.models.test_run import TestRun
 from app.models.test_case import TestCase
+from app.agents.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -473,7 +474,7 @@ class SuiteExecutor:
         return navigations
 
     async def _run_script_step(self, step: AutomationSuiteStep, result: AutomationSuiteRunResult) -> None:
-        """执行脚本类型步骤（使用共享浏览器上下文，保证cookie串联）"""
+        """执行脚本类型步骤（使用共享浏览器上下文，支持AI自动修复）"""
         if not step.script_id:
             raise ValueError("脚本步骤未关联脚本")
 
@@ -523,53 +524,119 @@ class SuiteExecutor:
         # 判断是否使用共享浏览器
         use_shared_browser = self._browser_initialized and self._page is not None
 
-        if use_shared_browser:
-            # 编排模式：转换脚本为接收 page 参数的形式，使用共享 page
-            suite_script = self._convert_script_to_suite_mode(script_content)
-            local_vars = {}
-            exec(compile(suite_script, f"suite_script_{script.id}.py", "exec"), local_vars)
+        current_content = script_content
+        max_attempts = (step.max_retries or 0) + 1
+        exec_log = json.loads(run.execution_log)
+        last_error = ""
+        fixed = False
 
-            if "run_test" in local_vars and callable(local_vars["run_test"]):
-                await local_vars["run_test"](self._page)
-            else:
-                raise RuntimeError("脚本中未找到 run_test 函数")
-        else:
-            # 回退模式：共享浏览器不可用时，使用脚本自带的独立浏览器
-            local_vars = {}
-            exec(compile(script_content, f"suite_script_{script.id}.py", "exec"), local_vars)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if use_shared_browser:
+                    suite_script = self._convert_script_to_suite_mode(current_content)
+                    local_vars = {}
+                    exec(compile(suite_script, f"suite_script_{script.id}_a{attempt}.py", "exec"), local_vars)
+                    if "run_test" in local_vars and callable(local_vars["run_test"]):
+                        await local_vars["run_test"](self._page)
+                    else:
+                        raise RuntimeError("脚本中未找到 run_test 函数")
+                else:
+                    local_vars = {}
+                    exec(compile(current_content, f"suite_script_{script.id}_a{attempt}.py", "exec"), local_vars)
+                    if "run_test" in local_vars and callable(local_vars["run_test"]):
+                        await local_vars["run_test"]()
+                    else:
+                        raise RuntimeError("脚本中未找到 run_test 函数")
 
-            if "run_test" in local_vars and callable(local_vars["run_test"]):
-                await local_vars["run_test"]()
-            else:
-                raise RuntimeError("脚本中未找到 run_test 函数")
+                # 执行成功
+                run_duration = round(time.time() - run_start_time, 2)
+                run.status = "passed"
+                run.completed_at = china_now_naive()
+                run.duration = run_duration
+                exec_log.append({
+                    "action": "result", "detail": f"执行成功，耗时: {run_duration}s",
+                    "timestamp": time.time(), "status": "passed", "duration": run_duration,
+                    "script_id": script.id, "shared_browser": use_shared_browser, "attempt": attempt, "fixed": fixed
+                })
+                run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+                self.db.commit()
 
-        # 计算真实执行耗时
-        run_duration = round(time.time() - run_start_time, 2)
+                result.execution_log = json.dumps(navigation_logs + exec_log, ensure_ascii=False)
+                result.duration = run_duration
 
-        # 更新 test_runs
-        run.status = "passed"
-        run.completed_at = china_now_naive()
-        run.duration = run_duration
-        run.execution_log = json.dumps([
-            {"action": "suite_script", "detail": step.step_name, "timestamp": run_start_time, "status": "running", "script_id": script.id, "shared_browser": use_shared_browser},
-            {"action": "result", "detail": f"执行成功，耗时: {run_duration}s",
-             "timestamp": time.time(), "status": "passed", "duration": run_duration, "script_id": script.id},
-        ], ensure_ascii=False)
-        self.db.commit()
+                # 更新脚本统计
+                script.total_runs = (script.total_runs or 0) + 1
+                script.last_run_status = "passed"
+                script.last_run_at = china_now_naive()
+                script.pass_count = (script.pass_count or 0) + 1
+                self.db.commit()
+                return
 
-        # 将执行日志和耗时写入编排单步结果（保留导航操作）
-        result.execution_log = json.dumps(navigation_logs + json.loads(run.execution_log), ensure_ascii=False)
-        result.duration = run_duration
+            except Exception as e:
+                last_error = str(e)
+                exec_log.append({
+                    "action": "result",
+                    "detail": f"第{attempt}次执行失败，错误: {last_error}",
+                    "timestamp": time.time(), "status": "failed", "script_id": script.id,
+                    "shared_browser": use_shared_browser, "attempt": attempt, "fixed": fixed
+                })
+                run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+                self.db.commit()
 
-        # 更新脚本统计
-        script.total_runs = (script.total_runs or 0) + 1
-        script.last_run_status = "passed"
-        script.last_run_at = china_now_naive()
-        script.pass_count = (script.pass_count or 0) + 1
-        self.db.commit()
+                # 判断是否需要AI修复重试
+                if step.auto_fix and attempt < max_attempts:
+                    logger.info(f"步骤 '{step.step_name}' 第{attempt}次执行失败，启用AI修复")
+                    exec_log.append({
+                        "action": "ai_fix", "detail": f"调用AI修复脚本（第{attempt}次失败后）",
+                        "timestamp": time.time(), "status": "running", "attempt": attempt
+                    })
+                    run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+                    self.db.commit()
+
+                    try:
+                        fixed_content = await ScriptGenerator.fix_script_with_ai(
+                            script_content=current_content,
+                            error_message=last_error,
+                            script_name=script.name,
+                            target_url=script.target_url or "",
+                            db_session=self.db,
+                        )
+                        if fixed_content and fixed_content != current_content:
+                            current_content = self._apply_headless_to_script(fixed_content)
+                            fixed = True
+                            # 修复成功后同步更新脚本库内容
+                            script.script_content = fixed_content
+                            script.version = (script.version or 1) + 1
+                            script.status = "active"
+                            self.db.commit()
+                            exec_log.append({
+                                "action": "ai_fix", "detail": "AI修复完成，使用修复后脚本重试",
+                                "timestamp": time.time(), "status": "success", "attempt": attempt,
+                                "new_version": script.version
+                            })
+                        else:
+                            exec_log.append({
+                                "action": "ai_fix", "detail": "AI修复未产生变化，停止重试",
+                                "timestamp": time.time(), "status": "skipped", "attempt": attempt
+                            })
+                    except Exception as fix_e:
+                        logger.warning(f"AI修复失败: {fix_e}")
+                        exec_log.append({
+                            "action": "ai_fix", "detail": f"AI修复异常: {fix_e}",
+                            "timestamp": time.time(), "status": "failed", "attempt": attempt
+                        })
+
+                    run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+                    self.db.commit()
+                    continue
+                else:
+                    break
+
+        # 执行失败，抛出异常由 _execute_step 统一处理
+        raise RuntimeError(last_error or "脚本步骤执行失败")
 
     async def _run_case_step(self, step: AutomationSuiteStep, result: AutomationSuiteRunResult) -> None:
-        """执行用例类型步骤（动态生成脚本并执行，使用共享浏览器）"""
+        """执行用例类型步骤（动态生成脚本并执行，支持AI自动修复）"""
         if not step.case_id:
             raise ValueError("用例步骤未关联用例")
 
@@ -578,8 +645,6 @@ class SuiteExecutor:
             raise ValueError(f"用例不存在: {step.case_id}")
 
         # 简单实现：生成基础脚本并执行
-        # 完整实现应调用 ExecutionAgent，但为避免阻塞，这里生成简化脚本
-        from app.agents.script_generator import ScriptGenerator
         script_content = ScriptGenerator.generate_template(
             target_url=(case.preconditions or "")[:200],
             name=case.title,
@@ -616,36 +681,99 @@ class SuiteExecutor:
         # 判断是否使用共享浏览器
         use_shared_browser = self._browser_initialized and self._page is not None
 
-        if use_shared_browser:
-            # 编排模式：转换脚本并使用共享 page
-            suite_script = self._convert_script_to_suite_mode(script_content)
-            local_vars = {}
-            exec(compile(suite_script, f"suite_case_{case.id}.py", "exec"), local_vars)
-            if "run_test" in local_vars and callable(local_vars["run_test"]):
-                await local_vars["run_test"](self._page)
-        else:
-            # 回退模式：独立浏览器
-            local_vars = {}
-            exec(compile(script_content, f"suite_case_{case.id}.py", "exec"), local_vars)
-            if "run_test" in local_vars and callable(local_vars["run_test"]):
-                await local_vars["run_test"]()
+        current_content = script_content
+        max_attempts = (step.max_retries or 0) + 1
+        exec_log = json.loads(run.execution_log)
+        last_error = ""
+        fixed = False
 
-        # 计算真实执行耗时
-        run_duration = round(time.time() - run_start_time, 2)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if use_shared_browser:
+                    suite_script = self._convert_script_to_suite_mode(current_content)
+                    local_vars = {}
+                    exec(compile(suite_script, f"suite_case_{case.id}_a{attempt}.py", "exec"), local_vars)
+                    if "run_test" in local_vars and callable(local_vars["run_test"]):
+                        await local_vars["run_test"](self._page)
+                else:
+                    local_vars = {}
+                    exec(compile(current_content, f"suite_case_{case.id}_a{attempt}.py", "exec"), local_vars)
+                    if "run_test" in local_vars and callable(local_vars["run_test"]):
+                        await local_vars["run_test"]()
 
-        run.status = "passed"
-        run.completed_at = china_now_naive()
-        run.duration = run_duration
-        run.execution_log = json.dumps([
-            {"action": "suite_case", "detail": case.title, "timestamp": run_start_time, "status": "running", "shared_browser": use_shared_browser},
-            {"action": "result", "detail": f"执行成功，耗时: {run_duration}s",
-             "timestamp": time.time(), "status": "passed", "duration": run_duration},
-        ], ensure_ascii=False)
-        self.db.commit()
+                # 执行成功
+                run_duration = round(time.time() - run_start_time, 2)
+                run.status = "passed"
+                run.completed_at = china_now_naive()
+                run.duration = run_duration
+                exec_log.append({
+                    "action": "result", "detail": f"执行成功，耗时: {run_duration}s",
+                    "timestamp": time.time(), "status": "passed", "duration": run_duration,
+                    "shared_browser": use_shared_browser, "attempt": attempt, "fixed": fixed
+                })
+                run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+                self.db.commit()
 
-        # 将执行日志和耗时写入编排单步结果（保留导航操作）
-        result.execution_log = json.dumps(navigation_logs + json.loads(run.execution_log), ensure_ascii=False)
-        result.duration = run_duration
+                result.execution_log = json.dumps(navigation_logs + exec_log, ensure_ascii=False)
+                result.duration = run_duration
+                return
+
+            except Exception as e:
+                last_error = str(e)
+                exec_log.append({
+                    "action": "result",
+                    "detail": f"第{attempt}次执行失败，错误: {last_error}",
+                    "timestamp": time.time(), "status": "failed",
+                    "shared_browser": use_shared_browser, "attempt": attempt, "fixed": fixed
+                })
+                run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+                self.db.commit()
+
+                # 判断是否需要AI修复重试
+                if step.auto_fix and attempt < max_attempts:
+                    logger.info(f"用例步骤 '{step.step_name}' 第{attempt}次执行失败，启用AI修复")
+                    exec_log.append({
+                        "action": "ai_fix", "detail": f"调用AI修复脚本（第{attempt}次失败后）",
+                        "timestamp": time.time(), "status": "running", "attempt": attempt
+                    })
+                    run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+                    self.db.commit()
+
+                    try:
+                        fixed_content = await ScriptGenerator.fix_script_with_ai(
+                            script_content=current_content,
+                            error_message=last_error,
+                            script_name=case.title,
+                            target_url=(case.preconditions or "")[:200],
+                            db_session=self.db,
+                        )
+                        if fixed_content and fixed_content != current_content:
+                            current_content = self._apply_headless_to_script(fixed_content)
+                            fixed = True
+                            exec_log.append({
+                                "action": "ai_fix", "detail": "AI修复完成，使用修复后脚本重试",
+                                "timestamp": time.time(), "status": "success", "attempt": attempt
+                            })
+                        else:
+                            exec_log.append({
+                                "action": "ai_fix", "detail": "AI修复未产生变化，停止重试",
+                                "timestamp": time.time(), "status": "skipped", "attempt": attempt
+                            })
+                    except Exception as fix_e:
+                        logger.warning(f"AI修复失败: {fix_e}")
+                        exec_log.append({
+                            "action": "ai_fix", "detail": f"AI修复异常: {fix_e}",
+                            "timestamp": time.time(), "status": "failed", "attempt": attempt
+                        })
+
+                    run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+                    self.db.commit()
+                    continue
+                else:
+                    break
+
+        # 执行失败，抛出异常由 _execute_step 统一处理
+        raise RuntimeError(last_error or "用例步骤执行失败")
 
     def _apply_headless_to_script(self, script_content: str) -> str:
         """根据当前 headless 设置调整脚本中的浏览器启动参数"""

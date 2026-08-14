@@ -43,6 +43,7 @@ class AutomationSuiteStep(SoftDeleteMixin, Base):
     continue_on_failure = Column(Boolean, default=False, comment="失败后是否继续")
     max_retries = Column(Integer, default=0, comment="最大重试次数")
     timeout = Column(Integer, default=300, comment="单步超时时间（秒）")
+    auto_fix = Column(Boolean, default=False, comment="失败时是否调用AI自动修复")
     status = Column(String(20), default="pending", comment="状态：pending/running/passed/failed/skipped")
     created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
 

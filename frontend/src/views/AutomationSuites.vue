@@ -80,7 +80,7 @@
 
           <a-divider>
             <span>编排步骤（{{ steps.length }}）</span>
-            <a-button type="link" size="small" @click="showStepModal = true">添加步骤</a-button>
+            <a-button type="link" size="small" @click="openAddStep">添加步骤</a-button>
           </a-divider>
 
           <div class="steps-list">
@@ -106,6 +106,7 @@
               <div class="step-actions">
                 <a-button size="small" @click="moveStep(index, -1)" :disabled="index === 0">↑</a-button>
                 <a-button size="small" @click="moveStep(index, 1)" :disabled="index === steps.length - 1">↓</a-button>
+                <a-button size="small" @click="openEditStep(index)">编辑</a-button>
                 <a-button size="small" danger @click="removeStep(index)">删除</a-button>
               </div>
             </div>
@@ -166,8 +167,8 @@
       </a-form>
     </a-modal>
 
-    <!-- 添加步骤弹窗 -->
-    <a-modal v-model:open="showStepModal" title="添加步骤" @ok="addStep" :confirm-loading="addingStep">
+    <!-- 添加/编辑步骤弹窗 -->
+    <a-modal v-model:open="showStepModal" :title="editingStepIndex >= 0 ? '编辑步骤' : '添加步骤'" @ok="saveStep" :confirm-loading="addingStep">
       <a-form layout="vertical" :model="stepForm">
         <a-form-item label="步骤名称" required>
           <a-input v-model:value="stepForm.step_name" placeholder="请输入步骤名称" />
@@ -199,8 +200,20 @@
             </a-form-item>
           </a-col>
           <a-col :span="12">
+            <a-form-item label="AI自动修复">
+              <a-switch v-model:checked="stepForm.auto_fix" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
             <a-form-item label="最大重试次数">
               <a-input-number v-model:value="stepForm.max_retries" :min="0" :max="5" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="超时时间（秒）">
+              <a-input-number v-model:value="stepForm.timeout" :min="1" :max="3600" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -265,12 +278,14 @@ const editForm = ref({ name: '', description: '', plan_id: undefined as number |
 
 const showStepModal = ref(false)
 const addingStep = ref(false)
+const editingStepIndex = ref(-1)
 const stepForm = ref({
   step_name: '',
   step_type: 'script',
   script_id: undefined as number | undefined,
   case_id: undefined as number | undefined,
   continue_on_failure: false,
+  auto_fix: false,
   max_retries: 0,
   timeout: 300,
 })
@@ -384,27 +399,74 @@ async function handleDelete() {
   }
 }
 
-function addStep() {
+function openAddStep() {
+  resetStepForm()
+  showStepModal.value = true
+}
+
+function openEditStep(index: number) {
+  const step = steps.value[index]
+  if (!step) return
+  editingStepIndex.value = index
+  stepForm.value = {
+    step_name: step.step_name,
+    step_type: step.step_type || 'script',
+    script_id: step.script_id || undefined,
+    case_id: step.case_id || undefined,
+    continue_on_failure: step.continue_on_failure || false,
+    auto_fix: step.auto_fix || false,
+    max_retries: step.max_retries || 0,
+    timeout: step.timeout || 300,
+  }
+  if (step.step_type === 'wait' && step.params?.seconds) {
+    waitSeconds.value = step.params.seconds
+  } else {
+    waitSeconds.value = 5
+  }
+  showStepModal.value = true
+}
+
+function resetStepForm() {
+  editingStepIndex.value = -1
+  stepForm.value = {
+    step_name: '',
+    step_type: 'script',
+    script_id: undefined,
+    case_id: undefined,
+    continue_on_failure: false,
+    auto_fix: false,
+    max_retries: 0,
+    timeout: 300,
+  }
+  waitSeconds.value = 5
+}
+
+function saveStep() {
   if (!stepForm.value.step_name) {
     message.warning('请输入步骤名称')
     return
   }
-  const newStep: SuiteStep = {
+  const stepData: SuiteStep = {
     step_name: stepForm.value.step_name,
     step_type: stepForm.value.step_type,
     script_id: stepForm.value.step_type === 'script' ? stepForm.value.script_id : null,
     case_id: stepForm.value.step_type === 'case' ? stepForm.value.case_id : null,
-    sort_order: steps.value.length,
+    sort_order: editingStepIndex.value >= 0 ? steps.value[editingStepIndex.value].sort_order : steps.value.length,
     continue_on_failure: stepForm.value.continue_on_failure,
+    auto_fix: stepForm.value.auto_fix,
     max_retries: stepForm.value.max_retries,
     timeout: stepForm.value.timeout,
     params: stepForm.value.step_type === 'wait' ? { seconds: waitSeconds.value } : {},
   }
-  steps.value.push(newStep)
+  if (editingStepIndex.value >= 0) {
+    steps.value[editingStepIndex.value] = { ...steps.value[editingStepIndex.value], ...stepData }
+    message.success('步骤已更新，记得点击"保存步骤"')
+  } else {
+    steps.value.push(stepData)
+    message.success('步骤已添加，记得点击"保存步骤"')
+  }
   showStepModal.value = false
-  stepForm.value = { step_name: '', step_type: 'script', script_id: undefined, case_id: undefined, continue_on_failure: false, max_retries: 0, timeout: 300 }
-  waitSeconds.value = 5
-  message.success('步骤已添加，记得点击"保存步骤"')
+  resetStepForm()
 }
 
 function removeStep(index: number) {

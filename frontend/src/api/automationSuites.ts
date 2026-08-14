@@ -32,6 +32,7 @@ export interface SuiteStep {
   continue_on_failure?: boolean
   max_retries?: number
   timeout?: number
+  auto_fix?: boolean
   status?: string
   created_at?: string
 }

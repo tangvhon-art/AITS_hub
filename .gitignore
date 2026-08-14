@@ -65,3 +65,4 @@ dist-ssr/
 /D8BB371A-3565-472C-B958-B74F03B39A37.md
 /backend/migrations/soft_delete_fields.sql
 /UI自动化脚本保存与编排模块设计方案.md
+/backend/migrations/add_suite_step_auto_fix.sql

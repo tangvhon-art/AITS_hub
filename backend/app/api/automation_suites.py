@@ -247,6 +247,7 @@ def batch_update_steps(
             continue_on_failure=step_data.continue_on_failure or False,
             max_retries=step_data.max_retries or 0,
             timeout=step_data.timeout or 300,
+            auto_fix=step_data.auto_fix or False,
         )
         db.add(step)
         new_steps.append(step)

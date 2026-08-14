@@ -64,6 +64,7 @@ class SuiteStepBase(BaseModel):
     continue_on_failure: Optional[bool] = False
     max_retries: Optional[int] = 0
     timeout: Optional[int] = 300
+    auto_fix: Optional[bool] = False
 
 
 class SuiteStepCreate(SuiteStepBase):
@@ -94,6 +95,7 @@ class SuiteStepResponse(BaseModel):
     continue_on_failure: Optional[bool] = False
     max_retries: Optional[int] = 0
     timeout: Optional[int] = 300
+    auto_fix: Optional[bool] = False
     status: Optional[str] = "pending"
     created_at: Optional[datetime] = None
 
