@@ -124,16 +124,35 @@ async def run_execution(
                     if case:
                         case_title = case.title
 
+                # 通过 AI 生成脚本名称
+                default_name = f"自动生成 - {case_title or exec_request.instruction[:30]}"
+                ai_script_name = default_name
+                try:
+                    name_description = case_title or exec_request.instruction
+                    ai_script_name = await ScriptGenerator.generate_script_name(
+                        description=name_description,
+                        target_url=exec_request.target_url or "",
+                        db_session=script_db,
+                    )
+                    if not ai_script_name or len(ai_script_name) < 2:
+                        ai_script_name = default_name
+                except Exception as name_e:
+                    print(f"AI生成脚本名称失败，使用默认名称: {name_e}")
+                    ai_script_name = default_name
+
+                # 限制名称长度
+                ai_script_name = ai_script_name[:50]
+
                 script_content = ScriptGenerator.generate_from_log(
                     execution_log=execution_log,
                     target_url=exec_request.target_url,
-                    script_name=f"自动生成 - {case_title or exec_request.instruction[:30]}",
+                    script_name=ai_script_name,
                     case_title=case_title,
                 )
 
                 script = AutomationScript(
                     project_id=project_id,
-                    name=f"自动生成 - {case_title or '执行记录'}"[:50],
+                    name=ai_script_name,
                     description=f"由执行记录 #{test_run.id} 自动生成\n指令: {exec_request.instruction[:100]}",
                     case_id=exec_request.case_id,
                     source_run_id=test_run.id,
