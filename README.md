@@ -223,6 +223,8 @@ AITS_hub/
 - **AI 洞察**: 调用 LLM 分析数据生成质量洞察建议
 
 ### UI 自动化执行
+<img width="2424" height="1436" alt="image" src="https://github.com/user-attachments/assets/5765aff9-f771-495f-9528-9f7ba22c24ef" />
+
 
 ```
 用例步骤 → 转换为执行指令 → Playwright Agent 驱动浏览器
