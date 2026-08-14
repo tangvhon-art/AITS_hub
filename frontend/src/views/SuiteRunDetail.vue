@@ -115,7 +115,15 @@
             <span class="log-action">{{ log.action }}</span>
             <span v-if="log.duration != null" class="log-duration">{{ log.duration }}s</span>
           </div>
-          <div class="log-detail">{{ log.detail || log.observation || JSON.stringify(log.params || {}) }}</div>
+          <div class="log-detail">
+            <template v-if="log.action === 'navigate' && log.url">
+              <span>{{ log.detail || '页面导航' }}：</span>
+              <a :href="log.url" target="_blank" rel="noopener noreferrer">{{ log.url }}</a>
+            </template>
+            <template v-else>
+              {{ log.detail || log.observation || JSON.stringify(log.params || {}) }}
+            </template>
+          </div>
           <div v-if="log.error" class="log-error">{{ log.error }}</div>
         </div>
       </div>
@@ -274,5 +282,7 @@ onUnmounted(() => {
 .log-action { color: #6a9955; font-size: 13px; }
 .log-duration { color: #dcdcaa; font-size: 12px; margin-left: auto; }
 .log-detail { color: #d4d4d4; font-size: 13px; word-break: break-all; line-height: 1.6; }
+.log-detail a { color: #569cd6; text-decoration: underline; }
+.log-detail a:hover { color: #4a9eff; }
 .log-error { color: #f48771; font-size: 13px; margin-top: 4px; }
 </style>

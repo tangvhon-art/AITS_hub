@@ -82,6 +82,12 @@
                   <span style="font-size: 12px; color: #666">自动修复</span>
                 </a-space>
               </a-tooltip>
+              <a-tooltip title="关闭后将以可视化浏览器窗口运行">
+                <a-space size="small" style="margin-right: 8px">
+                  <a-switch v-model:checked="headlessEnabled" size="small" :disabled="running" />
+                  <span style="font-size: 12px; color: #666">无头模式</span>
+                </a-space>
+              </a-tooltip>
               <a-button type="primary" @click="handleRun" :loading="running" :disabled="currentScript.status === 'generating'">
                 <PlayCircleOutlined /> 运行
               </a-button>
@@ -369,6 +375,7 @@ const showRunResult = ref(false)
 const runResult = ref<{ status: string; duration: number; error?: string; auto_fixed?: boolean; retry_count?: number }>({ status: '', duration: 0, error: '' })
 const refreshing = ref(false)
 const autoFixEnabled = ref(true)  // 自动修复开关
+const headlessEnabled = ref(true)  // 无头模式开关
 const currentRunId = ref<number | null>(null)  // 当前后台执行的run_id
 let runPollingTimer: any = null  // 轮询定时器
 
@@ -582,7 +589,7 @@ async function handleRun() {
   runResult.value = { status: 'running', duration: 0, error: '' }
   try {
     const result = await runScript(projectId, currentScript.value.id!, {
-      headless: true,
+      headless: headlessEnabled.value,
       auto_fix: autoFixEnabled.value,
       max_retries: 2,
     })

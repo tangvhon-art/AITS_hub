@@ -48,6 +48,12 @@
           <template #extra>
             <a-space>
               <a-button @click="openEditModal">编辑</a-button>
+              <a-tooltip title="关闭后将以可视化浏览器窗口运行">
+                <a-space size="small" style="margin-right: 8px">
+                  <a-switch v-model:checked="headlessEnabled" size="small" :disabled="executing" />
+                  <span style="font-size: 12px; color: #666">无头模式</span>
+                </a-space>
+              </a-tooltip>
               <a-button type="primary" @click="handleExecute" :loading="executing">
                 <PlayCircleOutlined /> 执行编排
               </a-button>
@@ -268,6 +274,7 @@ const waitSeconds = ref(5)
 
 const savingSteps = ref(false)
 const executing = ref(false)
+const headlessEnabled = ref(true)  // 无头模式开关
 const showRunResult = ref(false)
 const runResult = ref<SuiteRun>({ suite_id: 0, project_id: 0 })
 const runResults = ref<SuiteRunResult[]>([])
@@ -425,7 +432,7 @@ async function handleExecute() {
   }
   executing.value = true
   try {
-    const result = await executeSuite(projectId, currentSuite.value.id!, { headless: true })
+    const result = await executeSuite(projectId, currentSuite.value.id!, { headless: headlessEnabled.value })
     message.success(`编排执行已提交（运行ID: ${result.run_id}）`)
     // 跳转到执行详情页
     router.push(`/projects/${projectId}/suite-runs/${result.run_id}`)

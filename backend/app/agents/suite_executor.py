@@ -32,13 +32,15 @@ logger = logging.getLogger(__name__)
 class SuiteExecutor:
     """编排执行引擎"""
 
-    def __init__(self, suite_run_id: int, on_step_complete: Optional[Callable] = None):
+    def __init__(self, suite_run_id: int, headless: bool = True, on_step_complete: Optional[Callable] = None):
         """
         Args:
             suite_run_id: 编排执行记录ID
+            headless: 是否以无头模式运行浏览器
             on_step_complete: 每步完成后的回调函数（用于SSE推送）
         """
         self.suite_run_id = suite_run_id
+        self.headless = headless
         self.on_step_complete = on_step_complete
         self.db: Session = SessionLocal()
         self.stopped = False
@@ -105,6 +107,10 @@ class SuiteExecutor:
                     failed += 1
                     if not step.continue_on_failure:
                         stop_execution = True
+                        # 关键步骤失败且不允许继续时，立即将编排任务标记为失败，避免前端长时间看到 running
+                        suite_run.status = "failed"
+                        suite_run.error_message = result.error_message or "步骤执行失败"
+                        self.db.commit()
                 else:
                     skipped += 1
 
@@ -135,12 +141,12 @@ class SuiteExecutor:
             suite_run.total_duration = round(duration, 2)
             suite_run.completed_at = china_now_naive()
 
-            if failed == 0 and skipped == 0:
-                suite_run.status = "passed"
-            elif passed > 0 and failed > 0:
-                suite_run.status = "partial"
-            elif failed > 0 and passed == 0:
+            if failed > 0 and passed == 0:
                 suite_run.status = "failed"
+            elif failed > 0 and passed > 0:
+                suite_run.status = "partial"
+            elif failed == 0 and passed == 0 and skipped > 0:
+                suite_run.status = "skipped"
             else:
                 suite_run.status = "passed"
 
@@ -181,7 +187,7 @@ class SuiteExecutor:
         try:
             from playwright.async_api import async_playwright
             self._playwright = await async_playwright().start()
-            self._browser = await self._playwright.chromium.launch(headless=True)
+            self._browser = await self._playwright.chromium.launch(headless=self.headless)
             self._context = await self._browser.new_context(
                 viewport={"width": 1280, "height": 720},
                 # 共享cookie存储，所有页面共用
@@ -389,8 +395,9 @@ class SuiteExecutor:
 
             except Exception as e:
                 error_msg = str(e)
-                retry_count = attempt + 1
+                retry_count = attempt
                 if attempt < max_retries:
+                    retry_count = attempt + 1
                     await asyncio.sleep(1)  # 重试前等待
                 continue
 
@@ -399,7 +406,28 @@ class SuiteExecutor:
         result.retry_count = retry_count
         result.duration = round(time.time() - step_start, 2)
         result.completed_at = china_now_naive()
+
+        # 失败步骤补充执行日志，避免详情页无日志展示
+        if final_status == "failed" and (not result.execution_log or result.execution_log == "null"):
+            result.execution_log = json.dumps([
+                {"action": "step_failed", "detail": error_msg or "步骤执行失败",
+                 "timestamp": time.time(), "status": "failed", "step_name": step.step_name}
+            ], ensure_ascii=False)
+
         self.db.commit()
+
+        # 步骤失败时，同步更新其关联的 TestRun 状态，避免执行日志中子任务一直显示 running
+        if final_status == "failed" and result.run_id:
+            try:
+                sub_run = self.db.query(TestRun).filter(TestRun.id == result.run_id).first()
+                if sub_run and sub_run.status == "running":
+                    sub_run.status = "failed"
+                    sub_run.error_message = error_msg or "步骤执行失败"
+                    sub_run.completed_at = china_now_naive()
+                    sub_run.duration = round(time.time() - step_start, 2)
+                    self.db.commit()
+            except Exception as sub_e:
+                logger.warning(f"更新子执行记录状态失败: {sub_e}")
 
         return result
 
@@ -424,6 +452,26 @@ class SuiteExecutor:
         self.db.refresh(result)
         return result
 
+    @staticmethod
+    def _extract_navigation_urls(script_content: str) -> List[Dict[str, str]]:
+        """从脚本内容中提取 page.goto 导航操作，用于执行日志展示"""
+        navigations = []
+        if not script_content:
+            return navigations
+        # 匹配 await page.goto("url", ...) 或 page.goto("url", ...)
+        pattern = re.compile(r'await\s+page\.goto\s*\(\s*["\']([^"\']+)["\']', re.MULTILINE)
+        for match in pattern.finditer(script_content):
+            url = match.group(1)
+            # 尝试提取同行或上一行的中文注释作为描述
+            desc = "页面导航"
+            lines = script_content[:match.start()].split('\n')
+            if lines:
+                prev_line = lines[-1].strip()
+                if prev_line.startswith('#'):
+                    desc = prev_line.lstrip('#').strip()
+            navigations.append({"url": url, "description": desc})
+        return navigations
+
     async def _run_script_step(self, step: AutomationSuiteStep, result: AutomationSuiteRunResult) -> None:
         """执行脚本类型步骤（使用共享浏览器上下文，保证cookie串联）"""
         if not step.script_id:
@@ -435,11 +483,18 @@ class SuiteExecutor:
         if not script:
             raise ValueError(f"脚本不存在: {step.script_id}")
 
-        # 参数替换
+        # 参数替换 + 无头模式配置（回退到独立浏览器时使用）
         script_content = script.script_content
         params = step.params or {}
         for key, value in params.items():
             script_content = script_content.replace(f"{{{{{key}}}}}", str(value))
+        script_content = self._apply_headless_to_script(script_content)
+
+        # 提取导航操作，后续写入执行日志
+        navigation_logs = [
+            {"action": "navigate", "detail": nav["description"], "url": nav["url"], "status": "info"}
+            for nav in self._extract_navigation_urls(script_content)
+        ]
 
         # 获取 project_id
         suite_run = self.db.query(AutomationSuiteRun).filter(AutomationSuiteRun.id == result.suite_run_id).first()
@@ -502,8 +557,8 @@ class SuiteExecutor:
         ], ensure_ascii=False)
         self.db.commit()
 
-        # 将执行日志和耗时写入编排单步结果
-        result.execution_log = run.execution_log
+        # 将执行日志和耗时写入编排单步结果（保留导航操作）
+        result.execution_log = json.dumps(navigation_logs + json.loads(run.execution_log), ensure_ascii=False)
         result.duration = run_duration
 
         # 更新脚本统计
@@ -529,6 +584,13 @@ class SuiteExecutor:
             target_url=(case.preconditions or "")[:200],
             name=case.title,
         )
+        script_content = self._apply_headless_to_script(script_content)
+
+        # 提取导航操作，后续写入执行日志
+        navigation_logs = [
+            {"action": "navigate", "detail": nav["description"], "url": nav["url"], "status": "info"}
+            for nav in self._extract_navigation_urls(script_content)
+        ]
 
         # 创建 test_runs 记录
         suite_run = self.db.query(AutomationSuiteRun).filter(AutomationSuiteRun.id == result.suite_run_id).first()
@@ -581,9 +643,25 @@ class SuiteExecutor:
         ], ensure_ascii=False)
         self.db.commit()
 
-        # 将执行日志和耗时写入编排单步结果
-        result.execution_log = run.execution_log
+        # 将执行日志和耗时写入编排单步结果（保留导航操作）
+        result.execution_log = json.dumps(navigation_logs + json.loads(run.execution_log), ensure_ascii=False)
         result.duration = run_duration
+
+    def _apply_headless_to_script(self, script_content: str) -> str:
+        """根据当前 headless 设置调整脚本中的浏览器启动参数"""
+        import re
+        content = re.sub(
+            r'(\w+\s*=\s*await\s+\w+\.chromium\.launch\s*\(\s*headless\s*=\s*)\w+',
+            rf'\g<1>{self.headless}',
+            script_content,
+            flags=re.IGNORECASE,
+        )
+        content = re.sub(
+            r'(\w+\s*=\s*await\s+\w+\.chromium\.launch\s*\()(?!.*headless)',
+            rf'\g<1>headless={self.headless}, ',
+            content,
+        )
+        return content
 
     def stop(self) -> None:
         """停止执行"""

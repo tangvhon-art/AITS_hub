@@ -321,16 +321,16 @@ async def execute_suite(
     celery_task_id = None
     try:
         from app.tasks.script_tasks import run_automation_suite_task
-        task_result = run_automation_suite_task.delay(suite_run.id)
+        task_result = run_automation_suite_task.delay(suite_run.id, headless=req.headless)
         celery_task_id = task_result.id
         use_celery = True
-        logger.info(f"编排 #{suite.id} 已提交 Celery 任务: task_id={celery_task_id}")
+        logger.info(f"编排 #{suite.id} 已提交 Celery 任务: task_id={celery_task_id}, headless={req.headless}")
     except Exception as celery_e:
         logger.warning(f"Celery 任务提交失败，降级到 BackgroundTasks: {celery_e}")
 
         def _run_in_background(run_id: int):
             import asyncio
-            executor = SuiteExecutor(run_id)
+            executor = SuiteExecutor(run_id, headless=req.headless)
             asyncio.run(executor.execute())
 
         background_tasks.add_task(_run_in_background, suite_run.id)

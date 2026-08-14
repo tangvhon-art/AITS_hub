@@ -6,6 +6,7 @@ import asyncio
 import json
 import time
 import logging
+import re
 from typing import Optional
 
 from app.celery_app import celery_app
@@ -19,8 +20,28 @@ from app.core.timezone import china_now_naive
 logger = logging.getLogger(__name__)
 
 
+def _apply_headless_mode(script_content: str, headless: bool = True) -> str:
+    """根据 headless 参数调整脚本中的浏览器启动配置"""
+    if not script_content:
+        return script_content
+    # 将 headless=True/False 统一替换为传入值
+    content = re.sub(
+        r'(\w+\s*=\s*await\s+\w+\.chromium\.launch\s*\(\s*headless\s*=\s*)\w+',
+        rf'\g<1>{headless}',
+        script_content,
+        flags=re.IGNORECASE,
+    )
+    # 如果 launch() 中没有 headless 参数，则添加
+    content = re.sub(
+        r'(\w+\s*=\s*await\s+\w+\.chromium\.launch\s*\()(?!.*headless)',
+        rf'\g<1>headless={headless}, ',
+        content,
+    )
+    return content
+
+
 @celery_app.task(bind=True, name="run_automation_suite", max_retries=0)
-def run_automation_suite_task(self, suite_run_id: int):
+def run_automation_suite_task(self, suite_run_id: int, headless: bool = True):
     """
     Celery 任务：执行自动化编排套件
 
@@ -29,9 +50,9 @@ def run_automation_suite_task(self, suite_run_id: int):
     """
     from app.agents.suite_executor import SuiteExecutor
 
-    logger.info(f"开始执行编排任务: suite_run_id={suite_run_id}")
+    logger.info(f"开始执行编排任务: suite_run_id={suite_run_id}, headless={headless}")
     try:
-        executor = SuiteExecutor(suite_run_id)
+        executor = SuiteExecutor(suite_run_id, headless=headless)
         asyncio.run(executor.execute())
         logger.info(f"编排任务执行完成: suite_run_id={suite_run_id}")
         return {"status": "completed", "suite_run_id": suite_run_id}
@@ -97,6 +118,7 @@ def run_automation_script_task(
     auto_fix: bool = True,
     max_retries: int = 2,
     params: Optional[dict] = None,
+    headless: bool = True,
 ):
     """
     Celery 任务：执行自动化脚本（支持AI自动修复）
@@ -111,6 +133,7 @@ def run_automation_script_task(
         auto_fix: 是否自动修复
         max_retries: 最大重试次数
         params: 脚本参数
+        headless: 是否无头模式运行浏览器
     """
     db = SessionLocal()
     try:
@@ -120,14 +143,14 @@ def run_automation_script_task(
             logger.error(f"任务执行失败: run={run_id} 或 script={script_id} 不存在")
             return {"status": "failed", "error": "执行记录或脚本不存在"}
 
-        # 参数替换
+        # 参数替换 + 无头模式配置
         def apply_params(content: str) -> str:
             if params:
                 for key, value in params.items():
                     content = content.replace(f"{{{{{key}}}}}", str(value))
             return content
 
-        current_content = apply_params(script_content)
+        current_content = _apply_headless_mode(apply_params(script_content), headless)
         start_time = time.time()
         start_datetime = run.started_at or china_now_naive()
         error_msg = ""

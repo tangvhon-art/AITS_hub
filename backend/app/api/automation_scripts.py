@@ -18,7 +18,7 @@ from app.models.automation_suite import AutomationSuite, AutomationSuiteStep
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.models.agent_task import AgentTask
-from app.tasks.script_tasks import run_automation_script_task
+from app.tasks.script_tasks import run_automation_script_task, _apply_headless_mode
 from app.schemas.automation_script import (
     AutomationScriptCreate,
     AutomationScriptUpdate,
@@ -393,6 +393,7 @@ async def _run_script_background(
     auto_fix: bool,
     max_retries: int,
     params: Optional[dict] = None,
+    headless: bool = True,
 ):
     """
     后台执行脚本，支持AI自动修复重试
@@ -409,14 +410,14 @@ async def _run_script_background(
             logger.error(f"后台执行失败: run={run_id} 或 script={script_id} 不存在")
             return
 
-        # 参数替换
+        # 参数替换 + 无头模式配置
         def apply_params(content: str) -> str:
             if params:
                 for key, value in params.items():
                     content = content.replace(f"{{{{{key}}}}}", str(value))
             return content
 
-        current_content = apply_params(script_content)
+        current_content = _apply_headless_mode(apply_params(script_content), headless)
         start_time = time.time()
         start_datetime = run.started_at or china_now_naive()
         error_msg = ""
@@ -692,6 +693,7 @@ async def run_script(
         auto_fix=req.auto_fix,
         max_retries=req.max_retries,
         params=req.params,
+        headless=req.headless,
     )
 
     # 优先使用 Celery 任务队列，失败时降级到 BackgroundTasks
