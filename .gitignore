@@ -69,3 +69,7 @@ dist-ssr/
 /UI自动化脚本保存与编排模块设计方案.md
 /backend/migrations/add_suite_step_auto_fix.sql
 /backend/dump.rdb
+/接口测试模块概要设计文档.md
+/接口测试模块需求文档.md
+/backend/data/knowledge_base/project_3/chunks.json
+/backend/data/knowledge_base/project_3/faiss.index

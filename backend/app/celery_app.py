@@ -15,6 +15,7 @@ celery_app = Celery(
     backend=settings.REDIS_URL,
     include=[
         "app.tasks.script_tasks",
+        "app.tasks.api_case_tasks",
     ],
 )
 

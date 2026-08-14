@@ -20,6 +20,15 @@ from app.api.project_versions import router as project_versions_router
 from app.api.automation_scripts import router as automation_scripts_router
 from app.api.automation_suites import router as automation_suites_router
 from app.api.automation_suites import run_router as suite_runs_router
+from app.api.chat import router as chat_router
+from app.api.api_modules import router as api_modules_router
+from app.api.api_definitions import router as api_definitions_router
+from app.api.api_debug import router as api_debug_router
+from app.api.api_cases import router as api_cases_router
+from app.api.api_scenarios import router as api_scenarios_router
+from app.api.api_executions import router as api_executions_router
+from app.api.api_mock import router as api_mock_router
+from app.api.api_import import router as api_import_router
 
 __all__ = [
     "auth_router",
@@ -44,4 +53,13 @@ __all__ = [
     "automation_scripts_router",
     "automation_suites_router",
     "suite_runs_router",
+    "chat_router",
+    "api_modules_router",
+    "api_definitions_router",
+    "api_debug_router",
+    "api_cases_router",
+    "api_scenarios_router",
+    "api_executions_router",
+    "api_mock_router",
+    "api_import_router",
 ]

@@ -1,0 +1,430 @@
+"""
+MCP 工具注册系统
+
+将各模块能力封装为可被大模型调用的工具（Function Calling）
+"""
+import json
+import logging
+from typing import Dict, Any, Callable, Optional, List
+from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+
+
+class MCPTool:
+    """MCP 工具定义"""
+
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        parameters: Dict[str, Any],
+        execute: Callable,
+    ):
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+        self.execute = execute
+
+    def to_function_schema(self) -> Dict[str, Any]:
+        """转换为 OpenAI Function Calling 格式"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
+
+class MCPToolRegistry:
+    """MCP 工具注册表"""
+
+    def __init__(self):
+        self._tools: Dict[str, MCPTool] = {}
+
+    def register(self, tool: MCPTool):
+        """注册工具"""
+        self._tools[tool.name] = tool
+        logger.info(f"注册 MCP 工具: {tool.name}")
+
+    def get(self, name: str) -> Optional[MCPTool]:
+        """获取工具"""
+        return self._tools.get(name)
+
+    def list_tools(self) -> List[MCPTool]:
+        """列出所有工具"""
+        return list(self._tools.values())
+
+    def get_function_schemas(self) -> List[Dict[str, Any]]:
+        """获取所有工具的 Function Calling schema"""
+        return [tool.to_function_schema() for tool in self._tools.values()]
+
+    async def execute_tool(
+        self,
+        name: str,
+        args: Dict[str, Any],
+        db: Session,
+        project_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        执行工具
+
+        Returns:
+            {"success": True/False, "result": ... or "error": ...}
+        """
+        tool = self._tools.get(name)
+        if not tool:
+            return {"success": False, "error": f"工具不存在: {name}"}
+
+        try:
+            # 注入 user_id 到 args 中
+            if user_id and "user_id" not in args:
+                args = {**args, "user_id": user_id}
+
+            result = await tool.execute(args, db, project_id)
+
+            # 检查工具返回是否包含 error
+            if isinstance(result, dict) and result.get("error"):
+                return {"success": False, "error": result["error"]}
+
+            return {"success": True, "result": result}
+        except Exception as e:
+            logger.error(f"工具执行失败: {name}, error: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+
+# 全局工具注册表
+mcp_registry = MCPToolRegistry()
+
+
+# ==================== 工具实现 ====================
+
+async def tool_query_project_stats(args: Dict[str, Any], db: Session, project_id: Optional[int]) -> Dict[str, Any]:
+    """查询项目统计数据"""
+    from app.models.test_case import TestCase
+    from app.models.defect import Defect
+    from app.models.test_run import TestRun
+    from app.models.test_plan import TestPlan
+
+    if not project_id:
+        return {"error": "未指定项目"}
+
+    total_cases = db.query(TestCase).filter(TestCase.project_id == project_id, TestCase.is_deleted == False).count()
+    passed_cases = db.query(TestCase).filter(TestCase.project_id == project_id, TestCase.status == "passed", TestCase.is_deleted == False).count()
+    failed_cases = db.query(TestCase).filter(TestCase.project_id == project_id, TestCase.status == "failed", TestCase.is_deleted == False).count()
+
+    total_defects = db.query(Defect).filter(Defect.project_id == project_id, Defect.is_deleted == False).count()
+    open_defects = db.query(Defect).filter(Defect.project_id == project_id, Defect.status == "open", Defect.is_deleted == False).count()
+
+    total_runs = db.query(TestRun).filter(TestRun.project_id == project_id, TestRun.is_deleted == False).count()
+    total_plans = db.query(TestPlan).filter(TestPlan.project_id == project_id, TestPlan.is_deleted == False).count()
+
+    pass_rate = round(passed_cases / total_cases * 100, 2) if total_cases > 0 else 0
+
+    return {
+        "total_cases": total_cases,
+        "passed_cases": passed_cases,
+        "failed_cases": failed_cases,
+        "pass_rate": f"{pass_rate}%",
+        "total_defects": total_defects,
+        "open_defects": open_defects,
+        "total_runs": total_runs,
+        "total_plans": total_plans,
+    }
+
+
+async def tool_list_cases(args: Dict[str, Any], db: Session, project_id: Optional[int]) -> Dict[str, Any]:
+    """查询用例列表"""
+    from app.models.test_case import TestCase
+
+    if not project_id:
+        return {"error": "未指定项目"}
+
+    limit = min(args.get("limit", 10), 50)
+    status = args.get("status")
+    priority = args.get("priority")
+
+    query = db.query(TestCase).filter(TestCase.project_id == project_id, TestCase.is_deleted == False)
+    if status:
+        query = query.filter(TestCase.status == status)
+    if priority:
+        query = query.filter(TestCase.priority == priority)
+
+    total = query.count()
+    cases = query.order_by(TestCase.created_at.desc()).limit(limit).all()
+
+    return {
+        "total": total,
+        "cases": [
+            {
+                "id": c.id,
+                "title": c.title,
+                "priority": c.priority,
+                "status": c.status,
+                "module": c.module,
+            }
+            for c in cases
+        ],
+    }
+
+
+async def tool_list_defects(args: Dict[str, Any], db: Session, project_id: Optional[int]) -> Dict[str, Any]:
+    """查询缺陷列表"""
+    from app.models.defect import Defect
+
+    if not project_id:
+        return {"error": "未指定项目"}
+
+    limit = min(args.get("limit", 10), 50)
+    status = args.get("status")
+    severity = args.get("severity")
+
+    query = db.query(Defect).filter(Defect.project_id == project_id, Defect.is_deleted == False)
+    if status:
+        query = query.filter(Defect.status == status)
+    if severity:
+        query = query.filter(Defect.severity == severity)
+
+    total = query.count()
+    defects = query.order_by(Defect.created_at.desc()).limit(limit).all()
+
+    return {
+        "total": total,
+        "defects": [
+            {
+                "id": d.id,
+                "title": d.title,
+                "severity": d.severity,
+                "priority": d.priority,
+                "status": d.status,
+            }
+            for d in defects
+        ],
+    }
+
+
+async def tool_analyze_defects(args: Dict[str, Any], db: Session, project_id: Optional[int]) -> Dict[str, Any]:
+    """缺陷分析统计"""
+    from app.models.defect import Defect
+
+    if not project_id:
+        return {"error": "未指定项目"}
+
+    defects = db.query(Defect).filter(Defect.project_id == project_id, Defect.is_deleted == False).all()
+
+    # 按严重程度统计
+    severity_stats = {}
+    for d in defects:
+        severity_stats[d.severity] = severity_stats.get(d.severity, 0) + 1
+
+    # 按状态统计
+    status_stats = {}
+    for d in defects:
+        status_stats[d.status] = status_stats.get(d.status, 0) + 1
+
+    # 按根因分类统计
+    root_cause_stats = {}
+    for d in defects:
+        if d.root_cause_category:
+            root_cause_stats[d.root_cause_category] = root_cause_stats.get(d.root_cause_category, 0) + 1
+
+    return {
+        "total": len(defects),
+        "by_severity": severity_stats,
+        "by_status": status_stats,
+        "by_root_cause": root_cause_stats,
+        "open_count": status_stats.get("open", 0),
+        "resolved_count": status_stats.get("resolved", 0),
+    }
+
+
+async def tool_search_knowledge(args: Dict[str, Any], db: Session, project_id: Optional[int]) -> Dict[str, Any]:
+    """知识库检索"""
+    from app.services.knowledge_base import knowledge_base_service
+
+    if not project_id:
+        return {"error": "未指定项目"}
+
+    query = args.get("query", "")
+    top_k = min(args.get("top_k", 5), 10)
+
+    if not query:
+        return {"error": "查询内容不能为空"}
+
+    try:
+        results = knowledge_base_service.search(project_id=project_id, query=query, top_k=top_k)
+    except Exception as e:
+        return {"error": f"知识库检索失败: {str(e)}"}
+
+    return {
+        "query": query,
+        "total": len(results) if isinstance(results, list) else 0,
+        "results": [
+            {
+                "title": r.get("title", ""),
+                "content": r.get("content", r.get("text", ""))[:300],
+                "score": r.get("score", r.get("similarity")),
+            }
+            for r in (results if isinstance(results, list) else [])
+        ],
+    }
+
+
+async def tool_create_defect(args: Dict[str, Any], db: Session, project_id: Optional[int]) -> Dict[str, Any]:
+    """创建缺陷"""
+    from app.models.defect import Defect
+
+    if not project_id:
+        return {"error": "未指定项目"}
+
+    title = args.get("title", "").strip()
+    if not title:
+        return {"error": "缺陷标题不能为空"}
+
+    # 校验 severity
+    valid_severity = ["blocker", "critical", "major", "minor", "trivial"]
+    severity = args.get("severity", "major")
+    if severity not in valid_severity:
+        # 尝试映射常见错误值
+        severity_map = {
+            "high": "critical",
+            "medium": "major",
+            "low": "minor",
+            "critical": "critical",
+            "major": "major",
+            "minor": "minor",
+        }
+        severity = severity_map.get(severity.lower(), "major")
+
+    # 校验 priority
+    valid_priority = ["P0", "P1", "P2", "P3"]
+    priority = args.get("priority", "P2")
+    if priority not in valid_priority:
+        priority_map = {
+            "high": "P0",
+            "medium": "P2",
+            "low": "P3",
+            "p0": "P0",
+            "p1": "P1",
+            "p2": "P2",
+            "p3": "P3",
+        }
+        priority = priority_map.get(priority.lower(), "P2")
+
+    defect = Defect(
+        project_id=project_id,
+        title=title,
+        description=args.get("description", ""),
+        severity=severity,
+        priority=priority,
+        status="open",
+        reproduce_steps=args.get("reproduce_steps", ""),
+        expected_result=args.get("expected_result", ""),
+        actual_result=args.get("actual_result", ""),
+        created_by=args.get("user_id"),
+    )
+    db.add(defect)
+    db.commit()
+    db.refresh(defect)
+
+    logger.info(f"MCP 创建缺陷成功: id={defect.id}, title={defect.title}")
+
+    return {
+        "id": defect.id,
+        "title": defect.title,
+        "severity": defect.severity,
+        "priority": defect.priority,
+        "status": defect.status,
+        "message": "缺陷创建成功",
+    }
+
+
+# ==================== 注册工具 ====================
+
+mcp_registry.register(MCPTool(
+    name="query_project_stats",
+    description="查询项目的统计数据，包括用例数量、缺陷数量、执行记录、测试计划等概览信息",
+    parameters={
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+    execute=tool_query_project_stats,
+))
+
+mcp_registry.register(MCPTool(
+    name="list_cases",
+    description="查询测试用例列表，支持按状态、优先级筛选，返回最近的用例",
+    parameters={
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "description": "用例状态: pending/passed/failed/blocked"},
+            "priority": {"type": "string", "description": "优先级: P0/P1/P2/P3"},
+            "limit": {"type": "integer", "description": "返回数量，默认10，最大50"},
+        },
+        "required": [],
+    },
+    execute=tool_list_cases,
+))
+
+mcp_registry.register(MCPTool(
+    name="list_defects",
+    description="查询缺陷列表，支持按状态、严重程度筛选",
+    parameters={
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "description": "缺陷状态: open/confirmed/resolved/closed/reopened"},
+            "severity": {"type": "string", "description": "严重程度: blocker/critical/major/minor/trivial"},
+            "limit": {"type": "integer", "description": "返回数量，默认10，最大50"},
+        },
+        "required": [],
+    },
+    execute=tool_list_defects,
+))
+
+mcp_registry.register(MCPTool(
+    name="analyze_defects",
+    description="分析项目缺陷情况，按严重程度、状态、根因分类统计",
+    parameters={
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+    execute=tool_analyze_defects,
+))
+
+mcp_registry.register(MCPTool(
+    name="search_knowledge",
+    description="在项目知识库中检索相关文档和内容",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "检索查询内容"},
+            "top_k": {"type": "integer", "description": "返回结果数量，默认5，最大10"},
+        },
+        "required": ["query"],
+    },
+    execute=tool_search_knowledge,
+))
+
+mcp_registry.register(MCPTool(
+    name="create_defect",
+    description="创建一个新的缺陷记录",
+    parameters={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "缺陷标题"},
+            "description": {"type": "string", "description": "缺陷描述"},
+            "severity": {"type": "string", "description": "严重程度: blocker/critical/major/minor/trivial"},
+            "priority": {"type": "string", "description": "优先级: P0/P1/P2/P3"},
+            "reproduce_steps": {"type": "string", "description": "复现步骤"},
+            "expected_result": {"type": "string", "description": "预期结果"},
+            "actual_result": {"type": "string", "description": "实际结果"},
+        },
+        "required": ["title"],
+    },
+    execute=tool_create_defect,
+))

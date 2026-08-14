@@ -2,10 +2,11 @@
 报告管理 API
 """
 import json
+import logging
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -24,6 +25,8 @@ from app.schemas.report import (
     ReportResponse,
     ReportListResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/reports", tags=["报告管理"])
 
@@ -83,10 +86,11 @@ def generate_report(
     project_id: int,
     req: ReportGenerateRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """AI 生成测试报告"""
+    """AI 生成测试报告（异步）"""
     _check_project_access(db, current_user, project_id)
 
     # 校验版本存在
@@ -97,11 +101,13 @@ def generate_report(
     if not version:
         raise HTTPException(status_code=404, detail="版本不存在，请先选择版本再生成报告")
 
+    report_title = req.title or f"{version.name} - 测试报告 - {china_now_naive().strftime('%Y-%m-%d %H:%M')}"
+
     # 创建报告记录
     report = TestReport(
         project_id=project_id,
         version_id=req.version_id,
-        title=req.title or f"{version.name} - 测试报告 - {china_now_naive().strftime('%Y-%m-%d %H:%M')}",
+        title=report_title,
         report_type=req.report_type,
         status="generating",
         created_by=current_user.id,
@@ -118,12 +124,13 @@ def generate_report(
             "report_type": req.report_type,
             "version_id": req.version_id,
             "version_name": version.name,
-            "title": report.title,
+            "title": report_title,
         },
         llm_config_id=req.llm_config_id,
         created_by=current_user.id,
     )
     db.add(agent_task)
+    db.flush()
 
     log_audit(
         db, action="generate", resource_type="report",
@@ -135,52 +142,40 @@ def generate_report(
     )
     db.commit()
     db.refresh(report)
+    db.refresh(agent_task)
 
+    # 异步生成：优先 Celery，降级 BackgroundTasks
+    use_celery = False
+    celery_task_id = None
     try:
-        # 调用报告生成 Agent
-        agent = ReportGeneratorAgent(db, llm_config_id=req.llm_config_id)
-        result = agent.generate(
-            project_id=project_id,
-            report_type=req.report_type,
-            title=report.title,
-            version_id=req.version_id,
+        from app.tasks.report_tasks import generate_test_report_task
+        task_result = generate_test_report_task.delay(
+            report.id, project_id, req.report_type, req.version_id,
+            report_title, req.llm_config_id, agent_task.id
+        )
+        celery_task_id = task_result.id
+        use_celery = True
+        logger.info(f"报告 #{report.id} 已提交 Celery 任务: task_id={celery_task_id}")
+    except Exception as celery_e:
+        logger.warning(f"Celery 任务提交失败，降级到 BackgroundTasks: {celery_e}")
+
+        def _generate_in_background(rid: int, pid: int, rtype: str, vid: int, title: str, llm_id, at_id: int):
+            from app.tasks.report_tasks import generate_test_report_task
+            generate_test_report_task(rid, pid, rtype, vid, title, llm_id, at_id)
+
+        background_tasks.add_task(
+            _generate_in_background,
+            report.id, project_id, req.report_type, req.version_id,
+            report_title, req.llm_config_id, agent_task.id
         )
 
-        # 更新报告
-        report.content = result.get("content", "")
-        report.summary = result.get("summary", {})
-        report.total_cases = result.get("total_cases", 0)
-        report.passed_cases = result.get("passed_cases", 0)
-        report.failed_cases = result.get("failed_cases", 0)
-        report.pass_rate = result.get("pass_rate", 0.0)
-        report.total_defects = result.get("total_defects", 0)
-        report.open_defects = result.get("open_defects", 0)
-        report.total_runs = result.get("total_runs", 0)
-        report.avg_duration = result.get("avg_duration", 0.0)
-        report.status = "completed"
-        report.updated_at = china_now_naive()
-
-        # 更新 Agent 任务
-        agent_task.status = "success"
-        agent_task.output_result = {
-            "report_id": report.id,
-            "total_cases": report.total_cases,
-            "pass_rate": report.pass_rate,
-        }
-        agent_task.token_usage = result.get("token_usage", {})
-        agent_task.completed_at = china_now_naive()
-
+    # 在 AgentTask 中记录 celery_task_id
+    try:
+        agent_task.input_params["celery_task_id"] = celery_task_id
+        agent_task.input_params["executor"] = "celery" if use_celery else "background"
         db.commit()
-        db.refresh(report)
-
-    except Exception as e:
-        report.status = "failed"
-        report.content = f"报告生成失败: {str(e)}"
-        agent_task.status = "failed"
-        agent_task.error_message = str(e)
-        agent_task.completed_at = china_now_naive()
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"报告生成失败: {str(e)}")
+    except Exception:
+        pass
 
     return ReportResponse.model_validate(report)
 

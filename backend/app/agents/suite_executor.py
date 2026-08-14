@@ -25,6 +25,7 @@ from app.models.automation_suite import (
 from app.models.automation_script import AutomationScript
 from app.models.test_run import TestRun
 from app.models.test_case import TestCase
+from app.models.defect import Defect
 from app.agents.script_generator import ScriptGenerator
 
 logger = logging.getLogger(__name__)
@@ -351,6 +352,122 @@ class SuiteExecutor:
         except Exception as e:
             logger.error(f"更新测试计划统计失败: plan_id={plan_id}, error={e}", exc_info=True)
 
+    def _create_defect_from_failure(
+        self,
+        suite_run: AutomationSuiteRun,
+        step: AutomationSuiteStep,
+        result: AutomationSuiteRunResult,
+        error_msg: str,
+    ) -> Optional[Defect]:
+        """
+        编排步骤执行失败时，自动创建缺陷记录
+
+        Args:
+            suite_run: 编排执行记录
+            step: 失败的步骤
+            result: 步骤执行结果
+            error_msg: 错误信息
+
+        Returns:
+            创建的缺陷记录（如果创建成功）
+        """
+        # 去重：同一编排运行中，同一步骤只创建一个缺陷
+        existing = self.db.query(Defect).filter(
+            Defect.project_id == suite_run.project_id,
+            Defect.run_id == result.run_id if result.run_id else Defect.run_id.is_(None),
+            Defect.title == f"[编排失败] {step.step_name}",
+        ).first()
+        if existing:
+            # 已存在缺陷，追加重试信息到 error_log
+            try:
+                retry_info = f"\n\n[第{result.retry_count + 1}次重试失败] {error_msg}"
+                existing.error_log = (existing.error_log or "") + retry_info
+                self.db.commit()
+            except Exception:
+                pass
+            return existing
+
+        # 根据错误类型推断严重程度
+        severity = "major"
+        error_lower = (error_msg or "").lower()
+        if "timeout" in error_lower or "超时" in error_lower:
+            severity = "major"
+        elif "selector" in error_lower or "选择器" in error_lower or "not found" in error_lower:
+            severity = "minor"
+        elif "assert" in error_lower or "断言" in error_lower:
+            severity = "major"
+        elif "exception" in error_lower or "error" in error_lower or "异常" in error_lower:
+            severity = "critical"
+
+        # 从执行日志提取复现步骤
+        reproduce_steps = ""
+        try:
+            if result.execution_log:
+                logs = json.loads(result.execution_log) if isinstance(result.execution_log, str) else result.execution_log
+                step_descriptions = []
+                for i, log_item in enumerate(logs, 1):
+                    detail = log_item.get("detail", "")
+                    if detail:
+                        step_descriptions.append(f"{i}. {detail}")
+                reproduce_steps = "\n".join(step_descriptions)
+        except Exception:
+            pass
+
+        # 获取编排名称
+        suite_name = ""
+        try:
+            suite = self.db.query(AutomationSuite).filter(AutomationSuite.id == suite_run.suite_id).first()
+            suite_name = suite.name if suite else ""
+        except Exception:
+            pass
+
+        defect = Defect(
+            project_id=suite_run.project_id,
+            run_id=result.run_id,
+            case_id=step.case_id,
+            title=f"[编排失败] {step.step_name}",
+            description=(
+                f"自动化编排执行失败\n"
+                f"编排名称: {suite_name}\n"
+                f"步骤名称: {step.step_name}\n"
+                f"步骤类型: {step.step_type}\n"
+                f"重试次数: {result.retry_count}\n"
+                f"错误信息: {error_msg}"
+            ),
+            severity=severity,
+            priority="medium",
+            status="open",
+            reproduce_steps=reproduce_steps,
+            actual_result=error_msg,
+            error_log=error_msg,
+            screenshot_url=result.screenshot_url,
+            created_by=suite_run.executed_by,
+        )
+        self.db.add(defect)
+        self.db.commit()
+        self.db.refresh(defect)
+
+        # 将缺陷ID记录到执行结果中（方便前端展示关联）
+        try:
+            if result.execution_log:
+                logs = json.loads(result.execution_log) if isinstance(result.execution_log, str) else result.execution_log
+            else:
+                logs = []
+            logs.append({
+                "action": "defect_created",
+                "detail": f"已自动创建缺陷 #{defect.id}",
+                "timestamp": time.time(),
+                "status": "success",
+                "defect_id": defect.id,
+            })
+            result.execution_log = json.dumps(logs, ensure_ascii=False)
+            self.db.commit()
+        except Exception:
+            pass
+
+        logger.info(f"编排步骤失败，已自动创建缺陷: defect_id={defect.id}, step={step.step_name}")
+        return defect
+
     async def _execute_step(
         self,
         suite_run: AutomationSuiteRun,
@@ -429,6 +546,13 @@ class SuiteExecutor:
                     self.db.commit()
             except Exception as sub_e:
                 logger.warning(f"更新子执行记录状态失败: {sub_e}")
+
+        # 步骤失败时，自动创建缺陷
+        if final_status == "failed":
+            try:
+                self._create_defect_from_failure(suite_run, step, result, error_msg)
+            except Exception as defect_e:
+                logger.warning(f"自动创建缺陷失败（不影响编排流程）: {defect_e}")
 
         return result
 

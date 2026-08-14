@@ -11,9 +11,15 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@/views/Layout.vue'),
-    redirect: '/projects',
+    redirect: '/dashboard',
     meta: { requiresAuth: true },
     children: [
+      {
+        path: 'dashboard',
+        name: 'Dashboard',
+        component: () => import('@/views/Dashboard.vue'),
+        meta: { title: '智能助手', icon: 'Robot' }
+      },
       {
         path: 'projects',
         name: 'Projects',
@@ -97,6 +103,58 @@ const routes: RouteRecordRaw[] = [
         name: 'ImportExport',
         component: () => import('@/views/ImportExport.vue'),
         meta: { title: '数据导入导出', icon: 'Import' }
+      },
+      {
+        path: 'projects/:id/api-definitions',
+        component: () => import('@/views/api-test/ApiTestLayout.vue'),
+        meta: { title: '接口测试', icon: 'ApiOutlined', activeMenu: 'definitions' },
+        children: [
+          { path: '', name: 'ApiDefinitions', component: () => import('@/views/api-test/ApiDefinitions.vue'), meta: { title: '接口管理', activeMenu: 'definitions' } },
+          { path: ':apiId', name: 'ApiDefinitionEdit', component: () => import('@/views/api-test/ApiDefinitionEdit.vue'), meta: { title: '接口编辑', activeMenu: 'definitions' } },
+        ]
+      },
+      {
+        path: 'projects/:id/api-debug',
+        component: () => import('@/views/api-test/ApiTestLayout.vue'),
+        meta: { title: '接口测试', icon: 'ApiOutlined', activeMenu: 'debug' },
+        children: [
+          { path: '', name: 'ApiDebug', component: () => import('@/views/api-test/ApiDebug.vue'), meta: { title: '接口调试', activeMenu: 'debug' } },
+        ]
+      },
+      {
+        path: 'projects/:id/api-cases',
+        component: () => import('@/views/api-test/ApiTestLayout.vue'),
+        meta: { title: '接口测试', icon: 'ApiOutlined', activeMenu: 'cases' },
+        children: [
+          { path: '', name: 'ApiCases', component: () => import('@/views/api-test/ApiCases.vue'), meta: { title: '测试用例', activeMenu: 'cases' } },
+          { path: ':caseId', name: 'ApiCaseEdit', component: () => import('@/views/api-test/ApiCaseEdit.vue'), meta: { title: '用例编辑', activeMenu: 'cases' } },
+        ]
+      },
+      {
+        path: 'projects/:id/api-scenarios',
+        component: () => import('@/views/api-test/ApiTestLayout.vue'),
+        meta: { title: '接口测试', icon: 'ApiOutlined', activeMenu: 'scenarios' },
+        children: [
+          { path: '', name: 'ApiScenarios', component: () => import('@/views/api-test/ApiScenarios.vue'), meta: { title: '场景编排', activeMenu: 'scenarios' } },
+          { path: ':scenarioId', name: 'ApiScenarioEdit', component: () => import('@/views/api-test/ApiScenarioEdit.vue'), meta: { title: '场景编辑', activeMenu: 'scenarios' } },
+        ]
+      },
+      {
+        path: 'projects/:id/api-executions',
+        component: () => import('@/views/api-test/ApiTestLayout.vue'),
+        meta: { title: '接口测试', icon: 'ApiOutlined', activeMenu: 'executions' },
+        children: [
+          { path: '', name: 'ApiExecutions', component: () => import('@/views/api-test/ApiExecutions.vue'), meta: { title: '执行记录', activeMenu: 'executions' } },
+          { path: ':executionId', name: 'ApiExecutionDetail', component: () => import('@/views/api-test/ApiExecutionDetail.vue'), meta: { title: '执行详情', activeMenu: 'executions' } },
+        ]
+      },
+      {
+        path: 'projects/:id/api-mock',
+        component: () => import('@/views/api-test/ApiTestLayout.vue'),
+        meta: { title: '接口测试', icon: 'ApiOutlined', activeMenu: 'mock' },
+        children: [
+          { path: '', name: 'ApiMock', component: () => import('@/views/api-test/ApiMock.vue'), meta: { title: 'Mock服务', activeMenu: 'mock' } },
+        ]
       },
       {
         path: 'agent-tasks',

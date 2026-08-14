@@ -18,6 +18,19 @@ from app.models.automation_suite import (
     AutomationSuiteRun,
     AutomationSuiteRunResult,
 )
+from app.models.api_test import (
+    ApiModule,
+    ApiDefinition,
+    ApiTestCase,
+    ApiCaseAssertion,
+    ApiScenario,
+    ApiScenarioStep,
+    ApiScenarioVariable,
+    ApiExecution,
+    ApiExecutionResult,
+    ApiMockExpectation,
+    ApiDebugHistory,
+)
 
 __all__ = [
     "User",
@@ -40,4 +53,15 @@ __all__ = [
     "AutomationSuiteStep",
     "AutomationSuiteRun",
     "AutomationSuiteRunResult",
+    "ApiModule",
+    "ApiDefinition",
+    "ApiTestCase",
+    "ApiCaseAssertion",
+    "ApiScenario",
+    "ApiScenarioStep",
+    "ApiScenarioVariable",
+    "ApiExecution",
+    "ApiExecutionResult",
+    "ApiMockExpectation",
+    "ApiDebugHistory",
 ]

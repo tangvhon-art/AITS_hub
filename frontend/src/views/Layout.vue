@@ -11,6 +11,12 @@
         @click="handleMenuClick"
         class="sider-menu"
       >
+        <a-menu-item key="/dashboard">
+          <template #icon>
+            <RobotOutlined />
+          </template>
+          <span>智能助手</span>
+        </a-menu-item>
         <a-menu-item key="/projects">
           <template #icon>
             <ProjectOutlined />
@@ -52,6 +58,12 @@
             <AppstoreOutlined />
           </template>
           <span>自动化编排</span>
+        </a-menu-item>
+        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/api-definitions`">
+          <template #icon>
+            <ApiOutlined />
+          </template>
+          <span>接口测试</span>
         </a-menu-item>
         <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/defects`">
           <template #icon>
@@ -192,7 +204,8 @@ import {
   ImportOutlined,
   FileSearchOutlined,
   TagOutlined,
-  MonitorOutlined
+  MonitorOutlined,
+  ApiOutlined
 } from '@ant-design/icons-vue'
 
 interface TabItem {
@@ -227,8 +240,8 @@ function loadTabs() {
     }
   }
   // 确保首页标签存在
-  if (!openTabs.value.find(t => t.path === '/projects')) {
-    openTabs.value.unshift({ path: '/projects', title: '项目管理', closable: false })
+  if (!openTabs.value.find(t => t.path === '/dashboard')) {
+    openTabs.value.unshift({ path: '/dashboard', title: '智能助手', closable: false })
   }
 }
 
@@ -239,8 +252,8 @@ function handleRefreshReset() {
   if (isReload) {
     const currentPath = route.path
     const currentTitle = getPageTitle()
-    const kept: TabItem[] = [{ path: '/projects', title: '项目管理', closable: false }]
-    if (currentPath !== '/projects') {
+    const kept: TabItem[] = [{ path: '/dashboard', title: '智能助手', closable: false }]
+    if (currentPath !== '/dashboard' && currentPath !== '/projects') {
       kept.push({ path: currentPath, title: currentTitle, closable: true })
     }
     openTabs.value = kept
@@ -274,7 +287,7 @@ function addTab() {
     openTabs.value.push({
       path,
       title,
-      closable: path !== '/projects'
+      closable: path !== '/dashboard' && path !== '/projects'
     })
     saveTabs()
   } else if (existing.title !== title) {
@@ -354,10 +367,14 @@ function handleCommand({ key }: { key: string }) {
   background: #fff;
   border-right: 1px solid #f0f0f0;
   box-shadow: 2px 0 8px 0 rgba(29, 35, 41, 0.05);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .logo {
   height: 64px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -370,6 +387,28 @@ function handleCommand({ key }: { key: string }) {
 
 .sider-menu {
   border-right: none;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+/* 自定义滚动条样式 */
+.sider-menu::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sider-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sider-menu::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 2px;
+}
+
+.sider-menu::-webkit-scrollbar-thumb:hover {
+  background: #bfbfbf;
 }
 
 .header {
@@ -511,6 +550,13 @@ function handleCommand({ key }: { key: string }) {
 
 :deep(.ant-layout-sider) {
   background: #fff;
+  overflow: hidden;
+}
+
+:deep(.ant-layout-sider-children) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 :deep(.ant-menu-light .ant-menu-item-selected) {

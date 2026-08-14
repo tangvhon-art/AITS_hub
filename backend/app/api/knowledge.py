@@ -1,10 +1,11 @@
 """
 知识库管理 API
 """
+import logging
 import os
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -24,6 +25,8 @@ from app.schemas.knowledge import (
     KnowledgeSearchResponse,
     KnowledgeStatsResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/knowledge", tags=["知识库管理"])
 
@@ -65,6 +68,7 @@ def create_knowledge_doc(
     project_id: int,
     doc_data: KnowledgeDocCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -91,6 +95,7 @@ def create_knowledge_doc(
         created_by=current_user.id,
     )
     db.add(agent_task)
+    db.flush()
 
     log_audit(
         db, action="create", resource_type="knowledge",
@@ -102,35 +107,33 @@ def create_knowledge_doc(
     )
     db.commit()
     db.refresh(doc)
+    db.refresh(agent_task)
 
-    # 异步处理：添加到知识库
+    # 异步处理：优先 Celery，降级 BackgroundTasks
+    use_celery = False
+    celery_task_id = None
     try:
-        result = knowledge_base_service.add_document(
-            project_id=project_id,
-            doc_id=doc.id,
-            title=doc.title,
-            content=doc.content,
-        )
-        if result.get("success"):
-            doc.status = "ready"
-            doc.chunk_count = result.get("chunk_count", 0)
-            agent_task.status = "success"
-            agent_task.output_result = {"chunk_count": result.get("chunk_count", 0)}
-        else:
-            doc.status = "failed"
-            doc.error_message = result.get("error", "")
-            agent_task.status = "failed"
-            agent_task.error_message = result.get("error", "")
-        agent_task.completed_at = china_now_naive()
+        from app.tasks.knowledge_tasks import process_knowledge_doc_task
+        task_result = process_knowledge_doc_task.delay(doc.id, project_id, agent_task.id)
+        celery_task_id = task_result.id
+        use_celery = True
+        logger.info(f"知识库文档 #{doc.id} 已提交 Celery 任务: task_id={celery_task_id}")
+    except Exception as celery_e:
+        logger.warning(f"Celery 任务提交失败，降级到 BackgroundTasks: {celery_e}")
+
+        def _process_in_background(doc_id: int, pid: int, at_id: int):
+            from app.tasks.knowledge_tasks import process_knowledge_doc_task
+            process_knowledge_doc_task(doc_id, pid, at_id)
+
+        background_tasks.add_task(_process_in_background, doc.id, project_id, agent_task.id)
+
+    # 在 AgentTask 中记录 celery_task_id
+    try:
+        agent_task.input_params["celery_task_id"] = celery_task_id
+        agent_task.input_params["executor"] = "celery" if use_celery else "background"
         db.commit()
-        db.refresh(doc)
-    except Exception as e:
-        doc.status = "failed"
-        doc.error_message = str(e)
-        agent_task.status = "failed"
-        agent_task.error_message = str(e)
-        agent_task.completed_at = china_now_naive()
-        db.commit()
+    except Exception:
+        pass
 
     return KnowledgeDocResponse.model_validate(doc)
 
@@ -139,6 +142,7 @@ def create_knowledge_doc(
 async def upload_knowledge_doc(
     project_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -197,6 +201,7 @@ async def upload_knowledge_doc(
         created_by=current_user.id,
     )
     db.add(agent_task)
+    db.flush()
 
     log_audit(
         db, action="import", resource_type="knowledge",
@@ -208,35 +213,33 @@ async def upload_knowledge_doc(
     )
     db.commit()
     db.refresh(doc)
+    db.refresh(agent_task)
 
-    # 添加到知识库
+    # 异步处理：优先 Celery，降级 BackgroundTasks
+    use_celery = False
+    celery_task_id = None
     try:
-        result = knowledge_base_service.add_document(
-            project_id=project_id,
-            doc_id=doc.id,
-            title=doc.title,
-            content=doc.content,
-        )
-        if result.get("success"):
-            doc.status = "ready"
-            doc.chunk_count = result.get("chunk_count", 0)
-            agent_task.status = "success"
-            agent_task.output_result = {"chunk_count": result.get("chunk_count", 0)}
-        else:
-            doc.status = "failed"
-            doc.error_message = result.get("error", "")
-            agent_task.status = "failed"
-            agent_task.error_message = result.get("error", "")
-        agent_task.completed_at = china_now_naive()
+        from app.tasks.knowledge_tasks import process_knowledge_doc_task
+        task_result = process_knowledge_doc_task.delay(doc.id, project_id, agent_task.id)
+        celery_task_id = task_result.id
+        use_celery = True
+        logger.info(f"知识库文档 #{doc.id} 已提交 Celery 任务: task_id={celery_task_id}")
+    except Exception as celery_e:
+        logger.warning(f"Celery 任务提交失败，降级到 BackgroundTasks: {celery_e}")
+
+        def _process_in_background(doc_id: int, pid: int, at_id: int):
+            from app.tasks.knowledge_tasks import process_knowledge_doc_task
+            process_knowledge_doc_task(doc_id, pid, at_id)
+
+        background_tasks.add_task(_process_in_background, doc.id, project_id, agent_task.id)
+
+    # 在 AgentTask 中记录 celery_task_id
+    try:
+        agent_task.input_params["celery_task_id"] = celery_task_id
+        agent_task.input_params["executor"] = "celery" if use_celery else "background"
         db.commit()
-        db.refresh(doc)
-    except Exception as e:
-        doc.status = "failed"
-        doc.error_message = str(e)
-        agent_task.status = "failed"
-        agent_task.error_message = str(e)
-        agent_task.completed_at = china_now_naive()
-        db.commit()
+    except Exception:
+        pass
 
     return KnowledgeDocResponse.model_validate(doc)
 

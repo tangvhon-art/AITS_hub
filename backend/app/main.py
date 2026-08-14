@@ -34,6 +34,15 @@ from app.api import (
     automation_suites_router,
     suite_runs_router,
     project_versions_router,
+    chat_router,
+    api_modules_router,
+    api_definitions_router,
+    api_debug_router,
+    api_cases_router,
+    api_scenarios_router,
+    api_executions_router,
+    api_mock_router,
+    api_import_router,
 )
 
 logging.basicConfig(
@@ -54,7 +63,11 @@ async def lifespan(app: FastAPI):
         TestPlan, TestPlanCase, TestEnvironment, AuditLog,
         AutomationScript, AutomationSuite, AutomationSuiteStep,
         AutomationSuiteRun, AutomationSuiteRunResult,
-        ProjectVersion
+        ProjectVersion,
+        ApiModule, ApiDefinition, ApiTestCase, ApiCaseAssertion,
+        ApiScenario, ApiScenarioStep, ApiScenarioVariable,
+        ApiExecution, ApiExecutionResult, ApiMockExpectation,
+        ApiDebugHistory,
     )
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表初始化完成")
@@ -106,6 +119,15 @@ app.include_router(automation_scripts_router)
 app.include_router(automation_suites_router)
 app.include_router(suite_runs_router)
 app.include_router(project_versions_router)
+app.include_router(chat_router)
+app.include_router(api_modules_router)
+app.include_router(api_definitions_router)
+app.include_router(api_debug_router)
+app.include_router(api_cases_router)
+app.include_router(api_scenarios_router)
+app.include_router(api_executions_router)
+app.include_router(api_mock_router)
+app.include_router(api_import_router)
 
 
 @app.get("/api/health", tags=["系统"])
