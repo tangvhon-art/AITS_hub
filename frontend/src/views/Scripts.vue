@@ -110,6 +110,19 @@
               </span>
               <span v-else>从未运行</span>
             </a-descriptions-item>
+            <a-descriptions-item label="所属编排" :span="3">
+              <template v-if="scriptSuites.length > 0">
+                <a-tag
+                  v-for="suite in scriptSuites"
+                  :key="suite.suite_id"
+                  color="blue"
+                  style="margin-bottom: 4px"
+                >
+                  {{ suite.suite_name }}（{{ suite.step_names.join(', ') }}）
+                </a-tag>
+              </template>
+              <span v-else style="color: #999">未被任何编排套件引用</span>
+            </a-descriptions-item>
             <a-descriptions-item label="描述" :span="3">{{ currentScript.description || '-' }}</a-descriptions-item>
           </a-descriptions>
 
@@ -323,8 +336,8 @@ import {
 } from '@ant-design/icons-vue'
 import {
   getScripts, createScript, updateScript, deleteScript,
-  duplicateScript, runScript, getScriptRuns,
-  type AutomationScript
+  duplicateScript, runScript, getScriptRuns, getScriptSuites,
+  type AutomationScript, type ScriptSuiteInfo
 } from '@/api/automationScripts'
 import { getExecutionRun } from '@/api/execution'
 
@@ -336,6 +349,7 @@ const scripts = ref<AutomationScript[]>([])
 const currentScript = ref<AutomationScript | null>(null)
 const searchKeyword = ref('')
 const filterStatus = ref<string | undefined>(undefined)
+const scriptSuites = ref<ScriptSuiteInfo[]>([])
 
 const showCreateModal = ref(false)
 const creating = ref(false)
@@ -409,10 +423,16 @@ async function loadScripts() {
   }
 }
 
-function selectScript(script: AutomationScript) {
+async function selectScript(script: AutomationScript) {
   currentScript.value = script
   editing.value = false
   editContent.value = script.script_content || ''
+  // 获取关联的编排套件信息
+  try {
+    scriptSuites.value = await getScriptSuites(projectId, script.id!)
+  } catch (e) {
+    scriptSuites.value = []
+  }
 }
 
 async function handleCreate() {

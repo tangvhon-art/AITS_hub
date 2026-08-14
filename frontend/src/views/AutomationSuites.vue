@@ -47,7 +47,7 @@
           </template>
           <template #extra>
             <a-space>
-              <a-button @click="showEditModal = true">编辑</a-button>
+              <a-button @click="openEditModal">编辑</a-button>
               <a-button type="primary" @click="handleExecute" :loading="executing">
                 <PlayCircleOutlined /> 执行编排
               </a-button>

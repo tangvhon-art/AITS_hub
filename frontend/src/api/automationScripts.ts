@@ -70,6 +70,17 @@ export function getScriptRuns(projectId: number, scriptId: number) {
   return request.get<any[]>(`/projects/${projectId}/scripts/${scriptId}/runs`)
 }
 
+export interface ScriptSuiteInfo {
+  suite_id: number
+  suite_name: string
+  status: string
+  step_names: string[]
+}
+
 export function getScriptsByCase(projectId: number, caseId: number) {
   return request.get<AutomationScript[]>(`/projects/${projectId}/scripts/by-case/${caseId}`)
+}
+
+export function getScriptSuites(projectId: number, scriptId: number) {
+  return request.get<ScriptSuiteInfo[]>(`/projects/${projectId}/scripts/${scriptId}/suites`)
 }

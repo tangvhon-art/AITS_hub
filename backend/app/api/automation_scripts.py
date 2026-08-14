@@ -13,6 +13,7 @@ from app.core.timezone import china_now_naive
 from app.models.user import User
 from app.models.project import Project
 from app.models.automation_script import AutomationScript
+from app.models.automation_suite import AutomationSuite, AutomationSuiteStep
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.tasks.script_tasks import run_automation_script_task
@@ -571,6 +572,38 @@ async def run_script(
         "executor": "celery" if use_celery else "background",
         "celery_task_id": celery_task_id,
     }
+
+
+@router.get("/{script_id}/suites")
+def get_script_suites(
+    project_id: int,
+    script_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取引用该脚本的所有编排套件"""
+    _check_project_access(project_id, db, current_user)
+    # 查找所有引用该脚本的步骤
+    steps = db.query(AutomationSuiteStep).filter(
+        AutomationSuiteStep.script_id == script_id,
+    ).all()
+    suite_ids = list(set(s.suite_id for s in steps))
+    if not suite_ids:
+        return []
+    suites = db.query(AutomationSuite).filter(
+        AutomationSuite.id.in_(suite_ids),
+        AutomationSuite.project_id == project_id,
+    ).all()
+    result = []
+    for suite in suites:
+        suite_steps = [s for s in steps if s.suite_id == suite.id]
+        result.append({
+            "suite_id": suite.id,
+            "suite_name": suite.name,
+            "status": suite.status,
+            "step_names": [s.step_name for s in suite_steps],
+        })
+    return result
 
 
 @router.get("/{script_id}/runs")
