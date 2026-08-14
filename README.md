@@ -267,26 +267,7 @@ AITS_hub/
 
 启动后访问 http://localhost:8000/docs 查看完整 Swagger 文档。
 
-| 模块 | 路由前缀 | 主要端点 |
-|------|----------|----------|
-| 认证 | `/api/auth` | register, login, me |
-| 项目 | `/api/projects` | CRUD |
-| 版本 | `/api/projects/{id}/versions` | CRUD + status 筛选 |
-| 需求 | `/api/projects/{id}/requirements` | CRUD + upload + generate |
-| 用例 | `/api/projects/{id}/cases` | CRUD + batch + generate |
-| 计划 | `/api/projects/{id}/plans` | CRUD + execute + cases |
-| 环境 | `/api/projects/{id}/environments` | CRUD |
-| 执行 | `/api/projects/{id}/execution` | run (SSE) + runs 历史 |
-| 缺陷 | `/api/projects/{id}/defects` | CRUD + 状态流转 |
-| 报告 | `/api/projects/{id}/reports` | list + **generate（必选版本）** |
-| 质量 | `/api/projects/{id}/quality` | metrics + trend + dashboard + alerts + insight |
-| 知识库 | `/api/projects/{id}/knowledge` | CRUD + search (RAG) |
-| 脚本 | `/api/projects/{id}/scripts` | CRUD + execute + suites（关联编排） |
-| 套件 | `/api/projects/{id}/suites` | CRUD + steps + execute + runs |
-| Agent | `/api/agent-tasks` | list + detail + supervisor |
-| LLM | `/api/llm-configs` | CRUD + test + set-default |
-| 审计 | `/api/audit-logs` | list + detail |
-| 导入导出 | `/api/projects/{id}/import-export` | import + export |
+
 
 ## 环境变量
 
