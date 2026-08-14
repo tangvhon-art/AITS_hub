@@ -185,7 +185,9 @@
           </a-select>
         </a-form-item>
         <a-form-item v-if="stepForm.step_type === 'case'" label="选择用例" required>
-          <a-input-number v-model:value="stepForm.case_id" placeholder="用例ID" style="width: 100%" />
+          <a-select v-model:value="stepForm.case_id" show-search placeholder="选择用例">
+            <a-select-option v-for="c in caseList" :key="c.id" :value="c.id">{{ c.title }}</a-select-option>
+          </a-select>
         </a-form-item>
         <a-form-item v-if="stepForm.step_type === 'wait'" label="等待时间（秒）">
           <a-input-number v-model:value="waitSeconds" :min="1" :max="60" />
@@ -240,6 +242,7 @@ import {
 } from '@/api/automationSuites'
 import { getScripts, type AutomationScript } from '@/api/automationScripts'
 import { getPlans, type TestPlan } from '@/api/testPlans'
+import { getCases, type TestCase } from '@/api/cases'
 
 const route = useRoute()
 const router = useRouter()
@@ -250,6 +253,7 @@ const currentSuite = ref<AutomationSuite | null>(null)
 const steps = ref<SuiteStep[]>([])
 const scriptList = ref<AutomationScript[]>([])
 const testPlans = ref<TestPlan[]>([])
+const caseList = ref<TestCase[]>([])
 
 const showCreateModal = ref(false)
 const creating = ref(false)
@@ -300,6 +304,14 @@ async function loadScripts() {
     scriptList.value = await getScripts(projectId)
   } catch (e: any) {
     message.error(e.response?.data?.detail || '加载脚本失败')
+  }
+}
+
+async function loadCases() {
+  try {
+    caseList.value = await getCases(projectId)
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '加载用例失败')
   }
 }
 
@@ -496,6 +508,7 @@ function getPlanName(planId?: number | null) {
 onMounted(() => {
   loadSuites()
   loadScripts()
+  loadCases()
   loadTestPlans()
 })
 
