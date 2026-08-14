@@ -261,34 +261,7 @@ AITS_hub/
 - 执行导航操作保留，方便直接路由到对应页面
 - 执行结果按步骤展示，包含日志、错误信息、耗时
 
-## 数据库设计
 
-共 19 张表，所有业务表均继承软删除混入类（`is_deleted` + `deleted_at`）：
-
-| 表名 | 说明 | 关键字段 |
-|------|------|---------|
-| `users` | 用户 | username, email, hashed_password, is_admin |
-| `test_projects` | 项目 | name, description, owner_id |
-| `project_versions` | 版本 | project_id, name, status, start_date, end_date |
-| `test_requirements` | 需求 | project_id, **version_id**, title, content, source, status |
-| `test_cases` | 测试用例 | project_id, req_id, title, module, priority, steps(JSON) |
-| `test_plans` | 测试计划 | project_id, **version_id**, name, status, priority, case_ids |
-| `test_plan_cases` | 计划-用例关联 | plan_id, case_id, sort_order, status |
-| `test_environments` | 测试环境 | project_id, name, base_url, is_default |
-| `test_runs` | 执行记录 | project_id, case_id, status, execution_log(JSON), screenshot_url |
-| `defects` | 缺陷 | project_id, **version_id**, title, severity, status, root_cause |
-| `test_reports` | 测试报告 | project_id, **version_id**, report_type, content, pass_rate |
-| `agent_tasks` | Agent 任务 | agent_type, status, input_params, output_result, token_usage |
-| `llm_configs` | LLM 配置 | provider, base_url, api_key(加密), model_name, priority |
-| `knowledge_docs` | 知识库文档 | project_id, title, content, embedding |
-| `audit_logs` | 审计日志 | user_id, action, resource_type, resource_id |
-| `automation_scripts` | 自动化脚本 | project_id, name, script_type, content, version |
-| `automation_suites` | 编排套件 | project_id, name, plan_id, total_steps |
-| `automation_suite_steps` | 编排步骤 | suite_id, script_id/case_id, step_type, auto_fix, continue_on_failure |
-| `automation_suite_runs` | 套件执行记录 | suite_id, status, duration, passed_steps, failed_steps |
-| `automation_suite_run_results` | 套件单步结果 | suite_run_id, step_id, status, execution_log |
-
-> 加粗字段 `version_id` 表示版本关联外键，nullable 设计向后兼容。
 
 ## API 概览
 
