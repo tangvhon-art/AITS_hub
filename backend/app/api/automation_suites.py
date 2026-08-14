@@ -2,11 +2,13 @@
 自动化编排管理 API
 """
 import json
+import logging
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.core.timezone import china_now_naive
 from app.models.user import User
 from app.models.project import Project
@@ -30,6 +32,8 @@ from app.schemas.automation_suite import (
     SuiteExecuteRequest,
 )
 from app.agents.suite_executor import SuiteExecutor
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/suites", tags=["自动化编排"])
 
@@ -84,6 +88,7 @@ def get_suite(
 def create_suite(
     project_id: int,
     data: AutomationSuiteCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -102,6 +107,15 @@ def create_suite(
         created_by=current_user.id,
     )
     db.add(suite)
+    db.flush()
+    log_audit(
+        db, action="create", resource_type="suite",
+        resource_id=suite.id, resource_name=suite.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "name": suite.name, "plan_id": suite.plan_id},
+    )
     db.commit()
     db.refresh(suite)
     return suite
@@ -112,6 +126,7 @@ def update_suite(
     project_id: int,
     suite_id: int,
     data: AutomationSuiteUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -124,10 +139,19 @@ def update_suite(
     if not suite:
         raise HTTPException(status_code=404, detail="套件不存在")
 
+    old_data = {"name": suite.name, "status": suite.status}
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(suite, key, value)
     suite.updated_at = china_now_naive()
+    log_audit(
+        db, action="update", resource_type="suite",
+        resource_id=suite.id, resource_name=suite.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"before": old_data, "after": update_data},
+    )
     db.commit()
     db.refresh(suite)
     return suite
@@ -137,6 +161,7 @@ def update_suite(
 def delete_suite(
     project_id: int,
     suite_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -148,11 +173,19 @@ def delete_suite(
     ).first()
     if not suite:
         raise HTTPException(status_code=404, detail="套件不存在")
+    suite_name = suite.name
     # 级联删除步骤
     db.query(AutomationSuiteStep).filter(AutomationSuiteStep.suite_id == suite_id).update(
         {"is_deleted": True, "deleted_at": china_now_naive()}
     )
     suite.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="suite",
+        resource_id=suite_id, resource_name=suite_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()
 
 
@@ -182,6 +215,7 @@ def batch_update_steps(
     project_id: int,
     suite_id: int,
     data: SuiteStepsBatchUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -219,6 +253,14 @@ def batch_update_steps(
 
     suite.total_steps = len(data.steps)
     suite.updated_at = china_now_naive()
+    log_audit(
+        db, action="update", resource_type="suite",
+        resource_id=suite.id, resource_name=suite.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"field": "steps", "step_count": len(data.steps)},
+    )
     db.commit()
     for step in new_steps:
         db.refresh(step)
@@ -231,6 +273,7 @@ async def execute_suite(
     project_id: int,
     suite_id: int,
     req: SuiteExecuteRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -261,22 +304,44 @@ async def execute_suite(
         executed_by=current_user.id,
     )
     db.add(suite_run)
+    db.flush()
+    log_audit(
+        db, action="execute", resource_type="suite",
+        resource_id=suite.id, resource_name=suite.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "run_id": suite_run.id, "total_steps": steps},
+    )
     db.commit()
     db.refresh(suite_run)
 
-    # 后台异步执行
-    def _run_in_background(run_id: int):
-        import asyncio
-        executor = SuiteExecutor(run_id)
-        asyncio.run(executor.execute())
+    # 后台异步执行（优先 Celery，降级 BackgroundTasks）
+    use_celery = False
+    celery_task_id = None
+    try:
+        from app.tasks.script_tasks import run_automation_suite_task
+        task_result = run_automation_suite_task.delay(suite_run.id)
+        celery_task_id = task_result.id
+        use_celery = True
+        logger.info(f"编排 #{suite.id} 已提交 Celery 任务: task_id={celery_task_id}")
+    except Exception as celery_e:
+        logger.warning(f"Celery 任务提交失败，降级到 BackgroundTasks: {celery_e}")
 
-    background_tasks.add_task(_run_in_background, suite_run.id)
+        def _run_in_background(run_id: int):
+            import asyncio
+            executor = SuiteExecutor(run_id)
+            asyncio.run(executor.execute())
+
+        background_tasks.add_task(_run_in_background, suite_run.id)
 
     return {
         "run_id": suite_run.id,
         "status": "pending",
         "message": "编排执行任务已提交",
         "total_steps": steps,
+        "executor": "celery" if use_celery else "background",
+        "celery_task_id": celery_task_id,
     }
 
 

@@ -5,10 +5,11 @@ import json
 import logging
 import time
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.core.timezone import china_now_naive
 from app.models.user import User
 from app.models.project import Project
@@ -16,6 +17,7 @@ from app.models.automation_script import AutomationScript
 from app.models.automation_suite import AutomationSuite, AutomationSuiteStep
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
+from app.models.agent_task import AgentTask
 from app.tasks.script_tasks import run_automation_script_task
 from app.schemas.automation_script import (
     AutomationScriptCreate,
@@ -82,6 +84,7 @@ def get_script(
 def create_script(
     project_id: int,
     data: AutomationScriptCreate,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -115,6 +118,36 @@ def create_script(
         created_by=current_user.id,
     )
     db.add(script)
+    db.flush()
+
+    # 创建 AgentTask 记录（AI生成脚本）
+    agent_task_id = None
+    if is_ai:
+        agent_task = AgentTask(
+            project_id=project_id,
+            agent_type="script_generator",
+            status="pending",
+            input_params={
+                "script_id": script.id,
+                "description": data.description,
+                "target_url": data.target_url,
+                "need_ai_name": need_ai_name,
+            },
+            llm_config_id=data.llm_config_id,
+            created_by=current_user.id,
+        )
+        db.add(agent_task)
+        db.flush()
+        agent_task_id = agent_task.id
+
+    log_audit(
+        db, action="create", resource_type="script",
+        resource_id=script.id, resource_name=script.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "name": script.name, "ai_generate": is_ai},
+    )
     db.commit()
     db.refresh(script)
 
@@ -128,6 +161,7 @@ def create_script(
             script_name=script_name,
             llm_config_id=data.llm_config_id,
             need_ai_name=need_ai_name,
+            agent_task_id=agent_task_id,
         )
 
     return script
@@ -140,6 +174,7 @@ def _generate_script_background(
     script_name: str,
     llm_config_id: Optional[int] = None,
     need_ai_name: bool = False,
+    agent_task_id: Optional[int] = None,
 ):
     """后台异步生成AI脚本"""
     import asyncio
@@ -152,6 +187,10 @@ def _generate_script_background(
             return
 
         script.status = "generating"
+        if agent_task_id:
+            agent_task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+            if agent_task:
+                agent_task.status = "running"
         db.commit()
 
         # 如果需要AI生成脚本名称，先生成名称
@@ -187,6 +226,15 @@ def _generate_script_background(
         script.status = "active"
         script.version = (script.version or 1) + 1
         script.updated_at = china_now_naive()
+
+        # 更新 AgentTask
+        if agent_task_id:
+            agent_task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+            if agent_task:
+                agent_task.status = "success"
+                agent_task.output_result = {"script_id": script_id, "script_name": final_name, "content_length": len(generated_content)}
+                agent_task.completed_at = china_now_naive()
+
         db.commit()
         logger.info(f"AI脚本生成完成: script_id={script_id}")
 
@@ -197,7 +245,13 @@ def _generate_script_background(
             if script:
                 script.status = "failed"
                 script.description = f"{script.description}\n\n[AI生成失败: {str(e)[:200]}]"
-                db.commit()
+            if agent_task_id:
+                agent_task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+                if agent_task:
+                    agent_task.status = "failed"
+                    agent_task.error_message = str(e)
+                    agent_task.completed_at = china_now_naive()
+            db.commit()
         except Exception:
             pass
     finally:
@@ -209,6 +263,7 @@ def update_script(
     project_id: int,
     script_id: int,
     data: AutomationScriptUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -221,11 +276,20 @@ def update_script(
     if not script:
         raise HTTPException(status_code=404, detail="脚本不存在")
 
+    old_data = {"name": script.name, "status": script.status, "version": script.version}
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(script, key, value)
     script.version = (script.version or 1) + 1
     script.updated_at = china_now_naive()
+    log_audit(
+        db, action="update", resource_type="script",
+        resource_id=script.id, resource_name=script.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"before": old_data, "after": {k: v for k, v in update_data.items() if k != "script_content"}, "new_version": script.version},
+    )
     db.commit()
     db.refresh(script)
     return script
@@ -235,6 +299,7 @@ def update_script(
 def delete_script(
     project_id: int,
     script_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -246,7 +311,15 @@ def delete_script(
     ).first()
     if not script:
         raise HTTPException(status_code=404, detail="脚本不存在")
+    script_name = script.name
     script.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="script",
+        resource_id=script_id, resource_name=script_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()
 
 
@@ -254,6 +327,7 @@ def delete_script(
 def duplicate_script(
     project_id: int,
     script_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -280,6 +354,15 @@ def duplicate_script(
         created_by=current_user.id,
     )
     db.add(new_script)
+    db.flush()
+    log_audit(
+        db, action="create", resource_type="script",
+        resource_id=new_script.id, resource_name=new_script.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "duplicated_from": script_id, "name": new_script.name},
+    )
     db.commit()
     db.refresh(new_script)
     return new_script
@@ -394,6 +477,25 @@ async def _run_script_background(
                     "timestamp": time.time(), "status": "running", "attempt": retry_count
                 })
 
+                # 创建 AgentTask 记录（AI修复脚本）
+                fix_task = AgentTask(
+                    project_id=project_id,
+                    agent_type="script_fixer",
+                    status="running",
+                    input_params={
+                        "script_id": script_id,
+                        "script_name": script_name,
+                        "run_id": run_id,
+                        "attempt": retry_count,
+                        "error_message": error_msg[:500],
+                    },
+                    created_by=run.executed_by,
+                )
+                db.add(fix_task)
+                db.flush()
+                fix_task_id = fix_task.id
+                db.commit()
+
                 try:
                     # 调用AI修复脚本
                     fixed_content = await ScriptGenerator.fix_script_with_ai(
@@ -409,6 +511,13 @@ async def _run_script_background(
                             "action": "ai_fix", "detail": "AI修复未产生变化，停止重试",
                             "timestamp": time.time(), "status": "skipped", "attempt": retry_count
                         })
+                        # 更新 AgentTask
+                        fix_task = db.query(AgentTask).filter(AgentTask.id == fix_task_id).first()
+                        if fix_task:
+                            fix_task.status = "success"
+                            fix_task.output_result = {"result": "no_change", "attempt": retry_count}
+                            fix_task.completed_at = china_now_naive()
+                            db.commit()
                         break
 
                     current_content = fixed_content
@@ -432,6 +541,13 @@ async def _run_script_background(
                         status_result = "passed"
                         error_msg = ""
 
+                        # 更新 AgentTask（修复成功）
+                        fix_task = db.query(AgentTask).filter(AgentTask.id == fix_task_id).first()
+                        if fix_task:
+                            fix_task.status = "success"
+                            fix_task.output_result = {"result": "fixed", "attempt": retry_count, "new_version": (script.version or 1) + 1}
+                            fix_task.completed_at = china_now_naive()
+
                         # 修复成功后，更新脚本库中的脚本内容
                         try:
                             script.script_content = current_content
@@ -453,6 +569,13 @@ async def _run_script_background(
                             "timestamp": time.time(), "status": "failed", "duration": round(retry_duration, 3),
                             "error": error_msg, "attempt": retry_count + 1, "fixed": True
                         })
+                        # 更新 AgentTask（修复后仍失败）
+                        fix_task = db.query(AgentTask).filter(AgentTask.id == fix_task_id).first()
+                        if fix_task:
+                            fix_task.status = "failed"
+                            fix_task.error_message = f"修复后执行仍失败: {error_msg[:300]}"
+                            fix_task.completed_at = china_now_naive()
+                            db.commit()
 
                 except Exception as fix_e:
                     error_msg = f"AI修复异常: {str(fix_e)}"
@@ -461,6 +584,16 @@ async def _run_script_background(
                         "action": "ai_fix", "detail": f"AI修复异常: {str(fix_e)}",
                         "timestamp": time.time(), "status": "failed", "attempt": retry_count
                     })
+                    # 更新 AgentTask（修复异常）
+                    try:
+                        fix_task = db.query(AgentTask).filter(AgentTask.id == fix_task_id).first()
+                        if fix_task:
+                            fix_task.status = "failed"
+                            fix_task.error_message = str(fix_e)[:500]
+                            fix_task.completed_at = china_now_naive()
+                            db.commit()
+                    except Exception:
+                        pass
                     break
 
             if not success:
@@ -508,6 +641,7 @@ async def run_script(
     project_id: int,
     script_id: int,
     req: ScriptRunRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -536,6 +670,15 @@ async def run_script(
         started_at=china_now_naive(),
     )
     db.add(run)
+    db.flush()
+    log_audit(
+        db, action="execute", resource_type="script",
+        resource_id=script.id, resource_name=script.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "run_id": run.id, "auto_fix": req.auto_fix, "max_retries": req.max_retries},
+    )
     db.commit()
     db.refresh(run)
 

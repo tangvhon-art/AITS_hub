@@ -49,6 +49,7 @@
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'action'">
+            <a-button type="link" size="small" @click="editRequirement(record)">编辑</a-button>
             <a-button type="link" size="small" @click="generateCases(record)">生成用例</a-button>
             <a-button type="link" size="small" danger @click="deleteReq(record)">删除</a-button>
           </template>
@@ -56,11 +57,12 @@
       </a-table>
     </a-spin>
 
-    <!-- 新建需求对话框 -->
+    <!-- 新建/编辑需求对话框 -->
     <a-modal
       v-model:open="showCreateModal"
-      title="新建需求"
+      :title="editingId ? '编辑需求' : '新建需求'"
       @ok="saveRequirement"
+      @cancel="resetForm"
       :confirm-loading="saving"
       width="600px"
     >
@@ -71,6 +73,13 @@
         <a-form-item label="所属版本">
           <a-select v-model:value="reqForm.version_id" placeholder="选择版本（可选）" allow-clear>
             <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="需求状态">
+          <a-select v-model:value="reqForm.status" placeholder="选择状态">
+            <a-select-option value="pending">待生成</a-select-option>
+            <a-select-option value="generated">已生成</a-select-option>
+            <a-select-option value="reviewed">已评审</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="需求内容">
@@ -138,7 +147,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons-vue'
-import { getRequirements, createRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateCases as generateCasesApi } from '@/api/cases'
+import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateCases as generateCasesApi } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 
@@ -159,6 +168,7 @@ const selectedLLMConfig = ref<number | null>(null)
 const llmConfigs = ref<any[]>([])
 const versions = ref<ProjectVersion[]>([])
 const filterVersionId = ref<number | undefined>(undefined)
+const editingId = ref<number | null>(null)
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
@@ -167,7 +177,7 @@ const columns = [
   { title: '来源', dataIndex: 'source', key: 'source', width: 100 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 160, fixed: 'right' }
+  { title: '操作', key: 'action', width: 220, fixed: 'right' }
 ]
 
 function getVersionName(versionId?: number | null) {
@@ -178,7 +188,8 @@ function getVersionName(versionId?: number | null) {
 const reqForm = reactive({
   title: '',
   content: '',
-  version_id: undefined as number | undefined
+  version_id: undefined as number | undefined,
+  status: 'pending' as string
 })
 
 function statusColor(status: string) {
@@ -215,16 +226,41 @@ async function saveRequirement() {
   }
   saving.value = true
   try {
-    await createRequirement(projectId, { title: reqForm.title, content: reqForm.content, version_id: reqForm.version_id })
-    message.success('创建成功')
+    if (editingId.value) {
+      await updateRequirement(projectId, editingId.value, {
+        title: reqForm.title,
+        content: reqForm.content,
+        version_id: reqForm.version_id,
+        status: reqForm.status
+      })
+      message.success('更新成功')
+    } else {
+      await createRequirement(projectId, { title: reqForm.title, content: reqForm.content, version_id: reqForm.version_id })
+      message.success('创建成功')
+    }
     showCreateModal.value = false
-    reqForm.title = ''
-    reqForm.content = ''
-    reqForm.version_id = undefined
+    resetForm()
     fetchRequirements()
   } finally {
     saving.value = false
   }
+}
+
+function resetForm() {
+  editingId.value = null
+  reqForm.title = ''
+  reqForm.content = ''
+  reqForm.version_id = undefined
+  reqForm.status = 'pending'
+}
+
+function editRequirement(row: any) {
+  editingId.value = row.id
+  reqForm.title = row.title
+  reqForm.content = row.content || ''
+  reqForm.version_id = row.version_id
+  reqForm.status = row.status || 'pending'
+  showCreateModal.value = true
 }
 
 function handleFileChange(info: any) {

@@ -4,11 +4,12 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.defect import Defect
 from app.models.project import Project
@@ -84,6 +85,7 @@ def get_defect(
 def create_defect(
     project_id: int,
     defect_data: DefectCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -111,6 +113,15 @@ def create_defect(
         created_by=current_user.id,
     )
     db.add(defect)
+    db.flush()
+    log_audit(
+        db, action="create", resource_type="defect",
+        resource_id=defect.id, resource_name=defect.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "title": defect.title, "severity": defect.severity, "status": defect.status},
+    )
     db.commit()
     db.refresh(defect)
     return DefectResponse.model_validate(defect)
@@ -121,6 +132,7 @@ def update_defect(
     project_id: int,
     defect_id: int,
     defect_data: DefectUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -130,11 +142,19 @@ def update_defect(
     if not defect:
         raise HTTPException(status_code=404, detail="缺陷不存在")
 
+    old_data = {"title": defect.title, "status": defect.status, "severity": defect.severity, "assignee_id": defect.assignee_id}
     update_data = defect_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(defect, key, value)
     defect.updated_at = china_now_naive()
-
+    log_audit(
+        db, action="update", resource_type="defect",
+        resource_id=defect.id, resource_name=defect.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"before": old_data, "after": update_data},
+    )
     db.commit()
     db.refresh(defect)
     return DefectResponse.model_validate(defect)
@@ -144,6 +164,7 @@ def update_defect(
 def delete_defect(
     project_id: int,
     defect_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -152,7 +173,15 @@ def delete_defect(
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
         raise HTTPException(status_code=404, detail="缺陷不存在")
+    defect_name = defect.title
     defect.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="defect",
+        resource_id=defect_id, resource_name=defect_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()
     return {"message": "缺陷已删除"}
 
@@ -162,6 +191,7 @@ def update_defect_status(
     project_id: int,
     defect_id: int,
     status: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -175,8 +205,17 @@ def update_defect_status(
     if not defect:
         raise HTTPException(status_code=404, detail="缺陷不存在")
 
+    old_status = defect.status
     defect.status = status
     defect.updated_at = china_now_naive()
+    log_audit(
+        db, action="update", resource_type="defect",
+        resource_id=defect.id, resource_name=defect.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"field": "status", "before": old_status, "after": status},
+    )
     db.commit()
     db.refresh(defect)
     return DefectResponse.model_validate(defect)

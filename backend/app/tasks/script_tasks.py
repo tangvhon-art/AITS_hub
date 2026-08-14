@@ -12,10 +12,48 @@ from app.celery_app import celery_app
 from app.database import SessionLocal
 from app.models.test_run import TestRun
 from app.models.automation_script import AutomationScript
+from app.models.agent_task import AgentTask
 from app.agents.script_generator import ScriptGenerator
 from app.core.timezone import china_now_naive
 
 logger = logging.getLogger(__name__)
+
+
+@celery_app.task(bind=True, name="run_automation_suite", max_retries=0)
+def run_automation_suite_task(self, suite_run_id: int):
+    """
+    Celery 任务：执行自动化编排套件
+
+    Args:
+        suite_run_id: 编排执行记录ID
+    """
+    from app.agents.suite_executor import SuiteExecutor
+
+    logger.info(f"开始执行编排任务: suite_run_id={suite_run_id}")
+    try:
+        executor = SuiteExecutor(suite_run_id)
+        asyncio.run(executor.execute())
+        logger.info(f"编排任务执行完成: suite_run_id={suite_run_id}")
+        return {"status": "completed", "suite_run_id": suite_run_id}
+    except Exception as e:
+        logger.error(f"编排任务执行异常: suite_run_id={suite_run_id}, error={e}", exc_info=True)
+        # 异常时更新执行记录状态
+        db = SessionLocal()
+        try:
+            from app.models.automation_suite import AutomationSuiteRun
+            run = db.query(AutomationSuiteRun).filter(
+                AutomationSuiteRun.id == suite_run_id
+            ).first()
+            if run and run.status == "running":
+                run.status = "failed"
+                run.error_message = f"Celery任务异常: {str(e)}"
+                run.completed_at = china_now_naive()
+                db.commit()
+        except Exception:
+            pass
+        finally:
+            db.close()
+        return {"status": "failed", "suite_run_id": suite_run_id, "error": str(e)}
 
 
 def _run_script_sync(
@@ -144,6 +182,26 @@ def run_automation_script_task(
                     "attempt": retry_count,
                 })
 
+                # 创建 AgentTask 记录（AI修复脚本）
+                fix_task = AgentTask(
+                    project_id=project_id,
+                    agent_type="script_fixer",
+                    status="running",
+                    input_params={
+                        "script_id": script_id,
+                        "script_name": script_name,
+                        "run_id": run_id,
+                        "attempt": retry_count,
+                        "error_message": error_msg[:500],
+                        "executor": "celery",
+                    },
+                    created_by=run.executed_by,
+                )
+                db.add(fix_task)
+                db.flush()
+                fix_task_id = fix_task.id
+                db.commit()
+
                 try:
                     # 调用AI修复脚本（异步调用）
                     fixed_content = asyncio.run(
@@ -164,6 +222,12 @@ def run_automation_script_task(
                             "status": "skipped",
                             "attempt": retry_count,
                         })
+                        fix_task = db.query(AgentTask).filter(AgentTask.id == fix_task_id).first()
+                        if fix_task:
+                            fix_task.status = "success"
+                            fix_task.output_result = {"result": "no_change", "attempt": retry_count}
+                            fix_task.completed_at = china_now_naive()
+                            db.commit()
                         break
 
                     current_content = fixed_content
@@ -193,6 +257,13 @@ def run_automation_script_task(
                         })
                         status_result = "passed"
                         error_msg = ""
+
+                        # 更新 AgentTask（修复成功）
+                        fix_task = db.query(AgentTask).filter(AgentTask.id == fix_task_id).first()
+                        if fix_task:
+                            fix_task.status = "success"
+                            fix_task.output_result = {"result": "fixed", "attempt": retry_count, "new_version": (script.version or 1) + 1}
+                            fix_task.completed_at = china_now_naive()
 
                         # 修复成功后，更新脚本库中的脚本内容
                         try:
@@ -224,6 +295,12 @@ def run_automation_script_task(
                             "attempt": retry_count + 1,
                             "fixed": True,
                         })
+                        fix_task = db.query(AgentTask).filter(AgentTask.id == fix_task_id).first()
+                        if fix_task:
+                            fix_task.status = "failed"
+                            fix_task.error_message = f"修复后执行仍失败: {error_msg[:300]}"
+                            fix_task.completed_at = china_now_naive()
+                            db.commit()
 
                 except Exception as fix_e:
                     error_msg = f"AI修复异常: {str(fix_e)}"
@@ -235,6 +312,15 @@ def run_automation_script_task(
                         "status": "failed",
                         "attempt": retry_count,
                     })
+                    try:
+                        fix_task = db.query(AgentTask).filter(AgentTask.id == fix_task_id).first()
+                        if fix_task:
+                            fix_task.status = "failed"
+                            fix_task.error_message = str(fix_e)[:500]
+                            fix_task.completed_at = china_now_naive()
+                            db.commit()
+                    except Exception:
+                        pass
                     break
 
             if not success:

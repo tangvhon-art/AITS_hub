@@ -4,14 +4,17 @@
 import os
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.knowledge_doc import KnowledgeDoc
 from app.models.project import Project
+from app.models.agent_task import AgentTask
+from app.core.timezone import china_now_naive
 from app.services.knowledge_base import knowledge_base_service
 from app.schemas.knowledge import (
     KnowledgeDocCreate,
@@ -61,6 +64,7 @@ def list_knowledge_docs(
 def create_knowledge_doc(
     project_id: int,
     doc_data: KnowledgeDocCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -76,6 +80,26 @@ def create_knowledge_doc(
         created_by=current_user.id,
     )
     db.add(doc)
+    db.flush()
+
+    # 创建 Agent 任务记录（知识库处理）
+    agent_task = AgentTask(
+        project_id=project_id,
+        agent_type="knowledge_processor",
+        status="running",
+        input_params={"doc_id": doc.id, "title": doc.title, "content_length": len(doc_data.content or "")},
+        created_by=current_user.id,
+    )
+    db.add(agent_task)
+
+    log_audit(
+        db, action="create", resource_type="knowledge",
+        resource_id=doc.id, resource_name=doc.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "title": doc.title, "file_type": doc.file_type},
+    )
     db.commit()
     db.refresh(doc)
 
@@ -90,14 +114,22 @@ def create_knowledge_doc(
         if result.get("success"):
             doc.status = "ready"
             doc.chunk_count = result.get("chunk_count", 0)
+            agent_task.status = "success"
+            agent_task.output_result = {"chunk_count": result.get("chunk_count", 0)}
         else:
             doc.status = "failed"
             doc.error_message = result.get("error", "")
+            agent_task.status = "failed"
+            agent_task.error_message = result.get("error", "")
+        agent_task.completed_at = china_now_naive()
         db.commit()
         db.refresh(doc)
     except Exception as e:
         doc.status = "failed"
         doc.error_message = str(e)
+        agent_task.status = "failed"
+        agent_task.error_message = str(e)
+        agent_task.completed_at = china_now_naive()
         db.commit()
 
     return KnowledgeDocResponse.model_validate(doc)
@@ -106,6 +138,7 @@ def create_knowledge_doc(
 @router.post("/upload", response_model=KnowledgeDocResponse)
 async def upload_knowledge_doc(
     project_id: int,
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -153,6 +186,26 @@ async def upload_knowledge_doc(
         created_by=current_user.id,
     )
     db.add(doc)
+    db.flush()
+
+    # 创建 Agent 任务记录
+    agent_task = AgentTask(
+        project_id=project_id,
+        agent_type="knowledge_processor",
+        status="running",
+        input_params={"doc_id": doc.id, "title": filename, "file_type": file_type, "content_length": len(content)},
+        created_by=current_user.id,
+    )
+    db.add(agent_task)
+
+    log_audit(
+        db, action="import", resource_type="knowledge",
+        resource_id=doc.id, resource_name=filename,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "filename": filename, "file_type": file_type, "content_length": len(content)},
+    )
     db.commit()
     db.refresh(doc)
 
@@ -167,14 +220,22 @@ async def upload_knowledge_doc(
         if result.get("success"):
             doc.status = "ready"
             doc.chunk_count = result.get("chunk_count", 0)
+            agent_task.status = "success"
+            agent_task.output_result = {"chunk_count": result.get("chunk_count", 0)}
         else:
             doc.status = "failed"
             doc.error_message = result.get("error", "")
+            agent_task.status = "failed"
+            agent_task.error_message = result.get("error", "")
+        agent_task.completed_at = china_now_naive()
         db.commit()
         db.refresh(doc)
     except Exception as e:
         doc.status = "failed"
         doc.error_message = str(e)
+        agent_task.status = "failed"
+        agent_task.error_message = str(e)
+        agent_task.completed_at = china_now_naive()
         db.commit()
 
     return KnowledgeDocResponse.model_validate(doc)
@@ -238,6 +299,7 @@ def get_knowledge_doc(
 def delete_knowledge_doc(
     project_id: int,
     doc_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -247,9 +309,17 @@ def delete_knowledge_doc(
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
 
+    doc_name = doc.title
     # 从向量库中删除
     knowledge_base_service.delete_document(project_id, doc_id)
 
     doc.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="knowledge",
+        resource_id=doc_id, resource_name=doc_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()
     return {"message": "文档已删除"}

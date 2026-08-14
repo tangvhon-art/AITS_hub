@@ -12,8 +12,12 @@
             <a-select-option value="update">更新</a-select-option>
             <a-select-option value="delete">删除</a-select-option>
             <a-select-option value="login">登录</a-select-option>
+            <a-select-option value="logout">登出</a-select-option>
             <a-select-option value="export">导出</a-select-option>
             <a-select-option value="import">导入</a-select-option>
+            <a-select-option value="execute">执行</a-select-option>
+            <a-select-option value="generate">生成</a-select-option>
+            <a-select-option value="test">测试</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="资源类型">
@@ -21,18 +25,24 @@
             <a-select-option value="project">项目</a-select-option>
             <a-select-option value="requirement">需求</a-select-option>
             <a-select-option value="case">用例</a-select-option>
-            <a-select-option value="run">执行</a-select-option>
+            <a-select-option value="run">执行记录</a-select-option>
             <a-select-option value="defect">缺陷</a-select-option>
             <a-select-option value="report">报告</a-select-option>
-            <a-select-option value="plan">计划</a-select-option>
-            <a-select-option value="environment">环境</a-select-option>
+            <a-select-option value="plan">测试计划</a-select-option>
+            <a-select-option value="environment">测试环境</a-select-option>
             <a-select-option value="user">用户</a-select-option>
+            <a-select-option value="script">自动化脚本</a-select-option>
+            <a-select-option value="suite">自动化编排</a-select-option>
+            <a-select-option value="llm_config">模型配置</a-select-option>
+            <a-select-option value="knowledge">知识库</a-select-option>
+            <a-select-option value="version">项目版本</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="状态">
           <a-select v-model:value="filterStatus" allow-clear placeholder="全部" style="width: 120px" @change="loadLogs">
             <a-select-option value="success">成功</a-select-option>
             <a-select-option value="failed">失败</a-select-option>
+            <a-select-option value="partial">部分成功</a-select-option>
           </a-select>
         </a-form-item>
       </a-form>
@@ -53,8 +63,8 @@
             <a-tag>{{ getResourceText(record.resource_type) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'status'">
-            <a-tag :color="record.status === 'success' ? 'green' : 'red'">
-              {{ record.status === 'success' ? '成功' : '失败' }}
+            <a-tag :color="getStatusColor(record.status)">
+              {{ getStatusText(record.status) }}
             </a-tag>
           </template>
           <template v-else-if="column.key === 'detail'">
@@ -75,8 +85,8 @@
           <a-descriptions-item label="资源名称" :span="2">{{ currentLog.resource_name || '-' }}</a-descriptions-item>
           <a-descriptions-item label="IP地址">{{ currentLog.ip_address || '-' }}</a-descriptions-item>
           <a-descriptions-item label="操作状态">
-            <a-tag :color="currentLog.status === 'success' ? 'green' : 'red'">
-              {{ currentLog.status === 'success' ? '成功' : '失败' }}
+            <a-tag :color="getStatusColor(currentLog.status)">
+              {{ getStatusText(currentLog.status) }}
             </a-tag>
           </a-descriptions-item>
           <a-descriptions-item label="操作时间" :span="2">{{ $formatDateTime(currentLog.created_at) }}</a-descriptions-item>
@@ -127,8 +137,12 @@ function getActionColor(action?: string) {
     update: 'blue',
     delete: 'red',
     login: 'purple',
+    logout: 'default',
     export: 'orange',
-    import: 'cyan'
+    import: 'cyan',
+    execute: 'geekblue',
+    generate: 'magenta',
+    test: 'gold'
   }
   return map[action || ''] || 'default'
 }
@@ -141,7 +155,10 @@ function getActionText(action?: string) {
     login: '登录',
     logout: '登出',
     export: '导出',
-    import: '导入'
+    import: '导入',
+    execute: '执行',
+    generate: '生成',
+    test: '测试连接'
   }
   return map[action || ''] || action
 }
@@ -151,15 +168,37 @@ function getResourceText(type?: string) {
     project: '项目',
     requirement: '需求',
     case: '用例',
-    run: '执行',
+    run: '执行记录',
     defect: '缺陷',
     report: '报告',
-    plan: '计划',
-    environment: '环境',
+    plan: '测试计划',
+    environment: '测试环境',
     user: '用户',
-    knowledge: '知识库'
+    script: '自动化脚本',
+    suite: '自动化编排',
+    llm_config: '模型配置',
+    knowledge: '知识库',
+    version: '项目版本'
   }
   return map[type || ''] || type
+}
+
+function getStatusText(status?: string) {
+  const map: Record<string, string> = {
+    success: '成功',
+    failed: '失败',
+    partial: '部分成功'
+  }
+  return map[status || ''] || status
+}
+
+function getStatusColor(status?: string) {
+  const map: Record<string, string> = {
+    success: 'green',
+    failed: 'red',
+    partial: 'orange'
+  }
+  return map[status || ''] || 'default'
 }
 
 function showDetail(record: AuditLog) {

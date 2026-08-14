@@ -4,11 +4,12 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
 from app.models.project_version import ProjectVersion
@@ -59,6 +60,7 @@ def list_versions(
 def create_version(
     project_id: int,
     data: VersionCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -75,6 +77,15 @@ def create_version(
         created_by=current_user.id,
     )
     db.add(version)
+    db.flush()
+    log_audit(
+        db, action="create", resource_type="version",
+        resource_id=version.id, resource_name=version.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "name": version.name, "status": version.status},
+    )
     db.commit()
     db.refresh(version)
     return VersionResponse.model_validate(version)
@@ -103,6 +114,7 @@ def update_version(
     project_id: int,
     version_id: int,
     data: VersionUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -114,10 +126,26 @@ def update_version(
     ).first()
     if not version:
         raise HTTPException(status_code=404, detail="版本不存在")
+    old_data = {
+        "name": version.name,
+        "description": version.description,
+        "status": version.status,
+        "start_date": version.start_date,
+        "end_date": version.end_date,
+        "released_at": version.released_at,
+    }
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(version, key, value)
     version.updated_at = china_now_naive()
+    log_audit(
+        db, action="update", resource_type="version",
+        resource_id=version.id, resource_name=version.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"before": old_data, "after": update_data},
+    )
     db.commit()
     db.refresh(version)
     return VersionResponse.model_validate(version)
@@ -127,6 +155,7 @@ def update_version(
 def delete_version(
     project_id: int,
     version_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -138,5 +167,13 @@ def delete_version(
     ).first()
     if not version:
         raise HTTPException(status_code=404, detail="版本不存在")
+    version_name = version.name
     version.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="version",
+        resource_id=version_id, resource_name=version_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()

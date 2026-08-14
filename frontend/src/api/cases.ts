@@ -49,6 +49,10 @@ export function createRequirement(projectId: number, data: { title: string; cont
   return request.post(`/projects/${projectId}/requirements`, data)
 }
 
+export function updateRequirement(projectId: number, reqId: number, data: { title?: string; content?: string; status?: string; version_id?: number }) {
+  return request.put(`/projects/${projectId}/requirements/${reqId}`, data)
+}
+
 export function uploadRequirement(projectId: number, file: File) {
   const form = new FormData()
   form.append('file', file)

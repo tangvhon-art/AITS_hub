@@ -1,11 +1,12 @@
 import json
 from datetime import datetime
 from app.core.timezone import china_now_naive
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
 from app.models.test_case import TestCase
@@ -52,6 +53,7 @@ def list_cases(
 def create_case(
     project_id: int,
     case_data: TestCaseCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -71,6 +73,15 @@ def create_case(
         created_by=current_user.id,
     )
     db.add(case)
+    db.flush()
+    log_audit(
+        db, action="create", resource_type="case",
+        resource_id=case.id, resource_name=case.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "title": case.title, "priority": case.priority},
+    )
     db.commit()
     db.refresh(case)
     return case
@@ -80,6 +91,7 @@ def create_case(
 def batch_create_cases(
     project_id: int,
     batch_data: TestCaseBatchCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -102,6 +114,14 @@ def batch_create_cases(
         )
         db.add(case)
         cases.append(case)
+    db.flush()
+    log_audit(
+        db, action="create", resource_type="case",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "batch_count": len(cases), "action": "batch_create"},
+    )
     db.commit()
     for case in cases:
         db.refresh(case)
@@ -131,6 +151,7 @@ def update_case(
     project_id: int,
     case_id: int,
     case_data: TestCaseUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -143,11 +164,20 @@ def update_case(
     if not case:
         raise HTTPException(status_code=404, detail="用例不存在")
 
+    old_data = {"title": case.title, "priority": case.priority, "status": case.status}
     update_data = case_data.model_dump(exclude_unset=True)
     if "steps" in update_data and isinstance(update_data["steps"], list):
         update_data["steps"] = json.dumps(update_data["steps"], ensure_ascii=False)
     for key, value in update_data.items():
         setattr(case, key, value)
+    log_audit(
+        db, action="update", resource_type="case",
+        resource_id=case.id, resource_name=case.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"before": old_data, "after": {k: v for k, v in update_data.items() if k != "steps"}},
+    )
     db.commit()
     db.refresh(case)
     return case
@@ -157,6 +187,7 @@ def update_case(
 def delete_case(
     project_id: int,
     case_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -168,7 +199,15 @@ def delete_case(
     ).first()
     if not case:
         raise HTTPException(status_code=404, detail="用例不存在")
+    case_name = case.title
     case.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="case",
+        resource_id=case_id, resource_name=case_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()
 
 
@@ -176,6 +215,7 @@ def delete_case(
 def generate_cases(
     project_id: int,
     gen_request: CaseGenerateRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -189,6 +229,7 @@ def generate_cases(
     # 获取需求内容
     requirement_content = gen_request.content
     req_id = gen_request.requirement_id
+    req_title = None
     if req_id:
         requirement = db.query(TestRequirement).filter(
             TestRequirement.id == req_id,
@@ -196,6 +237,7 @@ def generate_cases(
         ).first()
         if requirement:
             requirement_content = requirement.content or requirement.title
+            req_title = requirement.title
 
     if not requirement_content or not requirement_content.strip():
         raise HTTPException(status_code=400, detail="需求内容不能为空")
@@ -209,12 +251,20 @@ def generate_cases(
             "content_length": len(requirement_content),
             "count": gen_request.count,
             "requirement_id": req_id,
-            "requirement_title": requirement.title if req_id else None,
+            "requirement_title": req_title,
         },
         llm_config_id=gen_request.llm_config_id,
         created_by=current_user.id,
     )
     db.add(task)
+    db.flush()
+    log_audit(
+        db, action="generate", resource_type="case",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "count": gen_request.count, "requirement_id": req_id, "task_id": task.id},
+    )
     db.commit()
     db.refresh(task)
 

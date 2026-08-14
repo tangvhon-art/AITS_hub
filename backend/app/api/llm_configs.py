@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.llm_config import LLMConfig
 from app.schemas.llm_config import LLMConfigCreate, LLMConfigUpdate, LLMConfigResponse, LLMConfigTestRequest
@@ -45,6 +46,7 @@ def list_llm_configs(
 @router.post("", response_model=LLMConfigResponse, status_code=status.HTTP_201_CREATED)
 def create_llm_config(
     config_data: LLMConfigCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -73,6 +75,15 @@ def create_llm_config(
         description=config_data.description,
     )
     db.add(config)
+    db.flush()
+    log_audit(
+        db, action="create", resource_type="llm_config",
+        resource_id=config.id, resource_name=config.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"name": config.name, "provider": config.provider, "model_name": config.model_name},
+    )
     db.commit()
     db.refresh(config)
     return _to_response(config)
@@ -95,6 +106,7 @@ def get_llm_config(
 def update_llm_config(
     config_id: int,
     config_data: LLMConfigUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -103,6 +115,7 @@ def update_llm_config(
     if not config:
         raise HTTPException(status_code=404, detail="模型配置不存在")
 
+    old_data = {"name": config.name, "provider": config.provider, "model_name": config.model_name, "status": config.status}
     update_data = config_data.model_dump(exclude_unset=True)
 
     # 如果设为默认，取消其他默认
@@ -115,6 +128,14 @@ def update_llm_config(
 
     for key, value in update_data.items():
         setattr(config, key, value)
+    log_audit(
+        db, action="update", resource_type="llm_config",
+        resource_id=config.id, resource_name=config.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"before": old_data, "after": {k: v for k, v in update_data.items() if k != "api_key"}},
+    )
     db.commit()
     db.refresh(config)
     return _to_response(config)
@@ -123,6 +144,7 @@ def update_llm_config(
 @router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_llm_config(
     config_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -132,7 +154,15 @@ def delete_llm_config(
         raise HTTPException(status_code=404, detail="模型配置不存在")
     if config.is_default:
         raise HTTPException(status_code=400, detail="不能删除默认模型配置，请先设置其他配置为默认")
+    config_name = config.name
     config.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="llm_config",
+        resource_id=config_id, resource_name=config_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()
 
 
@@ -140,6 +170,7 @@ def delete_llm_config(
 def test_llm_config(
     config_id: int,
     test_data: LLMConfigTestRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -161,12 +192,30 @@ def test_llm_config(
         )
         from langchain_core.messages import HumanMessage
         response = llm.invoke([HumanMessage(content=test_data.prompt)])
+        log_audit(
+            db, action="test", resource_type="llm_config",
+            resource_id=config.id, resource_name=config.name,
+            user=current_user,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            detail={"status": "success"},
+        )
+        db.commit()
         return {
             "status": "success",
             "response": response.content[:500],
             "token_usage": llm_factory._extract_token_usage(response),
         }
     except Exception as e:
+        log_audit(
+            db, action="test", resource_type="llm_config",
+            resource_id=config.id, resource_name=config.name,
+            user=current_user,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            status="failed", error_message=str(e),
+        )
+        db.commit()
         return {
             "status": "failed",
             "error": str(e),
@@ -176,6 +225,7 @@ def test_llm_config(
 @router.post("/{config_id}/set-default", response_model=LLMConfigResponse)
 def set_default_llm_config(
     config_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -186,6 +236,14 @@ def set_default_llm_config(
 
     db.query(LLMConfig).filter(LLMConfig.is_default == True).update({"is_default": False})
     config.is_default = True
+    log_audit(
+        db, action="update", resource_type="llm_config",
+        resource_id=config.id, resource_name=config.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"field": "is_default", "value": True},
+    )
     db.commit()
     db.refresh(config)
     return _to_response(config)

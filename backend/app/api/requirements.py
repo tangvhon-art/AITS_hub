@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
 from app.models.requirement import TestRequirement
@@ -42,6 +43,7 @@ def list_requirements(
 def create_requirement(
     project_id: int,
     req_data: RequirementCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -57,6 +59,15 @@ def create_requirement(
         created_by=current_user.id,
     )
     db.add(requirement)
+    db.flush()
+    log_audit(
+        db, action="create", resource_type="requirement",
+        resource_id=requirement.id, resource_name=requirement.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "title": requirement.title, "source": requirement.source},
+    )
     db.commit()
     db.refresh(requirement)
     return requirement
@@ -85,6 +96,7 @@ def update_requirement(
     project_id: int,
     req_id: int,
     req_data: RequirementUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -97,9 +109,18 @@ def update_requirement(
     if not requirement:
         raise HTTPException(status_code=404, detail="需求不存在")
 
+    old_data = {"title": requirement.title, "content": requirement.content, "status": requirement.status}
     update_data = req_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(requirement, key, value)
+    log_audit(
+        db, action="update", resource_type="requirement",
+        resource_id=requirement.id, resource_name=requirement.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"before": old_data, "after": update_data},
+    )
     db.commit()
     db.refresh(requirement)
     return requirement
@@ -109,6 +130,7 @@ def update_requirement(
 def delete_requirement(
     project_id: int,
     req_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -120,13 +142,22 @@ def delete_requirement(
     ).first()
     if not requirement:
         raise HTTPException(status_code=404, detail="需求不存在")
+    req_name = requirement.title
     requirement.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="requirement",
+        resource_id=req_id, resource_name=req_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()
 
 
 @router.post("/upload", response_model=RequirementResponse)
 async def upload_requirement(
     project_id: int,
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -160,6 +191,15 @@ async def upload_requirement(
         created_by=current_user.id,
     )
     db.add(requirement)
+    db.flush()
+    log_audit(
+        db, action="import", resource_type="requirement",
+        resource_id=requirement.id, resource_name=filename,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "filename": filename, "content_length": len(content)},
+    )
     db.commit()
     db.refresh(requirement)
     return requirement

@@ -2,12 +2,13 @@ import json
 import time
 from datetime import datetime
 from app.core.timezone import china_now_naive
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db, SessionLocal
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
 from app.models.test_run import TestRun
@@ -34,6 +35,7 @@ def _check_project_access(project_id: int, db: Session, user: User) -> Project:
 async def run_execution(
     project_id: int,
     exec_request: ExecutionRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -67,6 +69,22 @@ async def run_execution(
         created_by=current_user.id,
     )
     db.add(agent_task)
+    db.flush()
+
+    # 审计日志
+    log_audit(
+        db, action="execute", resource_type="run",
+        resource_id=test_run.id,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={
+            "project_id": project_id,
+            "target_url": exec_request.target_url,
+            "case_id": exec_request.case_id,
+            "agent_task_id": agent_task.id,
+        },
+    )
     db.commit()
     db.refresh(test_run)
     db.refresh(agent_task)

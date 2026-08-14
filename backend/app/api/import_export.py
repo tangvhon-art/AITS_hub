@@ -6,12 +6,13 @@ import json
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import List
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from io import BytesIO
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.test_case import TestCase
 from app.models.requirement import TestRequirement
@@ -44,6 +45,7 @@ CASE_COLUMNS = [
 @project_router.get("/cases/export")
 def export_cases(
     project_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -52,6 +54,15 @@ def export_cases(
         raise HTTPException(status_code=500, detail="openpyxl 未安装，请运行 pip install openpyxl")
 
     cases = db.query(TestCase).filter(TestCase.project_id == project_id).order_by(TestCase.module, TestCase.priority).all()
+
+    log_audit(
+        db, action="export", resource_type="case",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "count": len(cases), "format": "excel"},
+    )
+    db.commit()
 
     wb = Workbook()
     ws = wb.active
@@ -92,6 +103,7 @@ def export_cases(
 @project_router.post("/cases/import")
 async def import_cases(
     project_id: int,
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -185,6 +197,14 @@ async def import_cases(
             failed += 1
             errors.append(f"第 {row} 行: {str(e)}")
 
+    log_audit(
+        db, action="import", resource_type="case",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "filename": file.filename, "imported": imported, "failed": failed},
+        status="success" if failed == 0 else "partial",
+    )
     db.commit()
 
     return {

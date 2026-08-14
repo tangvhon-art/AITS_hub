@@ -5,15 +5,17 @@ import json
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.deps import get_current_user
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.report import TestReport
 from app.models.project import Project
 from app.models.project_version import ProjectVersion
+from app.models.agent_task import AgentTask
 from app.agents.report_generator import ReportGeneratorAgent
 from app.schemas.report import (
     ReportCreate,
@@ -80,6 +82,7 @@ def get_report(
 def generate_report(
     project_id: int,
     req: ReportGenerateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -104,6 +107,32 @@ def generate_report(
         created_by=current_user.id,
     )
     db.add(report)
+    db.flush()
+
+    # 创建 Agent 任务记录
+    agent_task = AgentTask(
+        project_id=project_id,
+        agent_type="report_generator",
+        status="running",
+        input_params={
+            "report_type": req.report_type,
+            "version_id": req.version_id,
+            "version_name": version.name,
+            "title": report.title,
+        },
+        llm_config_id=req.llm_config_id,
+        created_by=current_user.id,
+    )
+    db.add(agent_task)
+
+    log_audit(
+        db, action="generate", resource_type="report",
+        resource_id=report.id, resource_name=report.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "report_type": req.report_type, "version_id": req.version_id},
+    )
     db.commit()
     db.refresh(report)
 
@@ -131,12 +160,25 @@ def generate_report(
         report.status = "completed"
         report.updated_at = china_now_naive()
 
+        # 更新 Agent 任务
+        agent_task.status = "success"
+        agent_task.output_result = {
+            "report_id": report.id,
+            "total_cases": report.total_cases,
+            "pass_rate": report.pass_rate,
+        }
+        agent_task.token_usage = result.get("token_usage", {})
+        agent_task.completed_at = china_now_naive()
+
         db.commit()
         db.refresh(report)
 
     except Exception as e:
         report.status = "failed"
         report.content = f"报告生成失败: {str(e)}"
+        agent_task.status = "failed"
+        agent_task.error_message = str(e)
+        agent_task.completed_at = china_now_naive()
         db.commit()
         raise HTTPException(status_code=500, detail=f"报告生成失败: {str(e)}")
 
@@ -148,6 +190,7 @@ def update_report(
     project_id: int,
     report_id: int,
     report_data: ReportUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -157,10 +200,19 @@ def update_report(
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
 
+    old_data = {"title": report.title, "status": report.status}
     update_data = report_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(report, key, value)
     report.updated_at = china_now_naive()
+    log_audit(
+        db, action="update", resource_type="report",
+        resource_id=report.id, resource_name=report.title,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"before": old_data, "after": update_data},
+    )
     db.commit()
     db.refresh(report)
     return ReportResponse.model_validate(report)
@@ -170,6 +222,7 @@ def update_report(
 def delete_report(
     project_id: int,
     report_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -178,6 +231,14 @@ def delete_report(
     report = db.query(TestReport).filter(TestReport.id == report_id, TestReport.project_id == project_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
+    report_name = report.title
     report.soft_delete()
+    log_audit(
+        db, action="delete", resource_type="report",
+        resource_id=report_id, resource_name=report_name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     db.commit()
     return {"message": "报告已删除"}

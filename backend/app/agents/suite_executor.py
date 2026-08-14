@@ -2,10 +2,12 @@
 编排执行引擎
 
 按顺序执行自动化编排套件中的所有步骤，支持失败继续、重试策略。
+所有脚本步骤共享同一个浏览器上下文（page），保证 cookie/session 串联。
 """
 import asyncio
 import json
 import logging
+import re
 import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Callable
@@ -40,6 +42,12 @@ class SuiteExecutor:
         self.on_step_complete = on_step_complete
         self.db: Session = SessionLocal()
         self.stopped = False
+        # 共享浏览器上下文（编排模式下所有脚本共用）
+        self._playwright = None
+        self._browser = None
+        self._context = None
+        self._page = None
+        self._browser_initialized = False
 
     async def execute(self) -> None:
         """执行整个编排套件"""
@@ -74,6 +82,9 @@ class SuiteExecutor:
             failed = 0
             skipped = 0
             stop_execution = False
+
+            # 初始化共享浏览器上下文（所有脚本步骤共用，保证cookie/session串联）
+            await self._init_shared_browser()
 
             for idx, step in enumerate(steps):
                 if self.stopped or stop_execution:
@@ -159,7 +170,149 @@ class SuiteExecutor:
             except Exception:
                 pass
         finally:
+            # 统一关闭共享浏览器
+            await self._close_shared_browser()
             self.db.close()
+
+    async def _init_shared_browser(self) -> None:
+        """初始化共享浏览器上下文（编排模式下所有脚本共用）"""
+        if self._browser_initialized:
+            return
+        try:
+            from playwright.async_api import async_playwright
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.launch(headless=True)
+            self._context = await self._browser.new_context(
+                viewport={"width": 1280, "height": 720},
+                # 共享cookie存储，所有页面共用
+            )
+            self._page = await self._context.new_page()
+            self._browser_initialized = True
+            logger.info(f"编排 #{self.suite_run_id} 共享浏览器已初始化")
+        except Exception as e:
+            logger.error(f"共享浏览器初始化失败: {e}", exc_info=True)
+            # 初始化失败时，后续脚本将回退到独立浏览器模式
+            self._browser_initialized = False
+
+    async def _close_shared_browser(self) -> None:
+        """关闭共享浏览器"""
+        try:
+            if self._page:
+                await self._page.close()
+            if self._context:
+                await self._context.close()
+            if self._browser:
+                await self._browser.close()
+            if self._playwright:
+                await self._playwright.stop()
+            logger.info(f"编排 #{self.suite_run_id} 共享浏览器已关闭")
+        except Exception as e:
+            logger.warning(f"关闭共享浏览器失败: {e}")
+        finally:
+            self._page = None
+            self._context = None
+            self._browser = None
+            self._playwright = None
+            self._browser_initialized = False
+
+    @staticmethod
+    def _convert_script_to_suite_mode(script_content: str) -> str:
+        """
+        将独立执行的脚本转换为编排模式：
+        1. 移除 async with async_playwright() as p: 及其内部的 browser/context/page 创建
+        2. 移除 await browser.close()
+        3. 将 run_test() 改为 run_test(page)，使用外部注入的共享 page
+        4. 调整缩进（原 async with 块内的 8 空格缩进改为 4 空格）
+
+        Args:
+            script_content: 原始脚本内容
+
+        Returns:
+            转换后的脚本内容
+        """
+        content = script_content
+
+        # 1. 移除 async with async_playwright() as p: 行（及其变体）
+        content = re.sub(
+            r'[ \t]*async with async_playwright\(\) as \w+:[ \t]*\n',
+            '',
+            content
+        )
+
+        # 2. 移除 browser = await p.chromium.launch(...) 行（支持多种写法）
+        content = re.sub(
+            r'[ \t]*\w+\s*=\s*await \w+\.chromium\.launch\([^)]*\)[ \t]*\n',
+            '',
+            content
+        )
+
+        # 3. 移除 context = await browser.new_context(...) 行（可能跨多行）
+        content = re.sub(
+            r'[ \t]*\w+\s*=\s*await \w+\.new_context\([^)]*\)[ \t]*\n',
+            '',
+            content,
+            flags=re.DOTALL
+        )
+
+        # 4. 移除 page = await context.new_page() 行
+        content = re.sub(
+            r'[ \t]*\w+\s*=\s*await \w+\.new_page\(\)[ \t]*\n',
+            '',
+            content
+        )
+
+        # 5. 移除 await browser.close() 行
+        content = re.sub(
+            r'[ \t]*await \w+\.close\(\)[ \t]*\n',
+            '',
+            content
+        )
+
+        # 6. 将 async def run_test(): 改为 async def run_test(page):
+        content = re.sub(
+            r'async def run_test\(\s*\):',
+            'async def run_test(page):',
+            content
+        )
+        # 兼容 def run_test(): 同步写法
+        content = re.sub(
+            r'def run_test\(\s*\):',
+            'def run_test(page):',
+            content
+        )
+
+        # 7. 调整缩进：将 run_test 函数体内 8 空格缩进的行改为 4 空格
+        # （因为原来代码在 async with 块内，多了一层缩进）
+        lines = content.split('\n')
+        in_run_test = False
+        adjusted_lines = []
+        for line in lines:
+            if 'def run_test(page):' in line:
+                in_run_test = True
+                adjusted_lines.append(line)
+                continue
+            if in_run_test:
+                # 遇到下一个顶层定义（def/import/if 等）则退出函数体
+                stripped = line.lstrip()
+                if stripped and not line.startswith(' ') and not line.startswith('\t'):
+                    in_run_test = False
+                elif line.startswith('        '):  # 8空格缩进
+                    # 减少4个空格缩进
+                    line = line[4:]
+                elif line.startswith('\t\t'):  # 2个tab
+                    line = line[1:]
+            adjusted_lines.append(line)
+        content = '\n'.join(adjusted_lines)
+
+        # 8. 移除 if __name__ == "__main__": 块（避免独立执行逻辑干扰）
+        content = re.sub(
+            r'\nif __name__\s*==\s*["\']__main__["\']\s*:.*?(?=\n*$)',
+            '',
+            content,
+            flags=re.DOTALL
+        )
+
+        return content
 
     def _update_plan_stats(self, plan_id: int) -> None:
         """更新关联测试计划的统计数据"""
@@ -272,7 +425,7 @@ class SuiteExecutor:
         return result
 
     async def _run_script_step(self, step: AutomationSuiteStep, result: AutomationSuiteRunResult) -> None:
-        """执行脚本类型步骤"""
+        """执行脚本类型步骤（使用共享浏览器上下文，保证cookie串联）"""
         if not step.script_id:
             raise ValueError("脚本步骤未关联脚本")
 
@@ -312,14 +465,28 @@ class SuiteExecutor:
         self.db.refresh(run)
         result.run_id = run.id
 
-        # 动态执行脚本
-        local_vars = {}
-        exec(compile(script_content, f"suite_script_{script.id}.py", "exec"), local_vars)
+        # 判断是否使用共享浏览器
+        use_shared_browser = self._browser_initialized and self._page is not None
 
-        if "run_test" in local_vars and callable(local_vars["run_test"]):
-            await local_vars["run_test"]()
+        if use_shared_browser:
+            # 编排模式：转换脚本为接收 page 参数的形式，使用共享 page
+            suite_script = self._convert_script_to_suite_mode(script_content)
+            local_vars = {}
+            exec(compile(suite_script, f"suite_script_{script.id}.py", "exec"), local_vars)
+
+            if "run_test" in local_vars and callable(local_vars["run_test"]):
+                await local_vars["run_test"](self._page)
+            else:
+                raise RuntimeError("脚本中未找到 run_test 函数")
         else:
-            raise RuntimeError("脚本中未找到 run_test 函数")
+            # 回退模式：共享浏览器不可用时，使用脚本自带的独立浏览器
+            local_vars = {}
+            exec(compile(script_content, f"suite_script_{script.id}.py", "exec"), local_vars)
+
+            if "run_test" in local_vars and callable(local_vars["run_test"]):
+                await local_vars["run_test"]()
+            else:
+                raise RuntimeError("脚本中未找到 run_test 函数")
 
         # 计算真实执行耗时
         run_duration = round(time.time() - run_start_time, 2)
@@ -329,7 +496,7 @@ class SuiteExecutor:
         run.completed_at = china_now_naive()
         run.duration = run_duration
         run.execution_log = json.dumps([
-            {"action": "suite_script", "detail": step.step_name, "timestamp": run_start_time, "status": "running", "script_id": script.id},
+            {"action": "suite_script", "detail": step.step_name, "timestamp": run_start_time, "status": "running", "script_id": script.id, "shared_browser": use_shared_browser},
             {"action": "result", "detail": f"执行成功，耗时: {run_duration}s",
              "timestamp": time.time(), "status": "passed", "duration": run_duration, "script_id": script.id},
         ], ensure_ascii=False)
@@ -347,7 +514,7 @@ class SuiteExecutor:
         self.db.commit()
 
     async def _run_case_step(self, step: AutomationSuiteStep, result: AutomationSuiteRunResult) -> None:
-        """执行用例类型步骤（动态生成脚本并执行）"""
+        """执行用例类型步骤（动态生成脚本并执行，使用共享浏览器）"""
         if not step.case_id:
             raise ValueError("用例步骤未关联用例")
 
@@ -384,11 +551,22 @@ class SuiteExecutor:
         self.db.refresh(run)
         result.run_id = run.id
 
-        # 执行脚本
-        local_vars = {}
-        exec(compile(script_content, f"suite_case_{case.id}.py", "exec"), local_vars)
-        if "run_test" in local_vars and callable(local_vars["run_test"]):
-            await local_vars["run_test"]()
+        # 判断是否使用共享浏览器
+        use_shared_browser = self._browser_initialized and self._page is not None
+
+        if use_shared_browser:
+            # 编排模式：转换脚本并使用共享 page
+            suite_script = self._convert_script_to_suite_mode(script_content)
+            local_vars = {}
+            exec(compile(suite_script, f"suite_case_{case.id}.py", "exec"), local_vars)
+            if "run_test" in local_vars and callable(local_vars["run_test"]):
+                await local_vars["run_test"](self._page)
+        else:
+            # 回退模式：独立浏览器
+            local_vars = {}
+            exec(compile(script_content, f"suite_case_{case.id}.py", "exec"), local_vars)
+            if "run_test" in local_vars and callable(local_vars["run_test"]):
+                await local_vars["run_test"]()
 
         # 计算真实执行耗时
         run_duration = round(time.time() - run_start_time, 2)
@@ -397,7 +575,7 @@ class SuiteExecutor:
         run.completed_at = china_now_naive()
         run.duration = run_duration
         run.execution_log = json.dumps([
-            {"action": "suite_case", "detail": case.title, "timestamp": run_start_time, "status": "running"},
+            {"action": "suite_case", "detail": case.title, "timestamp": run_start_time, "status": "running", "shared_browser": use_shared_browser},
             {"action": "result", "detail": f"执行成功，耗时: {run_duration}s",
              "timestamp": time.time(), "status": "passed", "duration": run_duration},
         ], ensure_ascii=False)
