@@ -76,6 +76,12 @@
                 <EditOutlined /> 编辑信息
               </a-button>
               <a-button @click="handleDuplicate">复制</a-button>
+              <a-tooltip title="执行失败时自动调用AI修复脚本并重试">
+                <a-space size="small" style="margin-right: 8px">
+                  <a-switch v-model:checked="autoFixEnabled" size="small" :disabled="running" />
+                  <span style="font-size: 12px; color: #666">自动修复</span>
+                </a-space>
+              </a-tooltip>
               <a-button type="primary" @click="handleRun" :loading="running" :disabled="currentScript.status === 'generating'">
                 <PlayCircleOutlined /> 运行
               </a-button>
@@ -204,12 +210,28 @@
     <!-- 运行结果弹窗 -->
     <a-modal v-model:open="showRunResult" title="脚本执行结果" :footer="null">
       <a-result
+        v-if="runResult.status === 'running'"
+        status="info"
+        title="执行中..."
+        sub-title="脚本正在后台执行，请稍候..."
+      >
+        <template #extra>
+          <a-spin />
+          <p style="margin-top: 12px; color: #999">已耗时: {{ runResult.duration }}s</p>
+          <p v-if="autoFixEnabled" style="color: #1890ff">已开启自动修复，失败后将自动重试</p>
+        </template>
+      </a-result>
+      <a-result
+        v-else
         :status="runResult.status === 'passed' ? 'success' : 'error'"
-        :title="runResult.status === 'passed' ? '执行成功' : '执行失败'"
+        :title="runResult.status === 'passed' ? (runResult.auto_fixed ? '执行成功（已自动修复）' : '执行成功') : '执行失败'"
         :sub-title="`耗时: ${runResult.duration}s`"
       >
-        <template v-if="runResult.error" #extra>
-          <a-alert message="错误信息" :description="runResult.error" type="error" show-icon />
+        <template #extra>
+          <div v-if="runResult.auto_fixed" style="margin-bottom: 12px">
+            <a-alert message="AI自动修复" :description="`脚本执行失败后已自动修复并重试成功，共重试 ${runResult.retry_count} 次，脚本已更新至新版本`" type="success" show-icon />
+          </div>
+          <a-alert v-if="runResult.error" message="错误信息" :description="runResult.error" type="error" show-icon />
         </template>
       </a-result>
     </a-modal>
@@ -293,7 +315,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
@@ -330,8 +352,11 @@ const saving = ref(false)
 
 const running = ref(false)
 const showRunResult = ref(false)
-const runResult = ref<{ status: string; duration: number; error?: string }>({ status: '', duration: 0, error: '' })
+const runResult = ref<{ status: string; duration: number; error?: string; auto_fixed?: boolean; retry_count?: number }>({ status: '', duration: 0, error: '' })
 const refreshing = ref(false)
+const autoFixEnabled = ref(true)  // 自动修复开关
+const currentRunId = ref<number | null>(null)  // 当前后台执行的run_id
+let runPollingTimer: any = null  // 轮询定时器
 
 const showEditInfoModal = ref(false)
 const savingInfo = ref(false)
@@ -533,20 +558,74 @@ async function handleDuplicate() {
 async function handleRun() {
   if (!currentScript.value) return
   running.value = true
+  showRunResult.value = true
+  runResult.value = { status: 'running', duration: 0, error: '' }
   try {
-    const result = await runScript(projectId, currentScript.value.id!, { headless: true })
-    runResult.value = result
-    showRunResult.value = true
-    await loadScripts()
-    if (currentScript.value) {
-      const updated = scripts.value.find(s => s.id === currentScript.value!.id)
-      if (updated) currentScript.value = updated
-    }
+    const result = await runScript(projectId, currentScript.value.id!, {
+      headless: true,
+      auto_fix: autoFixEnabled.value,
+      max_retries: 2,
+    })
+    currentRunId.value = result.run_id
+    // 开始轮询执行状态
+    startRunPolling(result.run_id)
   } catch (e: any) {
     message.error(e.response?.data?.detail || '执行失败')
-  } finally {
     running.value = false
+    runResult.value.status = 'failed'
+    runResult.value.error = e.response?.data?.detail || '执行失败'
   }
+}
+
+function startRunPolling(runId: number) {
+  // 清除之前的定时器
+  if (runPollingTimer) {
+    clearInterval(runPollingTimer)
+  }
+  // 每2秒轮询一次
+  runPollingTimer = setInterval(async () => {
+    try {
+      const run = await getExecutionRun(projectId, runId)
+      if (run.status === 'passed' || run.status === 'failed') {
+        // 执行完成
+        clearInterval(runPollingTimer)
+        runPollingTimer = null
+        running.value = false
+        currentRunId.value = null
+
+        // 解析执行日志，判断是否自动修复
+        let autoFixed = false
+        let retryCount = 0
+        try {
+          const logs = JSON.parse(run.execution_log || '[]')
+          autoFixed = logs.some((l: any) => l.action === 'script_updated')
+          retryCount = logs.filter((l: any) => l.action === 'ai_fix' && l.status === 'success').length
+        } catch (e) {
+          // ignore
+        }
+
+        runResult.value = {
+          status: run.status,
+          duration: run.duration || 0,
+          error: run.error_message || '',
+          auto_fixed: autoFixed,
+          retry_count: retryCount,
+        }
+
+        // 刷新脚本列表
+        await loadScripts()
+        if (currentScript.value) {
+          const updated = scripts.value.find(s => s.id === currentScript.value!.id)
+          if (updated) currentScript.value = updated
+        }
+      } else {
+        // 仍在执行中，更新耗时显示
+        runResult.value.duration = run.duration || 0
+      }
+    } catch (e) {
+      // 轮询出错，忽略
+    }
+  }, 2000)
 }
 
 async function loadScriptRuns() {
@@ -626,6 +705,12 @@ function getStatusText(status?: string) {
 
 onMounted(() => {
   loadScripts()
+})
+
+onUnmounted(() => {
+  if (runPollingTimer) {
+    clearInterval(runPollingTimer)
+  }
 })
 </script>
 

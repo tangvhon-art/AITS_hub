@@ -278,6 +278,64 @@ class LLMFactory:
 
         raise RuntimeError(f"所有 LLM 配置均调用失败: {last_error}")
 
+    async def acall_with_fallback(
+        self,
+        db_session,
+        messages: List[BaseMessage],
+        preferred_config_id: Optional[int] = None,
+        max_retries: int = 2,
+    ) -> tuple[Any, Dict[str, int], Optional[int]]:
+        """
+        带降级和重试的 LLM 异步调用（不阻塞事件循环）。
+        返回 (response, token_usage, used_config_id)
+        """
+        import asyncio
+        from app.models.llm_config import LLMConfig
+
+        configs = db_session.query(LLMConfig).filter(
+            LLMConfig.status == "active"
+        ).order_by(LLMConfig.priority.asc()).all()
+
+        if preferred_config_id:
+            preferred = next((c for c in configs if c.id == preferred_config_id), None)
+            if preferred:
+                configs.remove(preferred)
+                configs.insert(0, preferred)
+
+        if not configs:
+            # 使用默认配置
+            llm = self.get_default_llm()
+            response = await llm.ainvoke(messages)
+            usage = self._extract_token_usage(response)
+            return response, usage, None
+
+        last_error = None
+        for config in configs:
+            for attempt in range(max_retries):
+                try:
+                    llm = self.get_llm_from_config({
+                        "provider": config.provider,
+                        "model_name": config.model_name,
+                        "base_url": config.base_url,
+                        "api_key": config.api_key,
+                        "max_tokens": config.max_tokens,
+                        "temperature": config.temperature,
+                        "streaming": config.streaming,
+                    })
+                    response = await llm.ainvoke(messages)
+                    usage = self._extract_token_usage(response)
+                    logger.info(f"LLM 异步调用成功: config={config.name}, model={config.model_name}")
+                    return response, usage, config.id
+                except Exception as e:
+                    last_error = e
+                    logger.warning(
+                        f"LLM 异步调用失败 (config={config.name}, attempt={attempt+1}): {e}"
+                    )
+                    await asyncio.sleep(1)  # 异步等待，不阻塞事件循环
+                    continue
+
+        raise RuntimeError(f"所有 LLM 配置均调用失败: {last_error}")
+
     @staticmethod
     def _extract_token_usage(response) -> Dict[str, int]:
         """从 LLM 响应中提取 Token 使用量"""

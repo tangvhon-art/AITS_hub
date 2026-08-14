@@ -28,7 +28,8 @@
 ```
 前端  Vue 3.4 + TypeScript 5.5 + Ant Design Vue 4.x + Pinia + Vite 5 + ECharts 5.5
 后端  FastAPI 0.115 + Python 3.12+ + SQLAlchemy 2.0 + Pydantic v2
-数据  MySQL 8.0 + Redis 7（可选）
+数据  MySQL 8.0 + Redis 7（Celery 消息队列）
+异步  Celery 5.6 + Redis（异步任务队列，脚本生成等耗时任务）
 Agent LangChain 0.3 + LangGraph 0.2 + Playwright 1.49
 AI    DeepSeek / Claude / vLLM-TGI / Ollama（4 种接入模式，自动降级）
 ```
@@ -53,6 +54,8 @@ AI    DeepSeek / Claude / vLLM-TGI / Ollama（4 种接入模式，自动降级�
 
 脚本自动检测并安装依赖（Python venv / Node.js node_modules / Playwright Chromium）。
 
+> **注意**: 启动前请确保 Redis 已运行（`redis-server --daemonize yes`），Celery Worker 依赖 Redis 作为消息队列。
+
 ### 方式二：Docker Compose
 
 ```bash
@@ -62,22 +65,33 @@ docker-compose up -d
 
 ### 方式三：手动启动
 
-**前置要求**: Python 3.12+ / Node.js 18+ / MySQL 8.0
+**前置要求**: Python 3.12+ / Node.js 18+ / MySQL 8.0 / Redis 7
 
 ```bash
-# ─── 后端 ───
+# ─── 1. 启动 Redis（如未运行）───
+redis-server --daemonize yes
+
+# ─── 2. 后端 ───
 cd backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
-cp .env.example .env   # 编辑数据库连接信息
+cp .env.example .env   # 编辑数据库连接信息和 Redis 地址
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# ─── 前端 ───
+# ─── 3. 启动 Celery Worker（另一个终端）───
+cd backend
+source venv/bin/activate
+./start_celery_worker.sh 4  # 4个并发worker
+
+# ─── 4. 前端 ───
 cd frontend
 npm install
 npm run dev
 ```
+
+> Celery Worker 用于异步执行自动化脚本生成等耗时任务，使用 Redis 作为消息队列。
+> 不启动 Worker 会导致脚本执行等异步任务无法处理。
 
 **访问地址**:
 - 前端页面: http://localhost:5173
@@ -129,8 +143,12 @@ AITS_hub/
 │   │   ├── services/                 # 业务服务（知识库 RAG）
 │   │   ├── config.py                 # Pydantic Settings 配置
 │   │   ├── database.py               # 数据库连接（SQLAlchemy Engine）
+│   │   ├── celery_app.py             # Celery 实例配置
+│   │   ├── tasks/                    # Celery 异步任务
+│   │   │   └── script_tasks.py       #   脚本执行任务
 │   │   └── main.py                   # FastAPI 入口 + 路由注册
 │   ├── alembic/                      # 数据库迁移脚本
+│   ├── start_celery_worker.sh        # Celery Worker 启动脚本
 │   ├── requirements.txt              # Python 依赖
 │   └── Dockerfile
 ├── frontend/                         # 前端应用
@@ -293,7 +311,7 @@ DB_USER=root
 DB_PASSWORD=your-password
 DB_NAME=aits_platform
 
-# Redis（可选）
+# Redis（必填，Celery 消息队列依赖）
 REDIS_URL=redis://localhost:6379/0
 
 # CORS

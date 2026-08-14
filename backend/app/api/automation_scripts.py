@@ -15,6 +15,7 @@ from app.models.project import Project
 from app.models.automation_script import AutomationScript
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
+from app.tasks.script_tasks import run_automation_script_task
 from app.schemas.automation_script import (
     AutomationScriptCreate,
     AutomationScriptUpdate,
@@ -298,17 +299,223 @@ def get_scripts_by_case(
     ).order_by(AutomationScript.updated_at.desc()).all()
 
 
+async def _run_script_background(
+    run_id: int,
+    script_id: int,
+    project_id: int,
+    script_content: str,
+    script_name: str,
+    target_url: str,
+    auto_fix: bool,
+    max_retries: int,
+    params: Optional[dict] = None,
+):
+    """
+    后台执行脚本，支持AI自动修复重试
+    使用独立的数据库会话，避免阻塞主接口
+    """
+    from app.database import SessionLocal
+    import asyncio
+
+    db = SessionLocal()
+    try:
+        run = db.query(TestRun).filter(TestRun.id == run_id).first()
+        script = db.query(AutomationScript).filter(AutomationScript.id == script_id).first()
+        if not run or not script:
+            logger.error(f"后台执行失败: run={run_id} 或 script={script_id} 不存在")
+            return
+
+        # 参数替换
+        def apply_params(content: str) -> str:
+            if params:
+                for key, value in params.items():
+                    content = content.replace(f"{{{{{key}}}}}", str(value))
+            return content
+
+        current_content = apply_params(script_content)
+        start_time = time.time()
+        start_datetime = run.started_at or china_now_naive()
+        error_msg = ""
+        status_result = "passed"
+        retry_count = 0
+        exec_log = [
+            {"action": "script_run", "detail": f"执行脚本: {script_name}", "timestamp": start_time, "status": "running", "script_id": script_id}
+        ]
+
+        # 同步执行脚本的函数（在线程池中运行）
+        def _run_script_sync(content: str, sid: int) -> tuple[bool, str]:
+            """在独立事件循环中执行脚本，返回 (是否成功, 错误信息)"""
+            import asyncio as _asyncio
+            try:
+                local_vars = {}
+                exec(compile(content, f"script_{sid}.py", "exec"), local_vars)
+
+                if "run_test" in local_vars and callable(local_vars["run_test"]):
+                    # 在线程的独立事件循环中执行异步函数
+                    _asyncio.run(local_vars["run_test"]())
+                else:
+                    raise RuntimeError("脚本中未找到 run_test 函数")
+                return True, ""
+            except Exception as e:
+                return False, str(e)
+
+        # 执行脚本的异步函数（使用线程池）
+        async def execute_script(content: str) -> tuple[bool, str]:
+            """在线程池中执行脚本，不阻塞主事件循环"""
+            import asyncio as _asyncio
+            return await _asyncio.to_thread(_run_script_sync, content, script_id)
+
+        # 首次执行
+        success, error_msg = await execute_script(current_content)
+        duration = time.time() - start_time
+
+        if success:
+            exec_log.append({
+                "action": "result", "detail": f"执行成功，耗时: {duration:.2f}s",
+                "timestamp": time.time(), "status": "passed", "duration": round(duration, 3)
+            })
+        else:
+            # 执行失败，记录首次失败
+            exec_log.append({
+                "action": "result", "detail": f"第1次执行失败，耗时: {duration:.2f}s, 错误: {error_msg}",
+                "timestamp": time.time(), "status": "failed", "duration": round(duration, 3),
+                "error": error_msg, "attempt": 1
+            })
+
+            # 自动修复重试循环
+            max_retries = max(0, max_retries)
+
+            while not success and auto_fix and retry_count < max_retries:
+                retry_count += 1
+                logger.info(f"脚本 #{script_id} 执行失败，开始第 {retry_count} 次AI修复重试")
+                exec_log.append({
+                    "action": "ai_fix", "detail": f"调用AI修复脚本（第{retry_count}次）",
+                    "timestamp": time.time(), "status": "running", "attempt": retry_count
+                })
+
+                try:
+                    # 调用AI修复脚本
+                    fixed_content = await ScriptGenerator.fix_script_with_ai(
+                        script_content=current_content,
+                        error_message=error_msg,
+                        script_name=script_name,
+                        target_url=target_url or "",
+                        db_session=db,
+                    )
+
+                    if fixed_content == current_content:
+                        exec_log.append({
+                            "action": "ai_fix", "detail": "AI修复未产生变化，停止重试",
+                            "timestamp": time.time(), "status": "skipped", "attempt": retry_count
+                        })
+                        break
+
+                    current_content = fixed_content
+                    exec_log.append({
+                        "action": "ai_fix", "detail": f"AI修复完成，修复后脚本长度: {len(fixed_content)}",
+                        "timestamp": time.time(), "status": "success", "attempt": retry_count
+                    })
+
+                    # 使用修复后的脚本重新执行
+                    retry_start = time.time()
+                    success, error_msg = await execute_script(current_content)
+                    retry_duration = time.time() - retry_start
+
+                    if success:
+                        duration = time.time() - start_time
+                        exec_log.append({
+                            "action": "result", "detail": f"第{retry_count + 1}次执行成功（修复后），耗时: {retry_duration:.2f}s",
+                            "timestamp": time.time(), "status": "passed", "duration": round(retry_duration, 3),
+                            "attempt": retry_count + 1, "fixed": True
+                        })
+                        status_result = "passed"
+                        error_msg = ""
+
+                        # 修复成功后，更新脚本库中的脚本内容
+                        try:
+                            script.script_content = current_content
+                            script.version = (script.version or 1) + 1
+                            script.status = "active"
+                            script.description = (script.description or "") + f"\n[自动修复] 执行失败后AI自动修复成功，版本升级至 v{script.version}"
+                            db.commit()
+                            exec_log.append({
+                                "action": "script_updated", "detail": f"脚本已自动更新至 v{script.version}",
+                                "timestamp": time.time(), "status": "success", "new_version": script.version
+                            })
+                            logger.info(f"脚本 #{script_id} 已自动修复并更新至 v{script.version}")
+                        except Exception as update_e:
+                            logger.warning(f"更新脚本库失败: {update_e}")
+                            db.rollback()
+                    else:
+                        exec_log.append({
+                            "action": "result", "detail": f"第{retry_count + 1}次执行失败（修复后），耗时: {retry_duration:.2f}s, 错误: {error_msg}",
+                            "timestamp": time.time(), "status": "failed", "duration": round(retry_duration, 3),
+                            "error": error_msg, "attempt": retry_count + 1, "fixed": True
+                        })
+
+                except Exception as fix_e:
+                    error_msg = f"AI修复异常: {str(fix_e)}"
+                    logger.error(f"AI修复脚本异常: {fix_e}", exc_info=True)
+                    exec_log.append({
+                        "action": "ai_fix", "detail": f"AI修复异常: {str(fix_e)}",
+                        "timestamp": time.time(), "status": "failed", "attempt": retry_count
+                    })
+                    break
+
+            if not success:
+                status_result = "failed"
+                duration = time.time() - start_time
+
+        # 更新执行记录
+        run.status = status_result
+        run.error_message = error_msg
+        run.duration = round(duration, 2)
+        run.started_at = start_datetime
+        run.completed_at = china_now_naive()
+        run.execution_log = json.dumps(exec_log, ensure_ascii=False)
+        db.commit()
+
+        # 更新脚本统计
+        script.total_runs = (script.total_runs or 0) + 1
+        script.last_run_status = status_result
+        script.last_run_at = china_now_naive()
+        if status_result == "passed":
+            script.pass_count = (script.pass_count or 0) + 1
+        else:
+            script.fail_count = (script.fail_count or 0) + 1
+        db.commit()
+
+        logger.info(f"脚本 #{script_id} 后台执行完成: status={status_result}, duration={duration:.2f}s, retry_count={retry_count}")
+
+    except Exception as e:
+        logger.error(f"后台执行脚本异常: {e}", exc_info=True)
+        try:
+            run = db.query(TestRun).filter(TestRun.id == run_id).first()
+            if run:
+                run.status = "failed"
+                run.error_message = f"后台执行异常: {str(e)}"
+                run.completed_at = china_now_naive()
+                db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 @router.post("/{script_id}/run")
 async def run_script(
     project_id: int,
     script_id: int,
     req: ScriptRunRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    运行单个脚本
-    使用 asyncio 动态执行脚本内容
+    运行单个脚本（Celery 任务队列执行）
+    立即返回 run_id，执行状态通过执行记录接口查询
+    执行失败时支持自动调用AI修复脚本并重试
+    Celery 不可用时自动降级到 BackgroundTasks
     """
     _check_project_access(project_id, db, current_user)
     script = db.query(AutomationScript).filter(
@@ -318,18 +525,12 @@ async def run_script(
     if not script:
         raise HTTPException(status_code=404, detail="脚本不存在")
 
-    # 参数替换
-    script_content = script.script_content
-    if req.params:
-        for key, value in req.params.items():
-            script_content = script_content.replace(f"{{{{{key}}}}}", str(value))
-
     # 创建执行记录
     run = TestRun(
         project_id=project_id,
         case_id=script.case_id,
         status="running",
-        execution_log=json.dumps([{"action": "script_run", "detail": f"执行脚本: {script.name}"}], ensure_ascii=False),
+        execution_log=json.dumps([{"action": "script_run", "detail": f"执行脚本: {script.name}（排队中）"}], ensure_ascii=False),
         executed_by=current_user.id,
         started_at=china_now_naive(),
     )
@@ -337,69 +538,38 @@ async def run_script(
     db.commit()
     db.refresh(run)
 
-    import asyncio
-    import traceback
-    from datetime import datetime
+    task_kwargs = dict(
+        run_id=run.id,
+        script_id=script_id,
+        project_id=project_id,
+        script_content=script.script_content,
+        script_name=script.name,
+        target_url=script.target_url or "",
+        auto_fix=req.auto_fix,
+        max_retries=req.max_retries,
+        params=req.params,
+    )
 
-    start_time = time.time()
-    start_datetime = china_now_naive()
-    error_msg = ""
-    status_result = "passed"
-    exec_log = [
-        {"action": "script_run", "detail": f"执行脚本: {script.name}", "timestamp": start_time, "status": "running", "script_id": script_id}
-    ]
-
+    # 优先使用 Celery 任务队列，失败时降级到 BackgroundTasks
+    use_celery = False
+    celery_task_id = None
     try:
-        # 动态执行脚本
-        local_vars = {}
-        exec(compile(script_content, f"script_{script_id}.py", "exec"), local_vars)
-
-        if "run_test" in local_vars and callable(local_vars["run_test"]):
-            await local_vars["run_test"]()
-        else:
-            raise RuntimeError("脚本中未找到 run_test 函数")
-
-        duration = time.time() - start_time
-        exec_log.append({
-            "action": "result", "detail": f"执行成功，耗时: {duration:.2f}s",
-            "timestamp": time.time(), "status": "passed", "duration": round(duration, 3)
-        })
-
-    except Exception as e:
-        error_msg = str(e)
-        status_result = "failed"
-        duration = time.time() - start_time
-        traceback.print_exc()
-        exec_log.append({
-            "action": "result", "detail": f"执行失败，耗时: {duration:.2f}s, 错误: {error_msg}",
-            "timestamp": time.time(), "status": "failed", "duration": round(duration, 3),
-            "error": error_msg
-        })
-
-    # 更新执行记录
-    run.status = status_result
-    run.error_message = error_msg
-    run.duration = round(duration, 2)
-    run.started_at = start_datetime
-    run.completed_at = china_now_naive()
-    run.execution_log = json.dumps(exec_log, ensure_ascii=False)
-    db.commit()
-
-    # 更新脚本统计
-    script.total_runs = (script.total_runs or 0) + 1
-    script.last_run_status = status_result
-    script.last_run_at = china_now_naive()
-    if status_result == "passed":
-        script.pass_count = (script.pass_count or 0) + 1
-    else:
-        script.fail_count = (script.fail_count or 0) + 1
-    db.commit()
+        task_result = run_automation_script_task.delay(**task_kwargs)
+        celery_task_id = task_result.id
+        use_celery = True
+        logger.info(f"脚本 #{script_id} 已提交 Celery 任务: task_id={celery_task_id}")
+    except Exception as celery_e:
+        logger.warning(f"Celery 任务提交失败，降级到 BackgroundTasks: {celery_e}")
+        background_tasks.add_task(_run_script_background, **task_kwargs)
 
     return {
         "run_id": run.id,
-        "status": status_result,
-        "duration": round(duration, 2),
-        "error": error_msg,
+        "status": "running",
+        "message": "脚本已提交执行队列，请通过执行记录接口查询状态",
+        "auto_fix": req.auto_fix,
+        "max_retries": req.max_retries,
+        "executor": "celery" if use_celery else "background",
+        "celery_task_id": celery_task_id,
     }
 
 

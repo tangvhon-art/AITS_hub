@@ -115,6 +115,12 @@ const routes: RouteRecordRaw[] = [
         name: 'LLMConfig',
         component: () => import('@/views/LLMConfig.vue'),
         meta: { title: '模型配置', icon: 'Cpu' }
+      },
+      {
+        path: 'task-monitor',
+        name: 'TaskMonitor',
+        component: () => import('@/views/TaskMonitor.vue'),
+        meta: { title: '任务监控', icon: 'Monitor' }
       }
     ]
   }

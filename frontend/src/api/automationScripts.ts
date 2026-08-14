@@ -29,8 +29,13 @@ export interface AutomationScript {
 export interface ScriptRunResult {
   run_id: number
   status: string
-  duration: number
+  duration?: number
   error?: string
+  message?: string
+  auto_fix?: boolean
+  max_retries?: number
+  auto_fixed?: boolean
+  retry_count?: number
 }
 
 export function getScripts(projectId: number, params?: { status?: string; case_id?: number; keyword?: string }) {
@@ -57,7 +62,7 @@ export function duplicateScript(projectId: number, scriptId: number) {
   return request.post<AutomationScript>(`/projects/${projectId}/scripts/${scriptId}/duplicate`)
 }
 
-export function runScript(projectId: number, scriptId: number, params?: { headless?: boolean }) {
+export function runScript(projectId: number, scriptId: number, params?: { headless?: boolean; auto_fix?: boolean; max_retries?: number; params?: Record<string, any> }) {
   return request.post<ScriptRunResult>(`/projects/${projectId}/scripts/${scriptId}/run`, params || {})
 }
 

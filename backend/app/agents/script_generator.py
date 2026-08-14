@@ -124,7 +124,7 @@ class ScriptGenerator:
         ]
 
         try:
-            response, token_usage, used_config_id = llm_factory.call_with_fallback(
+            response, token_usage, used_config_id = await llm_factory.acall_with_fallback(
                 db_session=db_session,
                 messages=messages,
                 preferred_config_id=llm_config_id,
@@ -198,7 +198,7 @@ class ScriptGenerator:
         ]
 
         try:
-            response, token_usage, used_config_id = llm_factory.call_with_fallback(
+            response, token_usage, used_config_id = await llm_factory.acall_with_fallback(
                 db_session=db_session,
                 messages=messages,
                 preferred_config_id=llm_config_id,
@@ -222,6 +222,97 @@ class ScriptGenerator:
             logger.error(f"AI 生成脚本失败: {e}", exc_info=True)
             # 失败时返回基础模板
             return ScriptGenerator.generate_template(target_url, script_name)
+
+    @staticmethod
+    async def fix_script_with_ai(
+        script_content: str,
+        error_message: str,
+        script_name: str = "脚本修复",
+        target_url: str = "",
+        llm_config_id: Optional[int] = None,
+        db_session=None,
+    ) -> str:
+        """
+        当脚本执行失败时，调用 AI 分析错误并修复脚本
+
+        Args:
+            script_content: 原始脚本内容
+            error_message: 执行错误信息
+            script_name: 脚本名称
+            target_url: 目标 URL
+            llm_config_id: 指定的 LLM 配置ID
+            db_session: 数据库会话
+
+        Returns:
+            修复后的 Python 脚本内容
+        """
+        from app.agents.llm_factory import llm_factory
+
+        fix_system_prompt = """你是一个专业的 Playwright 自动化测试脚本修复专家。
+请根据脚本执行时的错误信息，分析问题并修复脚本。
+
+要求：
+1. 仔细分析错误原因，定位问题代码
+2. 修复选择器、等待逻辑、异常处理等问题
+3. 保持脚本的整体结构和测试意图不变
+4. 添加必要的等待和异常处理，提高脚本稳定性
+5. 修复后的脚本必须包含 async def run_test() 函数
+6. 使用 async_playwright 上下文管理
+7. 只输出修复后的完整 Python 代码，不要输出解释文字
+8. 代码用 ```python 和 ``` 包裹
+
+常见修复方向：
+- 选择器不存在：改用更稳定的选择器或添加等待
+- 元素不可点击：添加 wait_for_selector 或 scroll_into_view_if_needed
+- 页面加载超时：增加超时时间或使用 wait_until="domcontentloaded"
+- 断言失败：调整断言逻辑或添加容错
+- 导入缺失：补充必要的 import
+"""
+
+        user_prompt = f"""脚本名称：{script_name}
+目标URL：{target_url or "未指定"}
+
+执行错误信息：
+{error_message}
+
+原始脚本内容：
+```python
+{script_content}
+```
+
+请修复上述脚本中的错误，输出完整的修复后脚本。"""
+
+        messages = [
+            SystemMessage(content=fix_system_prompt),
+            HumanMessage(content=user_prompt),
+        ]
+
+        try:
+            response, token_usage, used_config_id = await llm_factory.acall_with_fallback(
+                db_session=db_session,
+                messages=messages,
+                preferred_config_id=llm_config_id,
+                max_retries=2,
+            )
+            content = response.content if hasattr(response, 'content') else str(response)
+            fixed_script = ScriptGenerator._extract_python_code(content)
+
+            if not fixed_script:
+                logger.warning("AI 修复返回内容中未提取到 Python 代码，返回原始脚本")
+                return script_content
+
+            # 确保脚本包含 run_test 函数
+            if "async def run_test()" not in fixed_script and "def run_test()" not in fixed_script:
+                logger.warning("修复后的脚本缺少 run_test 函数，返回原始脚本")
+                return script_content
+
+            logger.info(f"AI 修复脚本成功，修复后长度: {len(fixed_script)}")
+            return fixed_script
+
+        except Exception as e:
+            logger.error(f"AI 修复脚本失败: {e}", exc_info=True)
+            # 失败时返回原始脚本
+            return script_content
 
     @staticmethod
     def _extract_python_code(content: str) -> str:

@@ -15,6 +15,10 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true
+      },
+      '/flower': {
+        target: 'http://localhost:5555',
+        changeOrigin: true
       }
     }
   }

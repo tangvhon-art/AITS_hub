@@ -107,6 +107,12 @@
           </template>
           <span>模型配置</span>
         </a-menu-item>
+        <a-menu-item key="/task-monitor">
+          <template #icon>
+            <MonitorOutlined />
+          </template>
+          <span>任务监控</span>
+        </a-menu-item>
       </a-menu>
     </a-layout-sider>
 
@@ -185,7 +191,8 @@ import {
   DashboardOutlined,
   ImportOutlined,
   FileSearchOutlined,
-  TagOutlined
+  TagOutlined,
+  MonitorOutlined
 } from '@ant-design/icons-vue'
 
 interface TabItem {

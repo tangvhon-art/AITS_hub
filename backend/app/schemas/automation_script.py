@@ -61,3 +61,5 @@ class AutomationScriptResponse(BaseModel):
 class ScriptRunRequest(BaseModel):
     headless: bool = True
     params: Optional[Dict[str, Any]] = None
+    auto_fix: bool = True  # 执行失败时是否自动调用AI修复脚本
+    max_retries: int = 2  # 最大自动修复重试次数
