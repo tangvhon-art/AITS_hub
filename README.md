@@ -221,6 +221,8 @@ AITS_hub/
 - **分布图表**: 缺陷严重程度分布、根因分类分布、模块通过率
 - **风险预警**: 基于阈值自动生成高/中/低危预警
 - **AI 洞察**: 调用 LLM 分析数据生成质量洞察建议
+<img width="3018" height="1444" alt="image" src="https://github.com/user-attachments/assets/789fadf2-eb78-49aa-824c-b6bb11aefae0" />
+
 
 ### UI 自动化执行
 <img width="2424" height="1436" alt="image" src="https://github.com/user-attachments/assets/5765aff9-f771-495f-9528-9f7ba22c24ef" />
@@ -239,8 +241,11 @@ AITS_hub/
 - 执行失败时 AI 自动修复脚本并重试
 - 执行日志持久化，支持历史记录查看
 - 脚本自动版本升级
+<img width="3000" height="1438" alt="image" src="https://github.com/user-attachments/assets/c0353459-8540-4bfb-9bb2-e2ca27c36745" />
 
 ### 自动化编排
+<img width="3012" height="1378" alt="image" src="https://github.com/user-attachments/assets/1fd629be-b085-4d2d-b81c-6ecde42cb0fd" />
+
 
 ```
 套件步骤1（脚本/用例/等待） → 步骤2 → ... → 步骤N
