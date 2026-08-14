@@ -57,6 +57,9 @@
               <a-button type="primary" @click="handleExecute" :loading="executing">
                 <PlayCircleOutlined /> 执行编排
               </a-button>
+              <a-button @click="openHistoryModal">
+                <HistoryOutlined /> 历史记录
+              </a-button>
               <a-popconfirm title="确定删除该编排？" @confirm="handleDelete">
                 <a-button danger>删除</a-button>
               </a-popconfirm>
@@ -239,6 +242,41 @@
         </template>
       </a-table>
     </a-modal>
+
+    <!-- 历史执行记录弹窗 -->
+    <a-modal v-model:open="showHistoryModal" title="历史执行记录" :footer="null" :width="900">
+      <a-table
+        :columns="historyColumns"
+        :data-source="suiteRuns"
+        :loading="loadingHistory"
+        :pagination="{ pageSize: 10 }"
+        size="small"
+        row-key="id"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'status'">
+            <a-tag :color="getRunStatusColor(record.status)">{{ getRunStatusText(record.status) }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'steps'">
+            <span style="color: #52c41a">{{ record.passed_steps || 0 }}</span> /
+            <span style="color: #ff4d4f">{{ record.failed_steps || 0 }}</span> /
+            <span style="color: #faad14">{{ record.skipped_steps || 0 }}</span>
+          </template>
+          <template v-else-if="column.key === 'pass_rate'">
+            {{ record.pass_rate != null ? record.pass_rate.toFixed(1) + '%' : '-' }}
+          </template>
+          <template v-else-if="column.key === 'trigger_type'">
+            {{ getTriggerText(record.trigger_type) }}
+          </template>
+          <template v-else-if="column.key === 'started_at'">
+            {{ $formatDateTime(record.started_at) }}
+          </template>
+          <template v-else-if="column.key === 'action'">
+            <a-button type="link" size="small" @click="viewRunDetail(record.id!)">查看</a-button>
+          </template>
+        </template>
+      </a-table>
+    </a-modal>
   </div>
 </template>
 
@@ -246,11 +284,11 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, PlayCircleOutlined, HistoryOutlined } from '@ant-design/icons-vue'
 import {
   getSuites, createSuite, updateSuite, deleteSuite,
   getSuiteSteps, batchUpdateSteps, executeSuite,
-  getSuiteRun, getSuiteRunResults,
+  getSuiteRun, getSuiteRunResults, getSuiteRuns,
   type AutomationSuite, type SuiteStep, type SuiteRun, type SuiteRunResult
 } from '@/api/automationSuites'
 import { getScripts, type AutomationScript } from '@/api/automationScripts'
@@ -297,6 +335,21 @@ const headlessEnabled = ref(true)  // 无头模式开关
 const showRunResult = ref(false)
 const runResult = ref<SuiteRun>({ suite_id: 0, project_id: 0 })
 const runResults = ref<SuiteRunResult[]>([])
+
+const showHistoryModal = ref(false)
+const loadingHistory = ref(false)
+const suiteRuns = ref<SuiteRun[]>([])
+
+const historyColumns = [
+  { title: '执行ID', dataIndex: 'id', width: 80 },
+  { title: '状态', key: 'status', width: 100 },
+  { title: '通过/失败/跳过', key: 'steps', width: 140 },
+  { title: '通过率', key: 'pass_rate', width: 90 },
+  { title: '总耗时(s)', dataIndex: 'total_duration', width: 100 },
+  { title: '触发方式', key: 'trigger_type', width: 100 },
+  { title: '开始时间', key: 'started_at', width: 170 },
+  { title: '操作', key: 'action', width: 100 },
+]
 
 const resultColumns = [
   { title: '序号', dataIndex: 'sort_order', width: 60 },
@@ -528,6 +581,24 @@ async function loadRunResult(runId: number) {
   }
 }
 
+async function openHistoryModal() {
+  if (!currentSuite.value) return
+  showHistoryModal.value = true
+  loadingHistory.value = true
+  try {
+    suiteRuns.value = await getSuiteRuns(projectId, currentSuite.value.id!)
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '加载历史记录失败')
+    suiteRuns.value = []
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+function viewRunDetail(runId: number) {
+  router.push(`/projects/${projectId}/suite-runs/${runId}`)
+}
+
 // 辅助函数
 function getStatusColor(status?: string) {
   const map: Record<string, string> = { active: 'green', draft: 'orange', archived: 'default' }
@@ -558,6 +629,10 @@ function getStepTypeText(type?: string) {
 }
 function getScheduleText(type?: string) {
   const map: Record<string, string> = { manual: '手动', once: '一次性', cron: '定时' }
+  return map[type || ''] || type
+}
+function getTriggerText(type?: string) {
+  const map: Record<string, string> = { manual: '手动触发', schedule: '定时触发', api: 'API触发' }
   return map[type || ''] || type
 }
 

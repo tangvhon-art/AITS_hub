@@ -12,8 +12,8 @@
 | 用例管理 | CRUD + AI 生成 + 批量操作 | 基于需求自动生成结构化测试用例（P0-P3） |
 | 测试计划 | 计划编排 + 环境管理 + 调度 | 关联用例、支持手动/定时/一次性执行 |
 | UI 自动化 | Playwright + Agent 驱动执行 | SSE 实时日志流、截图记录、步骤转指令 |
-| 自动化编排 | 套件管理 + 批量执行 | 编排多脚本顺序执行，支持重试策略 |
-| 自动化脚本 | 脚本库管理 | 自动保存执行成功的脚本，支持版本追溯 |
+| 自动化脚本 | 脚本库管理 + 单步执行 | 自动保存执行成功的脚本，支持版本追溯与 AI 自动修复 |
+| 自动化编排 | 套件管理 + 批量执行 | 编排多脚本/用例顺序执行，支持重试、AI 自动修复、无头模式切换 |
 | 缺陷管理 | 缺陷全生命周期 | 状态流转、严重程度/根因分类、版本关联 |
 | 测试报告 | AI 生成 + 版本关联 | 按版本聚合计划/需求/缺陷数据生成报告 |
 | 质量看板 | 核心指标 + 趋势图表 + 风险预警 | 通过率/缺陷分布/模块覆盖率，支持版本筛选 |
@@ -27,10 +27,10 @@
 
 ```
 前端  Vue 3.4 + TypeScript 5.5 + Ant Design Vue 4.x + Pinia + Vite 5 + ECharts 5.5
-后端  FastAPI 0.115 + Python 3.12+ + SQLAlchemy 2.0 + Pydantic v2
-数据  MySQL 8.0 + Redis 7（Celery 消息队列）
-异步  Celery 5.6 + Redis（异步任务队列，脚本生成等耗时任务）
-Agent LangChain 0.3 + LangGraph 0.2 + Playwright 1.49
+后端  FastAPI 0.115 + Python 3.13+ + SQLAlchemy 2.0 + Pydantic v2
+数据  MySQL 8.0 + Redis 7（Celery 消息队列，必填）
+异步  Celery 5.6 + Redis（异步任务队列，脚本/编排执行）
+Agent LangChain 0.3 + LangGraph 0.3 + Playwright 1.49
 AI    DeepSeek / Claude / vLLM-TGI / Ollama（4 种接入模式，自动降级）
 ```
 
@@ -65,7 +65,7 @@ docker-compose up -d
 
 ### 方式三：手动启动
 
-**前置要求**: Python 3.12+ / Node.js 18+ / MySQL 8.0 / Redis 7
+**前置要求**: Python 3.13+ / Node.js 18+ / MySQL 8.0 / Redis 7
 
 ```bash
 # ─── 1. 启动 Redis（如未运行）───
@@ -90,8 +90,9 @@ npm install
 npm run dev
 ```
 
-> Celery Worker 用于异步执行自动化脚本生成等耗时任务，使用 Redis 作为消息队列。
-> 不启动 Worker 会导致脚本执行等异步任务无法处理。
+> Celery Worker 用于异步执行自动化脚本、自动化编排等任务，使用 Redis 作为消息队列。
+> 不启动 Worker 会导致脚本执行、编排执行等异步任务无法处理。
+> 修改 `suite_executor.py` 或 `script_tasks.py` 等任务代码后，必须重启 Celery Worker 才能生效。
 
 **访问地址**:
 - 前端页面: http://localhost:5173
@@ -137,23 +138,24 @@ AITS_hub/
 │   │   │   ├── automation_scripts.py #   自动化脚本库
 │   │   │   ├── automation_suites.py  #   自动化编排套件
 │   │   │   └── llm_configs.py        #   LLM 模型配置
-│   │   ├── models/                   # SQLAlchemy 数据模型（16 张表）
+│   │   ├── models/                   # SQLAlchemy 数据模型（19 张表）
 │   │   ├── schemas/                  # Pydantic 请求/响应模型
-│   │   ├── core/                     # 核心模块（安全/依赖注入/异常处理）
+│   │   ├── core/                     # 核心模块（安全/依赖注入/异常处理/审计）
 │   │   ├── services/                 # 业务服务（知识库 RAG）
 │   │   ├── config.py                 # Pydantic Settings 配置
 │   │   ├── database.py               # 数据库连接（SQLAlchemy Engine）
 │   │   ├── celery_app.py             # Celery 实例配置
 │   │   ├── tasks/                    # Celery 异步任务
-│   │   │   └── script_tasks.py       #   脚本执行任务
+│   │   │   └── script_tasks.py       #   脚本/编排执行任务
 │   │   └── main.py                   # FastAPI 入口 + 路由注册
-│   ├── alembic/                      # 数据库迁移脚本
+│   ├── alembic/                      # 数据库迁移脚本目录
+│   ├── migrations/                   # 手动 SQL 迁移脚本
 │   ├── start_celery_worker.sh        # Celery Worker 启动脚本
 │   ├── requirements.txt              # Python 依赖
 │   └── Dockerfile
 ├── frontend/                         # 前端应用
 │   ├── src/
-│   │   ├── views/                    # 页面组件（19 个 Vue 页面）
+│   │   ├── views/                    # 页面组件（20 个 Vue 页面）
 │   │   │   ├── Login.vue             #   登录/注册
 │   │   │   ├── Layout.vue            #   主布局（侧边栏 + 多标签页）
 │   │   │   ├── Projects.vue          #   项目管理
@@ -200,6 +202,7 @@ AITS_hub/
 - **模型路由与降级** (`model_router.py`)：主模型失败时自动降级到备用模型（按 priority 排序，最多重试 2 次）
 - **用例生成 Agent**：基于需求内容生成结构化测试用例，支持 P0-P3 优先级和步骤拆分
 - **UI 执行 Agent**：驱动 Playwright 浏览器执行用例步骤，SSE 流式返回实时日志和截图
+- **脚本生成 Agent**：将用例步骤转换为可执行的 Playwright Python 脚本
 - **报告生成 Agent**：按版本聚合测试计划、需求、缺陷数据，调用 LLM 生成分析报告
 - **Supervisor 编排**：多 Agent 流水线协作（需求解析 → 用例生成 → 评审 → 执行）
 
@@ -229,21 +232,31 @@ AITS_hub/
         执行结束 → 保存截图/日志/状态 → 更新用例执行记录
 ```
 
-### 大模型配置
+支持功能：
+- 无头/可视化浏览器模式切换
+- 执行失败时 AI 自动修复脚本并重试
+- 执行日志持久化，支持历史记录查看
+- 脚本自动版本升级
 
-支持四种 LLM 接入模式，在平台「模型配置」页面管理：
+### 自动化编排
 
-| 模式 | Provider | 适用场景 |
-|------|----------|----------|
-| OpenAI 兼容协议 | `openai_compatible` | DeepSeek、vLLM、TGI、Doubao 等 |
-| Anthropic Claude | `anthropic` | Claude 官方 API |
-| 本地 Ollama | `ollama` | 本地运行的开源模型 |
+```
+套件步骤1（脚本/用例/等待） → 步骤2 → ... → 步骤N
+         ↓ 共享浏览器上下文
+    顺序执行，支持失败继续/重试/AI修复
+```
 
-支持测试连接、设为默认、流式开关、优先级排序和自动降级。
+支持功能：
+- 编排步骤添加、编辑、删除、排序
+- 步骤类型：脚本 / 用例 / 等待
+- 步骤级配置：失败后继续、最大重试次数、超时时间、AI 自动修复
+- 套件级配置：无头模式开关
+- 执行导航操作保留，方便直接路由到对应页面
+- 执行结果按步骤展示，包含日志、错误信息、耗时
 
 ## 数据库设计
 
-共 16 张表，启动时自动创建（`Base.metadata.create_all`）：
+共 19 张表，所有业务表均继承软删除混入类（`is_deleted` + `deleted_at`）：
 
 | 表名 | 说明 | 关键字段 |
 |------|------|---------|
@@ -262,9 +275,11 @@ AITS_hub/
 | `llm_configs` | LLM 配置 | provider, base_url, api_key(加密), model_name, priority |
 | `knowledge_docs` | 知识库文档 | project_id, title, content, embedding |
 | `audit_logs` | 审计日志 | user_id, action, resource_type, resource_id |
-| `automation_scripts` | 自动化脚本 | project_id, name, script_type, content |
-| `automation_suites` | 编排套件 | project_id, name, plan_id, steps(JSON) |
-| `automation_suite_runs` | 套件执行记录 | suite_id, status, duration, results |
+| `automation_scripts` | 自动化脚本 | project_id, name, script_type, content, version |
+| `automation_suites` | 编排套件 | project_id, name, plan_id, total_steps |
+| `automation_suite_steps` | 编排步骤 | suite_id, script_id/case_id, step_type, auto_fix, continue_on_failure |
+| `automation_suite_runs` | 套件执行记录 | suite_id, status, duration, passed_steps, failed_steps |
+| `automation_suite_run_results` | 套件单步结果 | suite_run_id, step_id, status, execution_log |
 
 > 加粗字段 `version_id` 表示版本关联外键，nullable 设计向后兼容。
 
@@ -286,8 +301,8 @@ AITS_hub/
 | 报告 | `/api/projects/{id}/reports` | list + **generate（必选版本）** |
 | 质量 | `/api/projects/{id}/quality` | metrics + trend + dashboard + alerts + insight |
 | 知识库 | `/api/projects/{id}/knowledge` | CRUD + search (RAG) |
-| 脚本 | `/api/projects/{id}/scripts` | CRUD + execute |
-| 套件 | `/api/projects/{id}/suites` | CRUD + execute + runs |
+| 脚本 | `/api/projects/{id}/scripts` | CRUD + execute + suites（关联编排） |
+| 套件 | `/api/projects/{id}/suites` | CRUD + steps + execute + runs |
 | Agent | `/api/agent-tasks` | list + detail + supervisor |
 | LLM | `/api/llm-configs` | CRUD + test + set-default |
 | 审计 | `/api/audit-logs` | list + detail |
@@ -334,6 +349,17 @@ RABBITMQ_URL=amqp://guest:guest@localhost:5672/
 RABBITMQ_ENABLED=false
 ```
 
+## 数据库迁移
+
+项目未启用 Alembic 自动迁移，新增字段需手动执行 SQL 迁移脚本：
+
+```bash
+# 示例：执行自动化编排步骤 AI 修复开关迁移
+mysql -h localhost -P 3306 -u root -p'your-password' AITS_hub < backend/migrations/add_suite_step_auto_fix.sql
+```
+
+新增模型字段后，如果数据库表已存在，需要对应创建 ALTER TABLE 迁移脚本并执行。
+
 ## 常见问题
 
 **Q: 数据库密码含特殊字符连接失败？**
@@ -356,7 +382,14 @@ playwright install-deps chromium
 bcrypt 5.x 与 passlib 不兼容，项目已锁定 `bcrypt==4.0.1`，使用项目的 requirements.txt 安装即可。
 
 **Q: 后端新增字段后数据库报错 `Unknown column`？**
-`create_all()` 只创建新表不会修改已有表。需手动执行 ALTER TABLE 或重新建库。
+`create_all()` 只创建新表不会修改已有表。需手动执行 `backend/migrations/` 下的对应 SQL 迁移脚本，或重新建库。
+
+**Q: Celery 任务报错 `NotRegistered`？**
+Celery Worker 不会自动热加载代码。修改任务代码后，必须停止并重启 Worker：
+```bash
+ps aux | grep "celery.*worker" | grep -v grep | awk '{print $2}' | xargs kill -9
+cd backend && ./start_celery_worker.sh 4
+```
 
 ## 许可证
 
