@@ -138,7 +138,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
-import { environmentsApi } from '@/api/apiTest'
+import { environmentsApi } from '@/api/environments'
 
 const route = useRoute()
 const projectId = Number(route.params.id)

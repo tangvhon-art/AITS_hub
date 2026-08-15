@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db, SessionLocal
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
@@ -21,16 +21,6 @@ from app.agents.script_generator import ScriptGenerator
 
 router = APIRouter(prefix="/api/projects/{project_id}/execution", tags=["UI 自动化执行"])
 
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
-
 @router.post("/run")
 async def run_execution(
     project_id: int,
@@ -42,7 +32,7 @@ async def run_execution(
     """
     启动 UI 自动化执行，SSE 流式输出执行过程
     """
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
 
     # 创建执行记录
     test_run = TestRun(
@@ -258,7 +248,6 @@ async def run_execution(
         },
     )
 
-
 @router.get("/runs", response_model=List[TestRunResponse])
 def list_runs(
     project_id: int,
@@ -267,12 +256,11 @@ def list_runs(
     current_user: User = Depends(get_current_user),
 ):
     """获取执行记录列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(TestRun).filter(TestRun.project_id == project_id)
     if case_id:
         query = query.filter(TestRun.case_id == case_id)
     return query.order_by(TestRun.created_at.desc()).limit(50).all()
-
 
 @router.get("/runs/{run_id}", response_model=TestRunResponse)
 def get_run(
@@ -282,7 +270,7 @@ def get_run(
     current_user: User = Depends(get_current_user),
 ):
     """获取执行记录详情"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     run = db.query(TestRun).filter(
         TestRun.id == run_id,
         TestRun.project_id == project_id,

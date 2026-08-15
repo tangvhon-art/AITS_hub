@@ -333,16 +333,16 @@ async function handleDeleteGroup(id: number) {
 const handleCreate = () => {
   const query: Record<string, any> = {}
   if (selectedModuleId.value) query.module_id = selectedModuleId.value
-  router.push({ path: `/projects/${projectId}/api-definitions/new`, query })
+  router.push({ path: `/projects/${projectId}/api-test/definitions/new`, query })
 }
 
 const handleEdit = (record: ApiDefinition) => {
-  router.push(`/projects/${projectId}/api-definitions/${record.id}`)
+  router.push(`/projects/${projectId}/api-test/definitions/${record.id}`)
 }
 
 const handleDebug = (record: ApiDefinition) => {
   router.push({
-    path: `/projects/${projectId}/api-debug`,
+    path: `/projects/${projectId}/api-test/debug`,
     query: { api_id: record.id }
   })
 }

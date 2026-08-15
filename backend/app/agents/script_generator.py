@@ -11,6 +11,8 @@ from typing import List, Dict, Any, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.agents.base_agent import BaseAgent
+
 logger = logging.getLogger(__name__)
 
 
@@ -86,8 +88,12 @@ SCRIPT_NAME_SYSTEM_PROMPT = """你是一个测试脚本命名专家。请根据�
 """
 
 
-class ScriptGenerator:
-    """Playwright 脚本生成器"""
+class ScriptGenerator(BaseAgent):
+    """Playwright 脚本生成器（同时保留静态方法供无状态调用）"""
+
+    def run(self, **kwargs) -> Dict[str, Any]:
+        """BaseAgent 抽象方法实现"""
+        raise NotImplementedError("ScriptGenerator 请使用 generate_with_ai / fix_script_with_ai 等静态方法")
 
     @staticmethod
     async def generate_script_name(

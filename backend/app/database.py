@@ -40,6 +40,12 @@ class SoftDeleteMixin:
         self.deleted_at = None
 
 
+class TimestampMixin:
+    """时间戳混入类，统一提供 created_at / updated_at 字段"""
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")
+
+
 @event.listens_for(SessionLocal, "do_orm_execute")
 def _apply_soft_delete_filter(orm_execute_state):
     """

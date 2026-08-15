@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, B
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db, SessionLocal
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.core.timezone import china_now_naive
 from app.models.user import User
@@ -34,18 +34,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-cases", tags=["接口测试-用例管理"])
 
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
-
-# ==================== 用例 CRUD ====================
-
 @router.get("", response_model=PaginatedResponse)
 def list_cases(
     project_id: int,
@@ -59,7 +47,7 @@ def list_cases(
     current_user: User = Depends(get_current_user),
 ):
     """用例列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(ApiTestCase).filter(ApiTestCase.project_id == project_id)
 
     if module_id:
@@ -81,7 +69,6 @@ def list_cases(
         items=[ApiTestCaseResponse.model_validate(item) for item in items],
     )
 
-
 @router.get("/{case_id}", response_model=ApiTestCaseResponse)
 def get_case(
     project_id: int,
@@ -90,14 +77,13 @@ def get_case(
     current_user: User = Depends(get_current_user),
 ):
     """用例详情"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(ApiTestCase).filter(
         ApiTestCase.id == case_id, ApiTestCase.project_id == project_id
     ).first()
     if not case:
         raise HTTPException(status_code=404, detail="用例不存在")
     return case
-
 
 @router.post("", response_model=ApiTestCaseResponse, status_code=status.HTTP_201_CREATED)
 def create_case(
@@ -108,7 +94,7 @@ def create_case(
     current_user: User = Depends(get_current_user),
 ):
     """创建用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
 
     if data.api_id:
         api = db.query(ApiDefinition).filter(
@@ -166,7 +152,6 @@ def create_case(
     db.refresh(case)
     return case
 
-
 @router.put("/{case_id}", response_model=ApiTestCaseResponse)
 def update_case(
     project_id: int,
@@ -177,7 +162,7 @@ def update_case(
     current_user: User = Depends(get_current_user),
 ):
     """更新用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(ApiTestCase).filter(
         ApiTestCase.id == case_id, ApiTestCase.project_id == project_id
     ).first()
@@ -200,7 +185,6 @@ def update_case(
     db.refresh(case)
     return case
 
-
 @router.delete("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_case(
     project_id: int,
@@ -210,7 +194,7 @@ def delete_case(
     current_user: User = Depends(get_current_user),
 ):
     """删除用例（软删）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(ApiTestCase).filter(
         ApiTestCase.id == case_id, ApiTestCase.project_id == project_id
     ).first()
@@ -233,7 +217,6 @@ def delete_case(
     )
     db.commit()
 
-
 # ==================== 断言 CRUD ====================
 
 @router.get("/{case_id}/assertions", response_model=List[ApiCaseAssertionResponse])
@@ -244,7 +227,7 @@ def list_assertions(
     current_user: User = Depends(get_current_user),
 ):
     """断言列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(ApiTestCase).filter(
         ApiTestCase.id == case_id, ApiTestCase.project_id == project_id
     ).first()
@@ -256,7 +239,6 @@ def list_assertions(
     ).order_by(ApiCaseAssertion.sort_order).all()
     return assertions
 
-
 @router.post("/{case_id}/assertions", response_model=ApiCaseAssertionResponse, status_code=status.HTTP_201_CREATED)
 def create_assertion(
     project_id: int,
@@ -267,7 +249,7 @@ def create_assertion(
     current_user: User = Depends(get_current_user),
 ):
     """添加断言"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(ApiTestCase).filter(
         ApiTestCase.id == case_id, ApiTestCase.project_id == project_id
     ).first()
@@ -293,7 +275,6 @@ def create_assertion(
     db.refresh(assertion)
     return assertion
 
-
 @router.put("/assertions/{assertion_id}", response_model=ApiCaseAssertionResponse)
 def update_assertion(
     project_id: int,
@@ -304,7 +285,7 @@ def update_assertion(
     current_user: User = Depends(get_current_user),
 ):
     """更新断言"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     assertion = db.query(ApiCaseAssertion).filter(
         ApiCaseAssertion.id == assertion_id
     ).first()
@@ -319,7 +300,6 @@ def update_assertion(
     db.refresh(assertion)
     return assertion
 
-
 @router.delete("/assertions/{assertion_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_assertion(
     project_id: int,
@@ -329,7 +309,7 @@ def delete_assertion(
     current_user: User = Depends(get_current_user),
 ):
     """删除断言"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     assertion = db.query(ApiCaseAssertion).filter(
         ApiCaseAssertion.id == assertion_id
     ).first()
@@ -338,7 +318,6 @@ def delete_assertion(
 
     assertion.is_deleted = True
     db.commit()
-
 
 # ==================== 用例执行 ====================
 
@@ -352,7 +331,7 @@ async def run_case(
     current_user: User = Depends(get_current_user),
 ):
     """执行单个用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(ApiTestCase).filter(
         ApiTestCase.id == case_id, ApiTestCase.project_id == project_id
     ).first()
@@ -496,6 +475,29 @@ async def run_case(
     )
     db.commit()
 
+    # 执行失败时自动创建缺陷
+    if not all_passed:
+        from app.services.defect_helper import auto_create_defect
+        failed_assertions = [a for a in assertion_results if not a.passed]
+        error_detail = response.error or "; ".join(a.message for a in failed_assertions if a.message)
+        auto_create_defect(
+            db=db,
+            project_id=project_id,
+            title=f"[接口用例失败] {case.name}",
+            description=(
+                f"接口测试用例执行失败\n"
+                f"用例名称: {case.name}\n"
+                f"请求方法: {method}\n"
+                f"请求URL: {url}\n"
+                f"响应状态码: {response.status_code}\n"
+                f"错误信息: {error_detail}"
+            ),
+            error_message=error_detail,
+            severity="major",
+            source="api_case",
+            created_by=current_user.id,
+        )
+
     return ApiCaseRunResponse(
         execution_id=execution.id,
         status=execution.status,
@@ -509,7 +511,6 @@ async def run_case(
         error=response.error,
     )
 
-
 @router.post("/batch-run")
 async def batch_run_cases(
     project_id: int,
@@ -519,7 +520,7 @@ async def batch_run_cases(
     current_user: User = Depends(get_current_user),
 ):
     """批量执行用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     # 简化实现：逐个执行
     results = []
     for case_id in case_ids:
@@ -530,7 +531,6 @@ async def batch_run_cases(
             # 这里简化处理，实际应复用 run_case 逻辑
             results.append({"case_id": case_id, "name": case.name, "status": "pending"})
     return {"results": results, "total": len(results)}
-
 
 # ==================== AI 生成用例 ====================
 
@@ -544,7 +544,7 @@ def ai_generate_cases(
     current_user: User = Depends(get_current_user),
 ):
     """触发AI生成用例（异步）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
 
     if data.api_id:
         api = db.query(ApiDefinition).filter(
@@ -591,7 +591,6 @@ def ai_generate_cases(
 
     return {"task_id": agent_task.id, "status": "pending"}
 
-
 def _run_generate_task(task_id: int):
     """后台执行生成任务（降级用）"""
     db = SessionLocal()
@@ -603,7 +602,6 @@ def _run_generate_task(task_id: int):
     finally:
         db.close()
 
-
 @router.get("/ai-generate/{task_id}")
 def get_ai_generate_status(
     project_id: int,
@@ -612,7 +610,7 @@ def get_ai_generate_status(
     current_user: User = Depends(get_current_user),
 ):
     """查询AI生成进度和结果"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     task = db.query(AgentTask).filter(
         AgentTask.id == task_id, AgentTask.project_id == project_id
     ).first()
@@ -628,7 +626,6 @@ def get_ai_generate_status(
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
     }
 
-
 @router.post("/ai-generate/{task_id}/save")
 def save_ai_generated_cases(
     project_id: int,
@@ -639,7 +636,7 @@ def save_ai_generated_cases(
     current_user: User = Depends(get_current_user),
 ):
     """保存AI生成的用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     task = db.query(AgentTask).filter(
         AgentTask.id == task_id, AgentTask.project_id == project_id
     ).first()
@@ -696,7 +693,6 @@ def save_ai_generated_cases(
     db.commit()
     return {"saved_count": saved_count}
 
-
 @router.post("/ai-generate/batch")
 def batch_ai_generate(
     project_id: int,
@@ -706,7 +702,7 @@ def batch_ai_generate(
     current_user: User = Depends(get_current_user),
 ):
     """批量AI生成用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     task_ids = []
     for api_id in api_ids:
         agent_task = AgentTask(

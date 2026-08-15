@@ -131,13 +131,10 @@ class DefectAnalyzerAgent(BaseAgent):
 
     def _parse_defect(self, content: str) -> Dict[str, Any]:
         """解析缺陷分析结果"""
-        import re
-        json_match = re.search(r'\{[\s\S]*\}', content)
-        if json_match:
-            try:
-                return json.loads(json_match.group())
-            except json.JSONDecodeError:
-                pass
+        from app.agents.utils import extract_json
+        parsed = extract_json(content)
+        if parsed:
+            return parsed
 
         return {
             "title": "执行失败（解析失败）",

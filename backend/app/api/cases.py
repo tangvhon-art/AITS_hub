@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Backgrou
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
@@ -18,16 +18,6 @@ from app.agents.case_generator import CaseGeneratorAgent
 
 router = APIRouter(prefix="/api/projects/{project_id}/cases", tags=["用例管理"])
 
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
-
 @router.get("", response_model=List[TestCaseResponse])
 def list_cases(
     project_id: int,
@@ -38,7 +28,7 @@ def list_cases(
     current_user: User = Depends(get_current_user),
 ):
     """获取用例列表，支持按模块/优先级/状态筛选"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(TestCase).filter(TestCase.project_id == project_id)
     if module:
         query = query.filter(TestCase.module == module)
@@ -47,7 +37,6 @@ def list_cases(
     if status:
         query = query.filter(TestCase.status == status)
     return query.order_by(TestCase.created_at.desc()).all()
-
 
 @router.post("", response_model=TestCaseResponse, status_code=status.HTTP_201_CREATED)
 def create_case(
@@ -58,7 +47,7 @@ def create_case(
     current_user: User = Depends(get_current_user),
 ):
     """创建单条用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = TestCase(
         project_id=project_id,
         req_id=case_data.req_id,
@@ -86,7 +75,6 @@ def create_case(
     db.refresh(case)
     return case
 
-
 @router.post("/batch", response_model=List[TestCaseResponse], status_code=status.HTTP_201_CREATED)
 def batch_create_cases(
     project_id: int,
@@ -96,7 +84,7 @@ def batch_create_cases(
     current_user: User = Depends(get_current_user),
 ):
     """批量创建用例（AI 生成后保存）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     cases = []
     for case_data in batch_data.cases:
         case = TestCase(
@@ -127,7 +115,6 @@ def batch_create_cases(
         db.refresh(case)
     return cases
 
-
 @router.get("/{case_id}", response_model=TestCaseResponse)
 def get_case(
     project_id: int,
@@ -136,7 +123,7 @@ def get_case(
     current_user: User = Depends(get_current_user),
 ):
     """获取用例详情"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(TestCase).filter(
         TestCase.id == case_id,
         TestCase.project_id == project_id,
@@ -144,7 +131,6 @@ def get_case(
     if not case:
         raise HTTPException(status_code=404, detail="用例不存在")
     return case
-
 
 @router.put("/{case_id}", response_model=TestCaseResponse)
 def update_case(
@@ -156,7 +142,7 @@ def update_case(
     current_user: User = Depends(get_current_user),
 ):
     """更新用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(TestCase).filter(
         TestCase.id == case_id,
         TestCase.project_id == project_id,
@@ -182,7 +168,6 @@ def update_case(
     db.refresh(case)
     return case
 
-
 @router.delete("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_case(
     project_id: int,
@@ -192,7 +177,7 @@ def delete_case(
     current_user: User = Depends(get_current_user),
 ):
     """删除用例"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     case = db.query(TestCase).filter(
         TestCase.id == case_id,
         TestCase.project_id == project_id,
@@ -210,7 +195,6 @@ def delete_case(
     )
     db.commit()
 
-
 @router.post("/generate")
 def generate_cases(
     project_id: int,
@@ -224,7 +208,7 @@ def generate_cases(
     AI 生成测试用例（异步执行）
     提交后立即返回任务ID，生成结果可在Agent任务中查看
     """
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
 
     # 获取需求内容
     requirement_content = gen_request.content
@@ -284,7 +268,6 @@ def generate_cases(
         "status": "pending",
         "message": "用例生成任务已提交，可在Agent任务中查看进度",
     }
-
 
 def _generate_cases_background(
     task_id: int,

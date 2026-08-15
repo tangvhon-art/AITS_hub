@@ -157,6 +157,9 @@ class QualityMetricsResponse(BaseModel):
     avg_duration: float
     total_plans: int
     completed_plans: int
+    api_total_runs: int = 0
+    api_passed_runs: int = 0
+    api_failed_runs: int = 0
 
 
 class TrendDataPoint(BaseModel):

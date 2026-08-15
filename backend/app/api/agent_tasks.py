@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.models.user import User
 from app.models.agent_task import AgentTask
 from app.models.project import Project
@@ -30,18 +30,6 @@ router = APIRouter(prefix="/api/agent-tasks", tags=["Agent任务"])
 # 项目级操作路由
 project_router = APIRouter(prefix="/api/projects/{project_id}", tags=["Agent任务"])
 
-
-def _check_project_access(db: Session, user: User, project_id: int):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if not user.is_admin and project.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="无权限访问该项目")
-    return project
-
-
-# ========== Agent 任务监控 ==========
-
 @router.get("", response_model=AgentTaskListResponse)
 def list_agent_tasks(
     project_id: Optional[int] = None,
@@ -56,7 +44,7 @@ def list_agent_tasks(
     query = db.query(AgentTask)
 
     if project_id:
-        _check_project_access(db, current_user, project_id)
+        get_project(project_id, db, current_user)
         query = query.filter(AgentTask.project_id == project_id)
     elif not current_user.is_admin:
         # 普通用户只能看自己创建的任务
@@ -77,7 +65,6 @@ def list_agent_tasks(
         items=[AgentTaskResponse.model_validate(t) for t in tasks],
     )
 
-
 @router.get("/{task_id}", response_model=AgentTaskResponse)
 def get_agent_task(
     task_id: int,
@@ -90,12 +77,11 @@ def get_agent_task(
         raise HTTPException(status_code=404, detail="任务不存在")
 
     if task.project_id:
-        _check_project_access(db, current_user, task.project_id)
+        get_project(task.project_id, db, current_user)
     elif not current_user.is_admin and task.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="无权限访问")
 
     return AgentTaskResponse.model_validate(task)
-
 
 # ========== Supervisor 流水线 ==========
 
@@ -107,7 +93,7 @@ def run_supervisor_pipeline(
     current_user: User = Depends(get_current_user),
 ):
     """运行 Supervisor 完整流水线"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     # 创建任务记录
     task = AgentTask(
@@ -153,7 +139,6 @@ def run_supervisor_pipeline(
         db.commit()
         raise HTTPException(status_code=500, detail=f"流水线执行失败: {str(e)}")
 
-
 # ========== 用例评审 ==========
 
 @project_router.post("/cases/review")
@@ -164,7 +149,7 @@ def review_cases(
     current_user: User = Depends(get_current_user),
 ):
     """评审测试用例"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     # 创建任务记录
     task = AgentTask(
@@ -198,7 +183,6 @@ def review_cases(
         db.commit()
         raise HTTPException(status_code=500, detail=f"评审失败: {str(e)}")
 
-
 # ========== BDD 用例生成 ==========
 
 @project_router.post("/cases/bdd-generate")
@@ -209,7 +193,7 @@ def generate_bdd_cases(
     current_user: User = Depends(get_current_user),
 ):
     """生成 BDD Gherkin 用例"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     task = AgentTask(
         project_id=project_id,
@@ -246,7 +230,6 @@ def generate_bdd_cases(
         db.commit()
         raise HTTPException(status_code=500, detail=f"BDD 生成失败: {str(e)}")
 
-
 # ========== Token 消耗统计 ==========
 
 @project_router.get("/token-usage")
@@ -256,7 +239,7 @@ def get_token_usage(
     current_user: User = Depends(get_current_user),
 ):
     """获取 Token 消耗统计"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     tasks = db.query(AgentTask).filter(
         AgentTask.project_id == project_id,

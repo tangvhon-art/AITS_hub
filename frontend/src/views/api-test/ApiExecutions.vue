@@ -111,7 +111,7 @@ const handleTableChange = (pag: any) => {
 }
 
 const handleView = (record: ApiExecution) => {
-  router.push(`/projects/${projectId}/api-executions/${record.id}`)
+  router.push(`/projects/${projectId}/api-test/executions/${record.id}`)
 }
 
 onMounted(() => loadData())

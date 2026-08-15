@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.models.user import User
 from app.models.project import Project
 from app.models.api_test import ApiExecution, ApiExecutionResult
@@ -16,16 +16,6 @@ from app.schemas.api_test import (
 )
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-executions", tags=["接口测试-执行记录"])
-
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
 
 @router.get("", response_model=PaginatedResponse)
 def list_executions(
@@ -38,7 +28,7 @@ def list_executions(
     current_user: User = Depends(get_current_user),
 ):
     """执行记录列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(ApiExecution).filter(ApiExecution.project_id == project_id)
 
     if execution_type:
@@ -56,7 +46,6 @@ def list_executions(
         items=[ApiExecutionResponse.model_validate(item) for item in items],
     )
 
-
 @router.get("/{execution_id}", response_model=ApiExecutionResponse)
 def get_execution(
     project_id: int,
@@ -65,14 +54,13 @@ def get_execution(
     current_user: User = Depends(get_current_user),
 ):
     """执行记录详情"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     execution = db.query(ApiExecution).filter(
         ApiExecution.id == execution_id, ApiExecution.project_id == project_id
     ).first()
     if not execution:
         raise HTTPException(status_code=404, detail="执行记录不存在")
     return execution
-
 
 @router.get("/{execution_id}/results", response_model=List[ApiExecutionResultResponse])
 def get_execution_results(
@@ -82,7 +70,7 @@ def get_execution_results(
     current_user: User = Depends(get_current_user),
 ):
     """执行结果详情"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     execution = db.query(ApiExecution).filter(
         ApiExecution.id == execution_id, ApiExecution.project_id == project_id
     ).first()
@@ -94,7 +82,6 @@ def get_execution_results(
     ).order_by(ApiExecutionResult.sort_order).all()
     return results
 
-
 @router.get("/{execution_id}/report")
 def get_execution_report(
     project_id: int,
@@ -103,7 +90,7 @@ def get_execution_report(
     current_user: User = Depends(get_current_user),
 ):
     """获取执行报告"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     execution = db.query(ApiExecution).filter(
         ApiExecution.id == execution_id, ApiExecution.project_id == project_id
     ).first()

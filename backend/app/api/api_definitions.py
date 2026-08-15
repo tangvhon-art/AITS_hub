@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
@@ -16,16 +16,6 @@ from app.schemas.api_test import (
 )
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-definitions", tags=["接口测试-接口定义"])
-
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
 
 @router.get("", response_model=PaginatedResponse)
 def list_definitions(
@@ -39,7 +29,7 @@ def list_definitions(
     current_user: User = Depends(get_current_user),
 ):
     """接口列表（分页/筛选）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(ApiDefinition).filter(ApiDefinition.project_id == project_id)
 
     if module_id:
@@ -64,7 +54,6 @@ def list_definitions(
         items=[ApiDefinitionResponse.model_validate(item) for item in items],
     )
 
-
 @router.get("/{definition_id}", response_model=ApiDefinitionResponse)
 def get_definition(
     project_id: int,
@@ -73,14 +62,13 @@ def get_definition(
     current_user: User = Depends(get_current_user),
 ):
     """接口详情"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     api = db.query(ApiDefinition).filter(
         ApiDefinition.id == definition_id, ApiDefinition.project_id == project_id
     ).first()
     if not api:
         raise HTTPException(status_code=404, detail="接口不存在")
     return api
-
 
 @router.post("", response_model=ApiDefinitionResponse, status_code=status.HTTP_201_CREATED)
 def create_definition(
@@ -91,7 +79,7 @@ def create_definition(
     current_user: User = Depends(get_current_user),
 ):
     """创建接口"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
 
     if data.module_id:
         module = db.query(ApiModule).filter(
@@ -131,7 +119,6 @@ def create_definition(
     db.refresh(api)
     return api
 
-
 @router.put("/{definition_id}", response_model=ApiDefinitionResponse)
 def update_definition(
     project_id: int,
@@ -142,7 +129,7 @@ def update_definition(
     current_user: User = Depends(get_current_user),
 ):
     """更新接口"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     api = db.query(ApiDefinition).filter(
         ApiDefinition.id == definition_id, ApiDefinition.project_id == project_id
     ).first()
@@ -165,7 +152,6 @@ def update_definition(
     db.refresh(api)
     return api
 
-
 @router.delete("/{definition_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_definition(
     project_id: int,
@@ -175,7 +161,7 @@ def delete_definition(
     current_user: User = Depends(get_current_user),
 ):
     """删除接口（软删）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     api = db.query(ApiDefinition).filter(
         ApiDefinition.id == definition_id, ApiDefinition.project_id == project_id
     ).first()

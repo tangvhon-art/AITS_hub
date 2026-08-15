@@ -15,9 +15,10 @@ from app.agents.base_agent import BaseAgent
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.models.defect import Defect
-from app.models.test_plan import TestPlan, TestPlanCase
+from app.models.test_plan import TestPlan, TestPlanCase, TestPlanItem, TestPlanExecution
 from app.models.requirement import TestRequirement
 from app.models.project_version import ProjectVersion
+from app.models.api_test import ApiExecution
 
 logger = logging.getLogger(__name__)
 
@@ -161,12 +162,22 @@ class ReportGeneratorAgent(BaseAgent):
                     TestPlan.version_id == version_id,
                 ).all()
             ]
-            # 版本关联的用例 ID 列表（通过 TestPlanCase）
+            # 版本关联的用例 ID 列表（通过 TestPlanCase，旧版兼容）
             case_ids = []
             if plan_ids:
                 case_ids = [
                     c[0] for c in self.db.query(TestPlanCase.case_id).filter(
                         TestPlanCase.plan_id.in_(plan_ids),
+                    ).distinct().all()
+                ]
+            # 版本关联的接口用例 ID 列表（通过 TestPlanItem，新版）
+            api_case_ids = []
+            if plan_ids:
+                api_case_ids = [
+                    c[0] for c in self.db.query(TestPlanItem.ref_id).filter(
+                        TestPlanItem.plan_id.in_(plan_ids),
+                        TestPlanItem.item_type == "case",
+                        TestPlanItem.is_deleted == False,
                     ).distinct().all()
                 ]
 
@@ -192,12 +203,37 @@ class ReportGeneratorAgent(BaseAgent):
                 TestCase.project_id == project_id
             ).scalar() or 0
             runs = self.db.query(TestRun).filter(TestRun.project_id == project_id).all()
+            api_case_ids = []
 
         total_runs = len(runs)
         passed_runs = sum(1 for r in runs if r.status == "passed")
         failed_runs = sum(1 for r in runs if r.status == "failed")
         durations = [r.duration for r in runs if r.duration and r.duration > 0]
         avg_duration = sum(durations) / len(durations) if durations else 0.0
+        pass_rate = (passed_runs / total_runs * 100) if total_runs > 0 else 0.0
+
+        # 接口自动化执行统计
+        api_exec_query = self.db.query(ApiExecution).filter(
+            ApiExecution.project_id == project_id,
+            ApiExecution.is_deleted == False,
+        )
+        if version_id is not None:
+            if api_case_ids:
+                api_exec_query = api_exec_query.filter(ApiExecution.case_id.in_(api_case_ids))
+            else:
+                api_exec_query = api_exec_query.filter(ApiExecution.id == -1)
+        api_total_runs = api_exec_query.count()
+        api_passed_runs = api_exec_query.filter(ApiExecution.status == "passed").count()
+        api_failed_runs = api_exec_query.filter(ApiExecution.status.in_(["failed", "error"])).count()
+        api_durations = [r.total_duration for r in api_exec_query.all() if r.total_duration and r.total_duration > 0]
+        api_avg_duration = sum(api_durations) / len(api_durations) if api_durations else 0.0
+
+        # 合并 UI + API 执行统计
+        total_runs += api_total_runs
+        passed_runs += api_passed_runs
+        failed_runs += api_failed_runs
+        all_durations = durations + api_durations
+        avg_duration = sum(all_durations) / len(all_durations) if all_durations else 0.0
         pass_rate = (passed_runs / total_runs * 100) if total_runs > 0 else 0.0
 
         # 缺陷统计（按版本过滤）
@@ -231,6 +267,9 @@ class ReportGeneratorAgent(BaseAgent):
         # 版本关联的测试计划统计
         plans_count = 0
         completed_plans = 0
+        plan_exec_count = 0
+        plan_exec_passed = 0
+        plan_exec_failed = 0
         if version_id is not None:
             plans_count = self.db.query(func.count(TestPlan.id)).filter(
                 TestPlan.project_id == project_id,
@@ -241,6 +280,29 @@ class ReportGeneratorAgent(BaseAgent):
                 TestPlan.version_id == version_id,
                 TestPlan.status == "completed",
             ).scalar() or 0
+            # 测试计划执行记录统计（基于 TestPlanExecution，统一 TestPlanItem 口径）
+            version_plan_ids = [p[0] for p in self.db.query(TestPlan.id).filter(
+                TestPlan.project_id == project_id,
+                TestPlan.version_id == version_id,
+            ).all()]
+            if version_plan_ids:
+                plan_exec_base = self.db.query(TestPlanExecution).filter(
+                    TestPlanExecution.plan_id.in_(version_plan_ids),
+                    TestPlanExecution.is_deleted == False,
+                )
+                plan_exec_count = plan_exec_base.count()
+                plan_exec_passed = plan_exec_base.filter(TestPlanExecution.status == "completed").count()
+                plan_exec_failed = plan_exec_base.filter(TestPlanExecution.status == "failed").count()
+        else:
+            plan_exec_base = self.db.query(TestPlanExecution).join(
+                TestPlan, TestPlan.id == TestPlanExecution.plan_id
+            ).filter(
+                TestPlan.project_id == project_id,
+                TestPlanExecution.is_deleted == False,
+            )
+            plan_exec_count = plan_exec_base.count()
+            plan_exec_passed = plan_exec_base.filter(TestPlanExecution.status == "completed").count()
+            plan_exec_failed = plan_exec_base.filter(TestPlanExecution.status == "failed").count()
 
         return {
             "total_cases": total_cases,
@@ -256,6 +318,13 @@ class ReportGeneratorAgent(BaseAgent):
             "total_requirements": requirements_count,
             "total_plans": plans_count,
             "completed_plans": completed_plans,
+            "api_total_runs": api_total_runs,
+            "api_passed_runs": api_passed_runs,
+            "api_failed_runs": api_failed_runs,
+            "api_avg_duration": round(api_avg_duration, 2),
+            "plan_exec_count": plan_exec_count,
+            "plan_exec_passed": plan_exec_passed,
+            "plan_exec_failed": plan_exec_failed,
         }
 
     def _generate_basic_report(self, stats: Dict[str, Any]) -> str:

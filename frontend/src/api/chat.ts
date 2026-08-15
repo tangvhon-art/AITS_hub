@@ -43,6 +43,7 @@ export function chat(data: ChatRequest): Promise<ChatResponse> {
 
 /**
  * 流式对话（支持中断和工具调用事件）
+ * 统一走 utils/sse.ts
  */
 export async function chatStream(
   data: ChatRequest,
@@ -56,64 +57,32 @@ export async function chatStream(
   },
   signal?: AbortSignal,
 ): Promise<void> {
-  try {
-    const token = localStorage.getItem('token')
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : '',
-      },
-      body: JSON.stringify({ ...data, stream: true }),
-      signal,
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.detail || `请求失败: ${response.status}`)
-    }
-
-    const reader = response.body!.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.type === 'content') {
-              callbacks.onContent?.(data.content)
-            } else if (data.type === 'metadata') {
-              callbacks.onMetadata?.(data)
-            } else if (data.type === 'tool_call') {
-              callbacks.onToolCall?.(data.tool_call)
-            } else if (data.type === 'tool_result') {
-              callbacks.onToolResult?.(data.tool_call)
-            } else if (data.type === 'done') {
-              callbacks.onDone?.()
-            } else if (data.type === 'error') {
-              callbacks.onError?.(data.message)
-            }
-          } catch (e) {
-            // 忽略解析错误
+  const { streamSSE } = await import('@/utils/sse')
+  return new Promise<void>((resolve) => {
+    streamSSE(
+      '/chat',
+      {
+        onMessage: (data: any) => {
+          if (data.type === 'content') {
+            callbacks.onContent?.(data.content)
+          } else if (data.type === 'metadata') {
+            callbacks.onMetadata?.(data)
+          } else if (data.type === 'tool_call') {
+            callbacks.onToolCall?.(data.tool_call)
+          } else if (data.type === 'tool_result') {
+            callbacks.onToolResult?.(data.tool_call)
           }
-        }
-      }
-    }
-    callbacks.onDone?.()
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      callbacks.onDone?.()
-    } else {
-      callbacks.onError?.(error.message || '网络错误')
-    }
-  }
+        },
+        onError: (err) => {
+          callbacks.onError?.(err)
+          resolve()
+        },
+        onDone: () => {
+          callbacks.onDone?.()
+          resolve()
+        },
+      },
+      { method: 'POST', body: { ...data, stream: true }, signal },
+    )
+  })
 }

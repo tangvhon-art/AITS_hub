@@ -901,19 +901,8 @@ class SuiteExecutor:
 
     def _apply_headless_to_script(self, script_content: str) -> str:
         """根据当前 headless 设置调整脚本中的浏览器启动参数"""
-        import re
-        content = re.sub(
-            r'(\w+\s*=\s*await\s+\w+\.chromium\.launch\s*\(\s*headless\s*=\s*)\w+',
-            rf'\g<1>{self.headless}',
-            script_content,
-            flags=re.IGNORECASE,
-        )
-        content = re.sub(
-            r'(\w+\s*=\s*await\s+\w+\.chromium\.launch\s*\()(?!.*headless)',
-            rf'\g<1>headless={self.headless}, ',
-            content,
-        )
-        return content
+        from app.services.script_runner import apply_headless_mode
+        return apply_headless_mode(script_content, self.headless)
 
     def stop(self) -> None:
         """停止执行"""

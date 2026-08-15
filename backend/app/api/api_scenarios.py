@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.core.timezone import china_now_naive
 from app.models.user import User
@@ -33,18 +33,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-scenarios", tags=["接口测试-场景编排"])
 
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
-
-# ==================== 场景 CRUD ====================
-
 @router.get("", response_model=PaginatedResponse)
 def list_scenarios(
     project_id: int,
@@ -55,7 +43,7 @@ def list_scenarios(
     current_user: User = Depends(get_current_user),
 ):
     """场景列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(ApiScenario).filter(ApiScenario.project_id == project_id)
     if keyword:
         query = query.filter(ApiScenario.name.like(f"%{keyword}%"))
@@ -69,7 +57,6 @@ def list_scenarios(
         items=[ApiScenarioResponse.model_validate(item) for item in items],
     )
 
-
 @router.get("/{scenario_id}", response_model=ApiScenarioResponse)
 def get_scenario(
     project_id: int,
@@ -78,14 +65,13 @@ def get_scenario(
     current_user: User = Depends(get_current_user),
 ):
     """场景详情（含步骤）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     scenario = db.query(ApiScenario).filter(
         ApiScenario.id == scenario_id, ApiScenario.project_id == project_id
     ).first()
     if not scenario:
         raise HTTPException(status_code=404, detail="场景不存在")
     return scenario
-
 
 @router.post("", response_model=ApiScenarioResponse, status_code=status.HTTP_201_CREATED)
 def create_scenario(
@@ -96,7 +82,7 @@ def create_scenario(
     current_user: User = Depends(get_current_user),
 ):
     """创建场景"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     scenario = ApiScenario(
         project_id=project_id,
         module_id=data.module_id,
@@ -124,7 +110,6 @@ def create_scenario(
     db.refresh(scenario)
     return scenario
 
-
 @router.put("/{scenario_id}", response_model=ApiScenarioResponse)
 def update_scenario(
     project_id: int,
@@ -135,7 +120,7 @@ def update_scenario(
     current_user: User = Depends(get_current_user),
 ):
     """更新场景"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     scenario = db.query(ApiScenario).filter(
         ApiScenario.id == scenario_id, ApiScenario.project_id == project_id
     ).first()
@@ -158,7 +143,6 @@ def update_scenario(
     db.refresh(scenario)
     return scenario
 
-
 @router.delete("/{scenario_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_scenario(
     project_id: int,
@@ -168,7 +152,7 @@ def delete_scenario(
     current_user: User = Depends(get_current_user),
 ):
     """删除场景（软删，同时删除步骤和变量）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     scenario = db.query(ApiScenario).filter(
         ApiScenario.id == scenario_id, ApiScenario.project_id == project_id
     ).first()
@@ -197,7 +181,6 @@ def delete_scenario(
     )
     db.commit()
 
-
 # ==================== 步骤 CRUD ====================
 
 @router.get("/{scenario_id}/steps", response_model=List[ApiScenarioStepResponse])
@@ -208,7 +191,7 @@ def list_steps(
     current_user: User = Depends(get_current_user),
 ):
     """步骤列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     scenario = db.query(ApiScenario).filter(
         ApiScenario.id == scenario_id, ApiScenario.project_id == project_id
     ).first()
@@ -220,7 +203,6 @@ def list_steps(
     ).order_by(ApiScenarioStep.sort_order).all()
     return steps
 
-
 @router.post("/{scenario_id}/steps", response_model=ApiScenarioStepResponse, status_code=status.HTTP_201_CREATED)
 def create_step(
     project_id: int,
@@ -231,7 +213,7 @@ def create_step(
     current_user: User = Depends(get_current_user),
 ):
     """添加步骤"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     scenario = db.query(ApiScenario).filter(
         ApiScenario.id == scenario_id, ApiScenario.project_id == project_id
     ).first()
@@ -265,7 +247,6 @@ def create_step(
     db.refresh(step)
     return step
 
-
 @router.put("/steps/{step_id}", response_model=ApiScenarioStepResponse)
 def update_step(
     project_id: int,
@@ -276,7 +257,7 @@ def update_step(
     current_user: User = Depends(get_current_user),
 ):
     """更新步骤"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     step = db.query(ApiScenarioStep).filter(ApiScenarioStep.id == step_id).first()
     if not step:
         raise HTTPException(status_code=404, detail="步骤不存在")
@@ -289,7 +270,6 @@ def update_step(
     db.refresh(step)
     return step
 
-
 @router.delete("/steps/{step_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_step(
     project_id: int,
@@ -299,7 +279,7 @@ def delete_step(
     current_user: User = Depends(get_current_user),
 ):
     """删除步骤"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     step = db.query(ApiScenarioStep).filter(ApiScenarioStep.id == step_id).first()
     if not step:
         raise HTTPException(status_code=404, detail="步骤不存在")
@@ -312,7 +292,6 @@ def delete_step(
     step.is_deleted = True
     db.commit()
 
-
 @router.post("/{scenario_id}/steps/reorder")
 def reorder_steps(
     project_id: int,
@@ -323,7 +302,7 @@ def reorder_steps(
     current_user: User = Depends(get_current_user),
 ):
     """步骤排序"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     for idx, step_id in enumerate(step_ids):
         step = db.query(ApiScenarioStep).filter(
             ApiScenarioStep.id == step_id, ApiScenarioStep.scenario_id == scenario_id
@@ -332,7 +311,6 @@ def reorder_steps(
             step.sort_order = idx
     db.commit()
     return {"success": True, "count": len(step_ids)}
-
 
 # ==================== 变量提取 ====================
 
@@ -344,7 +322,7 @@ def list_scenario_variables(
     current_user: User = Depends(get_current_user),
 ):
     """变量提取配置列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     scenario = db.query(ApiScenario).filter(
         ApiScenario.id == scenario_id, ApiScenario.project_id == project_id
     ).first()
@@ -361,7 +339,6 @@ def list_scenario_variables(
     ).all() if step_ids else []
     return variables
 
-
 @router.post("/{scenario_id}/steps/{step_id}/variables", response_model=ApiScenarioVariableResponse)
 def create_scenario_variable(
     project_id: int,
@@ -372,7 +349,7 @@ def create_scenario_variable(
     current_user: User = Depends(get_current_user),
 ):
     """创建变量提取配置"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     step = db.query(ApiScenarioStep).filter(
         ApiScenarioStep.id == step_id,
         ApiScenarioStep.scenario_id == scenario_id,
@@ -393,7 +370,6 @@ def create_scenario_variable(
     db.refresh(var)
     return var
 
-
 @router.put("/variables/{variable_id}", response_model=ApiScenarioVariableResponse)
 def update_scenario_variable(
     project_id: int,
@@ -403,7 +379,7 @@ def update_scenario_variable(
     current_user: User = Depends(get_current_user),
 ):
     """更新变量提取配置"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     var = db.query(ApiScenarioVariable).filter(
         ApiScenarioVariable.id == variable_id
     ).first()
@@ -415,7 +391,6 @@ def update_scenario_variable(
     db.refresh(var)
     return var
 
-
 @router.delete("/variables/{variable_id}")
 def delete_scenario_variable(
     project_id: int,
@@ -424,7 +399,7 @@ def delete_scenario_variable(
     current_user: User = Depends(get_current_user),
 ):
     """删除变量提取配置"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     var = db.query(ApiScenarioVariable).filter(
         ApiScenarioVariable.id == variable_id
     ).first()
@@ -433,7 +408,6 @@ def delete_scenario_variable(
     var.is_deleted = True
     db.commit()
     return {"detail": "删除成功"}
-
 
 # ==================== 场景执行 ====================
 
@@ -447,7 +421,7 @@ async def run_scenario(
     current_user: User = Depends(get_current_user),
 ):
     """执行场景"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     scenario = db.query(ApiScenario).filter(
         ApiScenario.id == scenario_id, ApiScenario.project_id == project_id
     ).first()
@@ -600,6 +574,29 @@ async def run_scenario(
         detail={"project_id": project_id, "scenario_name": scenario.name, "status": execution.status},
     )
     db.commit()
+
+    # 执行失败时自动创建缺陷
+    if execution.status in ("failed", "partial") and execution.failed_steps > 0:
+        from app.services.defect_helper import auto_create_defect
+        failed_results = [r for r in result["results"] if r.get("status") == "failed"]
+        error_msgs = [r.get("error_message", "") for r in failed_results if r.get("error_message")]
+        auto_create_defect(
+            db=db,
+            project_id=project_id,
+            title=f"[接口场景失败] {scenario.name}",
+            description=(
+                f"接口测试场景执行失败\n"
+                f"场景名称: {scenario.name}\n"
+                f"总步骤: {execution.total_steps}\n"
+                f"通过: {execution.passed_steps}\n"
+                f"失败: {execution.failed_steps}\n"
+                f"错误信息: {'; '.join(error_msgs[:3])}"
+            ),
+            error_message="; ".join(error_msgs[:3]) if error_msgs else "场景执行失败",
+            severity="critical" if execution.failed_steps > execution.passed_steps else "major",
+            source="api_scenario",
+            created_by=current_user.id,
+        )
 
     return {
         "execution_id": execution.id,

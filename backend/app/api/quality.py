@@ -13,7 +13,8 @@ from app.models.user import User
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.models.defect import Defect
-from app.models.test_plan import TestPlan, TestPlanCase
+from app.models.test_plan import TestPlan, TestPlanCase, TestPlanItem
+from app.models.api_test import ApiExecution
 from app.schemas.test_plan import (
     QualityMetricsResponse, QualityTrendResponse, TrendDataPoint,
     DefectDistributionItem, QualityDashboardResponse, RiskAlertResponse, RiskAlertItem
@@ -24,7 +25,7 @@ project_router = APIRouter(prefix="/api/projects/{project_id}")
 
 
 def _get_version_case_ids(project_id: int, version_id: Optional[int], db: Session) -> List[int]:
-    """获取版本关联的用例 ID 列表（通过 TestPlan → TestPlanCase）"""
+    """获取版本关联的用例 ID 列表（通过 TestPlan → TestPlanCase，旧版兼容）"""
     if version_id is None:
         return []
     plan_ids = [
@@ -38,6 +39,27 @@ def _get_version_case_ids(project_id: int, version_id: Optional[int], db: Sessio
     return [
         c[0] for c in db.query(TestPlanCase.case_id).filter(
             TestPlanCase.plan_id.in_(plan_ids),
+        ).distinct().all()
+    ]
+
+
+def _get_version_api_case_ids(project_id: int, version_id: Optional[int], db: Session) -> List[int]:
+    """获取版本关联的接口用例 ID 列表（通过 TestPlan → TestPlanItem）"""
+    if version_id is None:
+        return []
+    plan_ids = [
+        p[0] for p in db.query(TestPlan.id).filter(
+            TestPlan.project_id == project_id,
+            TestPlan.version_id == version_id,
+        ).all()
+    ]
+    if not plan_ids:
+        return []
+    return [
+        c[0] for c in db.query(TestPlanItem.ref_id).filter(
+            TestPlanItem.plan_id.in_(plan_ids),
+            TestPlanItem.item_type == "case",
+            TestPlanItem.is_deleted == False,
         ).distinct().all()
     ]
 
@@ -81,6 +103,27 @@ def _calculate_metrics(project_id: int, db: Session, version_id: Optional[int] =
 
     pass_rate = round((passed_runs / total_runs * 100), 2) if total_runs > 0 else 0.0
 
+    # 接口自动化执行统计
+    api_exec_base = db.query(ApiExecution).filter(
+        ApiExecution.project_id == project_id,
+        ApiExecution.is_deleted == False,
+    )
+    if version_id is not None:
+        api_case_ids = _get_version_api_case_ids(project_id, version_id, db)
+        if api_case_ids:
+            api_exec_base = api_exec_base.filter(ApiExecution.case_id.in_(api_case_ids))
+        else:
+            api_exec_base = api_exec_base.filter(ApiExecution.id == -1)  # 无匹配，返回空
+    api_total_runs = api_exec_base.count()
+    api_passed_runs = api_exec_base.filter(ApiExecution.status.in_(["passed"])).count()
+    api_failed_runs = api_exec_base.filter(ApiExecution.status.in_(["failed", "error"])).count()
+
+    # 合并 UI + API 执行统计
+    total_runs += api_total_runs
+    passed_runs += api_passed_runs
+    failed_runs += api_failed_runs
+    pass_rate = round((passed_runs / total_runs * 100), 2) if total_runs > 0 else 0.0
+
     # 缺陷统计
     defect_base = db.query(Defect).filter(Defect.project_id == project_id)
     if version_id is not None:
@@ -114,7 +157,8 @@ def _calculate_metrics(project_id: int, db: Session, version_id: Optional[int] =
         total_runs=total_runs, passed_runs=passed_runs, failed_runs=failed_runs,
         pass_rate=pass_rate, total_defects=total_defects, open_defects=open_defects,
         resolved_defects=resolved_defects, defect_density=defect_density,
-        avg_duration=avg_duration, total_plans=total_plans, completed_plans=completed_plans
+        avg_duration=avg_duration, total_plans=total_plans, completed_plans=completed_plans,
+        api_total_runs=api_total_runs, api_passed_runs=api_passed_runs, api_failed_runs=api_failed_runs,
     )
 
 
@@ -149,6 +193,23 @@ def _calculate_trend(project_id: int, days: int, db: Session, version_id: Option
         if case_ids is not None:
             passed_base = passed_base.filter(TestRun.case_id.in_(case_ids))
         day_passed = passed_base.scalar() or 0
+
+        # 合并接口测试执行数据
+        api_day_total = db.query(func.count(ApiExecution.id)).filter(
+            ApiExecution.project_id == project_id,
+            ApiExecution.is_deleted == False,
+            ApiExecution.completed_at >= day_start,
+            ApiExecution.completed_at <= day_end
+        ).scalar() or 0
+        api_day_passed = db.query(func.count(ApiExecution.id)).filter(
+            ApiExecution.project_id == project_id,
+            ApiExecution.is_deleted == False,
+            ApiExecution.status == "passed",
+            ApiExecution.completed_at >= day_start,
+            ApiExecution.completed_at <= day_end
+        ).scalar() or 0
+        day_total += api_day_total
+        day_passed += api_day_passed
 
         rate = round((day_passed / day_total * 100), 2) if day_total > 0 else 0.0
         pass_rate_trend.append(TrendDataPoint(date=day.strftime("%Y-%m-%d"), value=rate))
@@ -185,6 +246,15 @@ def _calculate_trend(project_id: int, days: int, db: Session, version_id: Option
         if case_ids is not None:
             exec_q = exec_q.filter(TestRun.case_id.in_(case_ids))
         day_runs = exec_q.scalar() or 0
+
+        # 合并接口测试执行次数
+        api_day_runs = db.query(func.count(ApiExecution.id)).filter(
+            ApiExecution.project_id == project_id,
+            ApiExecution.is_deleted == False,
+            ApiExecution.created_at >= day_start,
+            ApiExecution.created_at <= day_end
+        ).scalar() or 0
+        day_runs += api_day_runs
         execution_trend.append(TrendDataPoint(date=day.strftime("%Y-%m-%d"), value=float(day_runs)))
 
     return QualityTrendResponse(

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
@@ -13,16 +13,6 @@ from app.models.api_test import ApiModule, ApiDefinition
 from app.schemas.api_test import ApiModuleCreate, ApiModuleUpdate, ApiModuleResponse
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-modules", tags=["接口测试-目录管理"])
-
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
 
 def _build_tree(modules: List[ApiModule], parent_id: Optional[int] = None) -> List[dict]:
     """构建目录树"""
@@ -43,7 +33,6 @@ def _build_tree(modules: List[ApiModule], parent_id: Optional[int] = None) -> Li
             tree.append(node)
     return tree
 
-
 @router.get("", response_model=List[ApiModuleResponse])
 def list_modules(
     project_id: int,
@@ -51,12 +40,11 @@ def list_modules(
     current_user: User = Depends(get_current_user),
 ):
     """获取目录树"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     modules = db.query(ApiModule).filter(
         ApiModule.project_id == project_id
     ).order_by(ApiModule.sort_order, ApiModule.id).all()
     return _build_tree(modules)
-
 
 @router.post("", response_model=ApiModuleResponse, status_code=status.HTTP_201_CREATED)
 def create_module(
@@ -67,7 +55,7 @@ def create_module(
     current_user: User = Depends(get_current_user),
 ):
     """创建目录"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     module = ApiModule(
         project_id=project_id,
         parent_id=data.parent_id,
@@ -89,7 +77,6 @@ def create_module(
     db.refresh(module)
     return module
 
-
 @router.put("/{module_id}", response_model=ApiModuleResponse)
 def update_module(
     project_id: int,
@@ -100,7 +87,7 @@ def update_module(
     current_user: User = Depends(get_current_user),
 ):
     """更新目录"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     module = db.query(ApiModule).filter(
         ApiModule.id == module_id, ApiModule.project_id == project_id
     ).first()
@@ -123,7 +110,6 @@ def update_module(
     db.refresh(module)
     return module
 
-
 @router.delete("/{module_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_module(
     project_id: int,
@@ -133,7 +119,7 @@ def delete_module(
     current_user: User = Depends(get_current_user),
 ):
     """删除目录（软删，同时删除子目录和接口）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     module = db.query(ApiModule).filter(
         ApiModule.id == module_id, ApiModule.project_id == project_id
     ).first()

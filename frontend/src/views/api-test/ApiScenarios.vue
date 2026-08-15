@@ -76,11 +76,11 @@ const handleTableChange = (pag: any) => {
 }
 
 const handleCreate = () => {
-  router.push(`/projects/${projectId}/api-scenarios/new`)
+  router.push(`/projects/${projectId}/api-test/scenarios/new`)
 }
 
 const handleEdit = (record: ApiScenario) => {
-  router.push(`/projects/${projectId}/api-scenarios/${record.id}`)
+  router.push(`/projects/${projectId}/api-test/scenarios/${record.id}`)
 }
 
 const handleRun = async (record: ApiScenario) => {
@@ -88,7 +88,7 @@ const handleRun = async (record: ApiScenario) => {
     const res = await apiScenariosApi.run(projectId, record.id, {})
     message.success('执行已提交')
     if (res.execution_id) {
-      router.push(`/projects/${projectId}/api-executions/${res.execution_id}`)
+      router.push(`/projects/${projectId}/api-test/executions/${res.execution_id}`)
     }
   } catch {}
 }

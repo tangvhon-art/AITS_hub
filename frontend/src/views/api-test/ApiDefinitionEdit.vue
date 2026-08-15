@@ -194,7 +194,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined, RobotOutlined } from '@ant-design/icons-vue'
-import { apiDefinitionsApi, apiModulesApi, llmConfigsApi, chatApi } from '@/api/apiTest'
+import { apiDefinitionsApi, apiModulesApi, type ApiDefinition, type ApiModule } from '@/api/apiTest'
+import { getLLMConfigs } from '@/api/llm'
+import { chat } from '@/api/chat'
 
 const route = useRoute()
 const router = useRouter()
@@ -276,7 +278,7 @@ const loadModules = async () => {
 
 const loadLlmConfigs = async () => {
   try {
-    llmConfigs.value = await llmConfigsApi.list()
+    llmConfigs.value = await getLLMConfigs()
   } catch {}
 }
 
@@ -298,12 +300,12 @@ const handleAiGenerateDoc = async () => {
 5. 调用示例
 
 请用 Markdown 格式输出，内容要清晰、专业、便于开发人员参考。`
-    const res = await chatApi.send({
+    const res = await chat({
       message: prompt,
       project_id: projectId,
       llm_config_id: aiDocConfig.value.llm_config_id || undefined,
     })
-    aiDocResult.value = res.content || res.message || JSON.stringify(res, null, 2)
+    aiDocResult.value = res.content || JSON.stringify(res, null, 2)
     message.success('文档生成成功')
   } catch (e: any) {
     message.error('文档生成失败：' + (e.message || '未知错误'))

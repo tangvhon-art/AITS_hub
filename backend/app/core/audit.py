@@ -4,6 +4,7 @@
 """
 from datetime import datetime, date
 from typing import Optional, Any, Dict
+from fastapi import Request
 from sqlalchemy.orm import Session
 from app.models.audit_log import AuditLog
 from app.models.user import User
@@ -78,3 +79,55 @@ def log_audit(
     db.add(log)
     db.flush()
     return log
+
+
+def audit(
+    request: Request,
+    db: Session,
+    action: str,
+    resource_type: str,
+    user: Optional[User] = None,
+    resource_id: Optional[int] = None,
+    resource_name: Optional[str] = None,
+    detail: Optional[Dict[str, Any]] = None,
+    status: str = "success",
+    error_message: Optional[str] = None,
+) -> AuditLog:
+    """
+    审计日志便捷封装：自动从 Request 提取 IP 和 User-Agent。
+
+    替代各路由中重复的:
+        log_audit(db, action=..., resource_type=..., user=current_user,
+                  ip_address=request.client.host if request.client else None,
+                  user_agent=request.headers.get("user-agent"), ...)
+
+    Args:
+        request: FastAPI Request 对象
+        db: 数据库会话
+        action: 操作类型
+        resource_type: 资源类型
+        user: 当前用户对象
+        resource_id: 资源ID
+        resource_name: 资源名称
+        detail: 操作详情
+        status: 操作状态 success/failed
+        error_message: 错误信息
+
+    Returns:
+        AuditLog 记录对象
+    """
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    return log_audit(
+        db,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_name=resource_name,
+        detail=detail,
+        user=user,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        status=status,
+        error_message=error_message,
+    )

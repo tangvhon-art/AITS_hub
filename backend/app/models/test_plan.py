@@ -39,9 +39,14 @@ class TestPlan(SoftDeleteMixin, Base):
 
 
 class TestPlanCase(SoftDeleteMixin, Base):
-    """测试计划-用例关联表（兼容旧版）"""
+    """[已废弃] 测试计划-用例关联表（旧版，仅保留向后兼容）
+
+    .. deprecated::
+        请使用 :class:`TestPlanItem`，支持 case/scenario/script/suite 混合编排。
+        新代码不应再写入此表，报告统计统一基于 TestPlanItem / TestPlanExecution。
+    """
     __tablename__ = "test_plan_cases"
-    __table_args__ = {"comment": "测试计划-用例关联表"}
+    __table_args__ = {"comment": "[已废弃] 测试计划-用例关联表（旧版）"}
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
     plan_id = Column(Integer, ForeignKey("test_plans.id"), nullable=False, index=True, comment="计划ID")

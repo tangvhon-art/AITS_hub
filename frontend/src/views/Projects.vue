@@ -79,6 +79,7 @@ import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, FolderOutlined, CalendarOutlined, FileTextOutlined, UnorderedListOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
 import { getProjects, createProject, updateProject, deleteProject as deleteProjectApi, Project } from '@/api/projects'
+import { formatDate } from '@/utils/date'
 
 const router = useRouter()
 const loading = ref(false)
@@ -155,10 +156,6 @@ function deleteProject(project: Project) {
       fetchProjects()
     }
   })
-}
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('zh-CN')
 }
 
 onMounted(fetchProjects)

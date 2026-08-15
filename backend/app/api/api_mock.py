@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, R
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
@@ -19,18 +19,6 @@ from app.schemas.api_test import (
 )
 
 router = APIRouter(tags=["接口测试-Mock服务"])
-
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
-
-# ==================== Mock 期望 CRUD ====================
 
 @router.get("/api/projects/{project_id}/api-mock/expectations", response_model=PaginatedResponse)
 def list_mock_expectations(
@@ -43,7 +31,7 @@ def list_mock_expectations(
     current_user: User = Depends(get_current_user),
 ):
     """Mock期望列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(ApiMockExpectation).filter(ApiMockExpectation.project_id == project_id)
 
     if method:
@@ -64,7 +52,6 @@ def list_mock_expectations(
         items=[ApiMockExpectationResponse.model_validate(item) for item in items],
     )
 
-
 @router.post("/api/projects/{project_id}/api-mock/expectations", response_model=ApiMockExpectationResponse, status_code=status.HTTP_201_CREATED)
 def create_mock_expectation(
     project_id: int,
@@ -74,7 +61,7 @@ def create_mock_expectation(
     current_user: User = Depends(get_current_user),
 ):
     """创建Mock期望"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     mock = ApiMockExpectation(
         project_id=project_id,
         api_id=data.api_id,
@@ -104,7 +91,6 @@ def create_mock_expectation(
     db.refresh(mock)
     return mock
 
-
 @router.put("/api/projects/{project_id}/api-mock/expectations/{mock_id}", response_model=ApiMockExpectationResponse)
 def update_mock_expectation(
     project_id: int,
@@ -115,7 +101,7 @@ def update_mock_expectation(
     current_user: User = Depends(get_current_user),
 ):
     """更新Mock期望"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     mock = db.query(ApiMockExpectation).filter(
         ApiMockExpectation.id == mock_id, ApiMockExpectation.project_id == project_id
     ).first()
@@ -138,7 +124,6 @@ def update_mock_expectation(
     db.refresh(mock)
     return mock
 
-
 @router.delete("/api/projects/{project_id}/api-mock/expectations/{mock_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_mock_expectation(
     project_id: int,
@@ -148,7 +133,7 @@ def delete_mock_expectation(
     current_user: User = Depends(get_current_user),
 ):
     """删除Mock期望"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     mock = db.query(ApiMockExpectation).filter(
         ApiMockExpectation.id == mock_id, ApiMockExpectation.project_id == project_id
     ).first()
@@ -165,7 +150,6 @@ def delete_mock_expectation(
         detail={"project_id": project_id, "mock_name": mock.name, "type": "api_mock"},
     )
     db.commit()
-
 
 # ==================== Mock 服务入口 ====================
 
@@ -202,7 +186,6 @@ def _match_mock_request(
                 return False
 
     return True
-
 
 @router.api_route("/mock/{project_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
 async def mock_service_entry(

@@ -105,7 +105,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { apiCasesApi, apiDefinitionsApi, llmConfigsApi } from '@/api/apiTest'
+import { apiCasesApi, apiDefinitionsApi } from '@/api/apiTest'
+import { getLLMConfigs } from '@/api/llm'
 
 const props = defineProps<{
   open: boolean
@@ -151,7 +152,7 @@ const loadApis = async () => {
 
 const loadLlmConfigs = async () => {
   try {
-    llmConfigs.value = await llmConfigsApi.list()
+    llmConfigs.value = await getLLMConfigs()
   } catch {}
 }
 

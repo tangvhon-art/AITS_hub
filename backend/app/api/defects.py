@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.defect import Defect
@@ -22,17 +22,6 @@ from app.schemas.defect import (
 
 router = APIRouter(prefix="/api/projects/{project_id}/defects", tags=["缺陷管理"])
 
-
-def _check_project_access(db: Session, user: User, project_id: int):
-    """检查项目访问权限"""
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if not user.is_admin and project.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="无权限访问该项目")
-    return project
-
-
 @router.get("", response_model=DefectListResponse)
 def list_defects(
     project_id: int,
@@ -45,7 +34,7 @@ def list_defects(
     current_user: User = Depends(get_current_user),
 ):
     """获取缺陷列表"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     query = db.query(Defect).filter(Defect.project_id == project_id)
     if status:
@@ -65,7 +54,6 @@ def list_defects(
         items=[DefectResponse.model_validate(d) for d in defects],
     )
 
-
 @router.get("/{defect_id}", response_model=DefectResponse)
 def get_defect(
     project_id: int,
@@ -74,12 +62,11 @@ def get_defect(
     current_user: User = Depends(get_current_user),
 ):
     """获取缺陷详情"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
         raise HTTPException(status_code=404, detail="缺陷不存在")
     return DefectResponse.model_validate(defect)
-
 
 @router.post("", response_model=DefectResponse)
 def create_defect(
@@ -90,7 +77,7 @@ def create_defect(
     current_user: User = Depends(get_current_user),
 ):
     """创建缺陷"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     defect = Defect(
         project_id=project_id,
@@ -126,7 +113,6 @@ def create_defect(
     db.refresh(defect)
     return DefectResponse.model_validate(defect)
 
-
 @router.put("/{defect_id}", response_model=DefectResponse)
 def update_defect(
     project_id: int,
@@ -137,7 +123,7 @@ def update_defect(
     current_user: User = Depends(get_current_user),
 ):
     """更新缺陷"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
         raise HTTPException(status_code=404, detail="缺陷不存在")
@@ -159,7 +145,6 @@ def update_defect(
     db.refresh(defect)
     return DefectResponse.model_validate(defect)
 
-
 @router.delete("/{defect_id}")
 def delete_defect(
     project_id: int,
@@ -169,7 +154,7 @@ def delete_defect(
     current_user: User = Depends(get_current_user),
 ):
     """删除缺陷"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
         raise HTTPException(status_code=404, detail="缺陷不存在")
@@ -185,7 +170,6 @@ def delete_defect(
     db.commit()
     return {"message": "缺陷已删除"}
 
-
 @router.post("/{defect_id}/status", response_model=DefectResponse)
 def update_defect_status(
     project_id: int,
@@ -200,7 +184,7 @@ def update_defect_status(
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"无效状态，可选: {valid_statuses}")
 
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
         raise HTTPException(status_code=404, detail="缺陷不存在")

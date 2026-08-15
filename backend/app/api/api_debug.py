@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
@@ -21,16 +21,6 @@ from app.services.script_engine import ScriptEngine
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-debug", tags=["接口测试-调试"])
 
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
-
 @router.post("/send", response_model=ApiDebugResponse)
 async def send_debug_request(
     project_id: int,
@@ -40,7 +30,7 @@ async def send_debug_request(
     current_user: User = Depends(get_current_user),
 ):
     """发送调试请求"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
 
     # 变量替换
     var_engine = VariableEngine()
@@ -133,7 +123,6 @@ async def send_debug_request(
         tests=tests,
     )
 
-
 @router.get("/history", response_model=List[ApiDebugHistoryResponse])
 def list_debug_history(
     project_id: int,
@@ -142,13 +131,12 @@ def list_debug_history(
     current_user: User = Depends(get_current_user),
 ):
     """调试历史列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     history = db.query(ApiDebugHistory).filter(
         ApiDebugHistory.project_id == project_id,
         ApiDebugHistory.user_id == current_user.id,
     ).order_by(ApiDebugHistory.id.desc()).limit(limit).all()
     return history
-
 
 @router.delete("/history", status_code=status.HTTP_204_NO_CONTENT)
 def clear_debug_history(
@@ -158,7 +146,7 @@ def clear_debug_history(
     current_user: User = Depends(get_current_user),
 ):
     """清除调试历史"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     db.query(ApiDebugHistory).filter(
         ApiDebugHistory.project_id == project_id,
         ApiDebugHistory.user_id == current_user.id,

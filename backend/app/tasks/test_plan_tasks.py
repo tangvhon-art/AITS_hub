@@ -23,6 +23,7 @@ from app.models.test_plan import (
 from app.models.api_test import ApiTestCase, ApiCaseAssertion, ApiScenario, ApiScenarioStep
 from app.models.automation_script import AutomationScript
 from app.models.automation_suite import AutomationSuite, AutomationSuiteRun
+from app.models.report import TestReport
 from app.services.http_client import HttpClient
 from app.services.variable_engine import VariableEngine
 from app.services.assertion_engine import AssertionEngine, AssertionResult
@@ -120,6 +121,65 @@ def _node_family(item_type: str) -> str:
 
 
 # ============ 主执行入口 ============
+
+def _create_execution_report(db, plan: TestPlan, execution: TestPlanExecution):
+    """
+    P1-10: 测试计划执行完成后，创建 TestReport 记录。
+    报告统计统一基于 TestPlanItem / TestPlanExecution 口径。
+    """
+    try:
+        total = execution.total_items or 0
+        passed = execution.passed_count or 0
+        failed = execution.failed_count or 0
+        skipped = execution.skipped_count or 0
+        pass_rate = execution.pass_rate or 0
+        duration = 0.0
+        if execution.started_at and execution.finished_at:
+            duration = round((execution.finished_at - execution.started_at).total_seconds(), 2)
+
+        # 统计关联缺陷数（通过执行结果中的 error_message 简单关联，或后续扩展）
+        report = TestReport(
+            project_id=plan.project_id,
+            version_id=plan.version_id,
+            title=f"测试计划执行报告 - {plan.name}",
+            report_type="execution",
+            status="completed",
+            content=f"# {plan.name} 执行报告\n\n"
+                    f"- 执行时间：{execution.started_at} ~ {execution.finished_at}\n"
+                    f"- 总节点数：{total}\n"
+                    f"- 通过：{passed}\n"
+                    f"- 失败：{failed}\n"
+                    f"- 跳过：{skipped}\n"
+                    f"- 通过率：{pass_rate}%\n"
+                    f"- 总耗时：{duration}s\n",
+            summary={
+                "plan_id": plan.id,
+                "plan_name": plan.name,
+                "execution_id": execution.id,
+                "total_items": total,
+                "passed_count": passed,
+                "failed_count": failed,
+                "skipped_count": skipped,
+                "pass_rate": pass_rate,
+                "duration": duration,
+                "trigger_type": execution.trigger_type,
+                "executed_by": execution.executed_by,
+                "started_at": execution.started_at.isoformat() if execution.started_at else None,
+                "finished_at": execution.finished_at.isoformat() if execution.finished_at else None,
+            },
+            total_cases=total,
+            passed_cases=passed,
+            failed_cases=failed,
+            pass_rate=pass_rate,
+            total_runs=1,
+            avg_duration=duration,
+            created_by=execution.executed_by,
+        )
+        db.add(report)
+        logger.info(f"已创建测试报告: plan={plan.name}, execution_id={execution.id}")
+    except Exception as e:
+        logger.exception(f"创建测试报告失败: {e}")
+
 
 def _run_test_plan_execution(execution_id: int):
     """
@@ -242,6 +302,10 @@ def _run_test_plan_execution(execution_id: int):
         plan.total_cases = total
         plan.passed_cases = execution.passed_count or 0
         plan.failed_cases = execution.failed_count or 0
+
+        # P1-10: 执行完成后创建 TestReport 记录
+        _create_execution_report(db, plan, execution)
+
         db.commit()
 
         logger.info(
@@ -549,9 +613,9 @@ async def _execute_script_node(db, item: TestPlanItem, result: TestPlanExecution
         result.error_message = f"UI脚本不存在: {item.ref_id}"
         return
 
-    from app.tasks.script_tasks import _apply_headless_mode, _execute_script_async
+    from app.services.script_runner import apply_headless_mode, execute_script_async
 
-    content = _apply_headless_mode(script.script_content or "", True)
+    content = apply_headless_mode(script.script_content or "", True)
     result.request_data = {
         "script": script.name,
         "target_url": script.target_url,
@@ -560,7 +624,7 @@ async def _execute_script_node(db, item: TestPlanItem, result: TestPlanExecution
         "category": "ui_script",
     }
 
-    success, error = await _execute_script_async(content, script.id)
+    success, error = await execute_script_async(content, script.id)
     result.response_data = {
         "success": success,
         "error": error,

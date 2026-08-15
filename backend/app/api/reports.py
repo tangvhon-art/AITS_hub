@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Backgroun
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.report import TestReport
@@ -30,16 +30,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/reports", tags=["报告管理"])
 
-
-def _check_project_access(db: Session, user: User, project_id: int):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if not user.is_admin and project.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="无权限访问该项目")
-    return project
-
-
 @router.get("", response_model=ReportListResponse)
 def list_reports(
     project_id: int,
@@ -50,7 +40,7 @@ def list_reports(
     current_user: User = Depends(get_current_user),
 ):
     """获取报告列表"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     query = db.query(TestReport).filter(TestReport.project_id == project_id)
     if version_id is not None:
@@ -65,7 +55,6 @@ def list_reports(
         items=[ReportResponse.model_validate(r) for r in reports],
     )
 
-
 @router.get("/{report_id}", response_model=ReportResponse)
 def get_report(
     project_id: int,
@@ -74,12 +63,11 @@ def get_report(
     current_user: User = Depends(get_current_user),
 ):
     """获取报告详情"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     report = db.query(TestReport).filter(TestReport.id == report_id, TestReport.project_id == project_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
     return ReportResponse.model_validate(report)
-
 
 @router.post("/generate", response_model=ReportResponse)
 def generate_report(
@@ -91,7 +79,7 @@ def generate_report(
     current_user: User = Depends(get_current_user),
 ):
     """AI 生成测试报告（异步）"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     # 校验版本存在
     version = db.query(ProjectVersion).filter(
@@ -179,7 +167,6 @@ def generate_report(
 
     return ReportResponse.model_validate(report)
 
-
 @router.put("/{report_id}", response_model=ReportResponse)
 def update_report(
     project_id: int,
@@ -190,7 +177,7 @@ def update_report(
     current_user: User = Depends(get_current_user),
 ):
     """更新报告"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     report = db.query(TestReport).filter(TestReport.id == report_id, TestReport.project_id == project_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
@@ -212,7 +199,6 @@ def update_report(
     db.refresh(report)
     return ReportResponse.model_validate(report)
 
-
 @router.delete("/{report_id}")
 def delete_report(
     project_id: int,
@@ -222,7 +208,7 @@ def delete_report(
     current_user: User = Depends(get_current_user),
 ):
     """删除报告"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     report = db.query(TestReport).filter(TestReport.id == report_id, TestReport.project_id == project_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")

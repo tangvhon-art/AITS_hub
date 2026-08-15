@@ -135,11 +135,11 @@ const handleTableChange = (pag: any) => {
 }
 
 const handleCreate = () => {
-  router.push(`/projects/${projectId}/api-cases/new`)
+  router.push(`/projects/${projectId}/api-test/cases/new`)
 }
 
 const handleEdit = (record: ApiTestCase) => {
-  router.push(`/projects/${projectId}/api-cases/${record.id}`)
+  router.push(`/projects/${projectId}/api-test/cases/${record.id}`)
 }
 
 const handleRun = async (record: ApiTestCase) => {
@@ -147,7 +147,7 @@ const handleRun = async (record: ApiTestCase) => {
     const res = await apiCasesApi.run(projectId, record.id, {})
     message.success(`执行完成: ${res.status}`)
     if (res.execution_id) {
-      router.push(`/projects/${projectId}/api-executions/${res.execution_id}`)
+      router.push(`/projects/${projectId}/api-test/executions/${res.execution_id}`)
     }
   } catch {}
 }

@@ -186,7 +186,7 @@
                 {{ item.url }}
               </template>
               <template #description>
-                {{ item.response_status }} · {{ item.response_time }}ms · {{ formatDate(item.created_at) }}
+                {{ item.response_status }} · {{ item.response_time }}ms · {{ formatDateTime(item.created_at) }}
               </template>
             </a-list-item-meta>
           </a-list-item>
@@ -214,6 +214,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { HistoryOutlined, SaveOutlined } from '@ant-design/icons-vue'
 import { apiDebugApi, apiDefinitionsApi } from '@/api/apiTest'
+import { formatDateTime } from '@/utils/date'
 import MockDataInserter from './MockDataInserter.vue'
 
 const route = useRoute()
@@ -289,11 +290,6 @@ const formatSize = (bytes: number) => {
 
 const formatBody = (body: string) => {
   try { return JSON.stringify(JSON.parse(body), null, 2) } catch { return body }
-}
-
-const formatDate = (date: string) => {
-  if (!date) return ''
-  return new Date(date).toLocaleString('zh-CN')
 }
 
 const handleSend = async () => {
@@ -389,7 +385,7 @@ const handleSaveAsApi = async () => {
     showSaveModal.value = false
     saveForm.value = { name: '', description: '' }
     // 跳转到接口编辑页
-    router.push(`/projects/${projectId}/api-definitions/${created.id}`)
+    router.push(`/projects/${projectId}/api-test/definitions/${created.id}`)
   } catch (e: any) {
     message.error(e.response?.data?.detail || '保存失败')
   } finally {

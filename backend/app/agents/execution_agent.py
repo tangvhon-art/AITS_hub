@@ -13,6 +13,7 @@ import time
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from playwright.async_api import async_playwright, Browser, Page
 from app.agents.llm_factory import llm_factory
+from app.agents.base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -131,15 +132,17 @@ EXECUTION_SYSTEM_PROMPT = """你是一个专业的 UI 自动化测试工程师�
 """
 
 
-class ExecutionAgent:
+class ExecutionAgent(BaseAgent):
     """UI 自动化执行 Agent"""
 
-    def __init__(self, db_session=None, llm_config_id: Optional[int] = None):
-        self.db = db_session
-        self.llm_config_id = llm_config_id
-        self.execution_log: List[Dict[str, Any]] = []
+    def __init__(self, db_session=None, llm_config_id: Optional[int] = None, project_id: Optional[int] = None):
+        super().__init__(db_session, agent_name="ui_execution", project_id=project_id, llm_config_id=llm_config_id)
         self.screenshot_path: str = ""
         self._step_start_time: float = 0  # 当前步骤开始时间
+
+    def run(self, **kwargs) -> Dict[str, Any]:
+        """BaseAgent 抽象方法实现（同步包装，实际执行请用 execute 异步生成器）"""
+        raise NotImplementedError("ExecutionAgent 请使用 async execute() 方法")
 
     async def execute(
         self,
@@ -310,15 +313,8 @@ class ExecutionAgent:
 
     def _parse_action(self, content: str) -> Optional[Dict[str, Any]]:
         """解析 LLM 输出的动作 JSON"""
-        import re
-        # 尝试提取 JSON
-        json_match = re.search(r'\{[\s\S]*\}', content)
-        if json_match:
-            try:
-                return json.loads(json_match.group())
-            except json.JSONDecodeError:
-                pass
-        return None
+        from app.agents.utils import extract_json
+        return extract_json(content)
 
     async def _execute_tool(self, page: Page, action: str, params: Dict[str, Any]) -> str:
         """执行浏览器工具，返回观察结果"""

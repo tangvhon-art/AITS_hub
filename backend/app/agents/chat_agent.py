@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.llm_factory import llm_factory
 from app.agents.mcp_tools import mcp_registry
+from app.agents.base_agent import BaseAgent
 from app.services.knowledge_base import knowledge_base_service
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ SYSTEM_PROMPT = """你是 AITS 智能测试管理平台的助手，专业、简�
 """
 
 
-class ChatAgent:
+class ChatAgent(BaseAgent):
     """Chat 智能助手"""
 
     def __init__(
@@ -69,10 +70,14 @@ class ChatAgent:
         llm_config_id: Optional[int] = None,
         user_id: Optional[int] = None,
     ):
-        self.db = db
-        self.project_id = project_id
-        self.llm_config_id = llm_config_id
+        super().__init__(db, agent_name="chat_agent", project_id=project_id, llm_config_id=llm_config_id)
         self.user_id = user_id
+
+    def run(self, **kwargs) -> Dict[str, Any]:
+        """BaseAgent 抽象方法实现：同步聊天入口"""
+        message = kwargs.get("message", "")
+        history = kwargs.get("history", [])
+        return {"content": self.chat(message, history)}
 
     def _get_tools_description(self) -> str:
         """获取工具描述文本"""
@@ -108,22 +113,17 @@ class ChatAgent:
             content = content.strip()
             logger.info(f"工具决策原始返回: {content[:200]}")
 
-            # 尝试解析 JSON - 先用正则提取 JSON 部分
-            import re
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL)
-            if json_match:
-                content = json_match.group(0)
-
-            try:
-                result = json.loads(content)
+            # 尝试解析 JSON
+            from app.agents.utils import extract_json
+            result = extract_json(content)
+            if result:
                 need_tool = result.get("need_tool", False)
                 tool_name = result.get("tool_name", "")
                 tool_args = result.get("tool_args", {})
                 logger.info(f"工具决策结果: need_tool={need_tool}, tool_name={tool_name}, args={tool_args}")
                 return need_tool, tool_name, tool_args
-            except json.JSONDecodeError as e:
-                logger.warning(f"工具决策 JSON 解析失败: {e}, content: {content[:200]}")
-                return False, "", {}
+            logger.warning(f"工具决策 JSON 解析失败, content: {content[:200]}")
+            return False, "", {}
         except Exception as e:
             logger.warning(f"工具决策失败，降级为不调用工具: {e}", exc_info=True)
             return False, "", {}

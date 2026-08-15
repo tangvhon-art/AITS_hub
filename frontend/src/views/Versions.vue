@@ -101,7 +101,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
-import { formatDateTime } from '@/utils/date'
+import { formatDateTime, formatDate } from '@/utils/date'
 import {
   getVersions, createVersion, updateVersion, deleteVersion,
   type ProjectVersion
@@ -129,11 +129,6 @@ const columns = [
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 140 },
 ]
-
-function formatDate(dateStr: string) {
-  if (!dateStr) return '-'
-  return dateStr.substring(0, 10)
-}
 
 function statusColor(s?: string) {
   const map: Record<string, string> = { draft: 'default', active: 'green', released: 'blue', archived: 'default' }

@@ -69,7 +69,7 @@ const activeMenuKey = computed(() => (route.meta.activeMenu as string) || 'defin
 
 const handleMenuClick = ({ key }: { key: string }) => {
   const projectId = route.params.id
-  router.push(`/projects/${projectId}/api-${key}`)
+  router.push(`/projects/${projectId}/api-test/${key}`)
 }
 </script>
 

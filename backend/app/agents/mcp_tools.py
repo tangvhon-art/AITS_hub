@@ -344,6 +344,66 @@ async def tool_create_defect(args: Dict[str, Any], db: Session, project_id: Opti
 
 # ==================== 注册工具 ====================
 
+# P2-10: 补齐接口测试/计划/脚本/版本/需求/报告工具
+
+async def tool_list_api_cases(args, db, project_id):
+    """查询接口测试用例列表"""
+    from app.models.api_test import ApiTestCase
+    if not project_id:
+        return {"error": "未指定项目"}
+    limit = min(args.get("limit", 10), 50)
+    query = db.query(ApiTestCase).filter(ApiTestCase.project_id == project_id, ApiTestCase.is_deleted == False)
+    cases = query.order_by(ApiTestCase.created_at.desc()).limit(limit).all()
+    return {"total": query.count(), "cases": [{"id": c.id, "name": c.name, "method": c.method, "path": c.path, "priority": c.priority} for c in cases]}
+
+async def tool_list_test_plans(args, db, project_id):
+    """查询测试计划列表"""
+    from app.models.test_plan import TestPlan
+    if not project_id:
+        return {"error": "未指定项目"}
+    limit = min(args.get("limit", 10), 50)
+    query = db.query(TestPlan).filter(TestPlan.project_id == project_id, TestPlan.is_deleted == False)
+    plans = query.order_by(TestPlan.created_at.desc()).limit(limit).all()
+    return {"total": query.count(), "plans": [{"id": p.id, "name": p.name, "status": p.status, "pass_rate": p.pass_rate} for p in plans]}
+
+async def tool_list_scripts(args, db, project_id):
+    """查询自动化脚本列表"""
+    from app.models.automation_script import AutomationScript
+    if not project_id:
+        return {"error": "未指定项目"}
+    limit = min(args.get("limit", 10), 50)
+    query = db.query(AutomationScript).filter(AutomationScript.project_id == project_id, AutomationScript.is_deleted == False)
+    scripts = query.order_by(AutomationScript.created_at.desc()).limit(limit).all()
+    return {"total": query.count(), "scripts": [{"id": s.id, "name": s.name, "script_type": s.script_type, "status": s.status} for s in scripts]}
+
+async def tool_list_versions(args, db, project_id):
+    """查询项目版本列表"""
+    from app.models.project import ProjectVersion
+    if not project_id:
+        return {"error": "未指定项目"}
+    versions = db.query(ProjectVersion).filter(ProjectVersion.project_id == project_id, ProjectVersion.is_deleted == False).order_by(ProjectVersion.release_date.desc()).all()
+    return {"total": len(versions), "versions": [{"id": v.id, "name": v.name, "status": v.status, "release_date": str(v.release_date) if v.release_date else None} for v in versions]}
+
+async def tool_list_requirements(args, db, project_id):
+    """查询需求列表"""
+    from app.models.requirement import TestRequirement
+    if not project_id:
+        return {"error": "未指定项目"}
+    limit = min(args.get("limit", 10), 50)
+    query = db.query(TestRequirement).filter(TestRequirement.project_id == project_id, TestRequirement.is_deleted == False)
+    reqs = query.order_by(TestRequirement.created_at.desc()).limit(limit).all()
+    return {"total": query.count(), "requirements": [{"id": r.id, "title": r.title, "status": r.status, "source": r.source} for r in reqs]}
+
+async def tool_list_reports(args, db, project_id):
+    """查询测试报告列表"""
+    from app.models.report import TestReport
+    if not project_id:
+        return {"error": "未指定项目"}
+    limit = min(args.get("limit", 10), 50)
+    query = db.query(TestReport).filter(TestReport.project_id == project_id, TestReport.is_deleted == False)
+    reports = query.order_by(TestReport.created_at.desc()).limit(limit).all()
+    return {"total": query.count(), "reports": [{"id": r.id, "title": r.title, "report_type": r.report_type, "status": r.status, "pass_rate": r.pass_rate} for r in reports]}
+
 mcp_registry.register(MCPTool(
     name="query_project_stats",
     description="查询项目的统计数据，包括用例数量、缺陷数量、执行记录、测试计划等概览信息",
@@ -428,3 +488,24 @@ mcp_registry.register(MCPTool(
     },
     execute=tool_create_defect,
 ))
+
+# P2-10: 扩展工具注册
+for _tool_def in [
+    ("list_api_cases", "查询接口测试用例列表，返回用例名称、请求方法、路径和优先级", tool_list_api_cases,
+     {"limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+    ("list_test_plans", "查询测试计划列表，返回计划名称、状态和通过率", tool_list_test_plans,
+     {"limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+    ("list_scripts", "查询UI自动化脚本列表，返回脚本名称、类型和状态", tool_list_scripts,
+     {"limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+    ("list_versions", "查询项目版本列表，返回版本名称、状态和发布日期", tool_list_versions, {}),
+    ("list_requirements", "查询需求列表，返回需求标题、状态和来源", tool_list_requirements,
+     {"limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+    ("list_reports", "查询测试报告列表，返回报告标题、类型、状态和通过率", tool_list_reports,
+     {"limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+]:
+    _name, _desc, _fn, _props = _tool_def
+    mcp_registry.register(MCPTool(
+        name=_name, description=_desc,
+        parameters={"type": "object", "properties": _props, "required": []},
+        execute=_fn,
+    ))

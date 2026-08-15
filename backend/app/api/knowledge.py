@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFil
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.knowledge_doc import KnowledgeDoc
@@ -30,16 +30,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/knowledge", tags=["知识库管理"])
 
-
-def _check_project_access(db: Session, user: User, project_id: int):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if not user.is_admin and project.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="无权限访问该项目")
-    return project
-
-
 @router.get("", response_model=KnowledgeDocListResponse)
 def list_knowledge_docs(
     project_id: int,
@@ -49,7 +39,7 @@ def list_knowledge_docs(
     current_user: User = Depends(get_current_user),
 ):
     """获取知识库文档列表"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     query = db.query(KnowledgeDoc).filter(KnowledgeDoc.project_id == project_id)
     total = query.count()
@@ -62,7 +52,6 @@ def list_knowledge_docs(
         items=[KnowledgeDocResponse.model_validate(d) for d in docs],
     )
 
-
 @router.post("", response_model=KnowledgeDocResponse)
 def create_knowledge_doc(
     project_id: int,
@@ -73,7 +62,7 @@ def create_knowledge_doc(
     current_user: User = Depends(get_current_user),
 ):
     """创建知识库文档（文本）"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     doc = KnowledgeDoc(
         project_id=project_id,
@@ -137,7 +126,6 @@ def create_knowledge_doc(
 
     return KnowledgeDocResponse.model_validate(doc)
 
-
 @router.post("/upload", response_model=KnowledgeDocResponse)
 async def upload_knowledge_doc(
     project_id: int,
@@ -148,7 +136,7 @@ async def upload_knowledge_doc(
     current_user: User = Depends(get_current_user),
 ):
     """上传知识库文档"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     # 读取文件内容
     content = ""
@@ -243,7 +231,6 @@ async def upload_knowledge_doc(
 
     return KnowledgeDocResponse.model_validate(doc)
 
-
 @router.post("/search", response_model=KnowledgeSearchResponse)
 def search_knowledge(
     project_id: int,
@@ -252,7 +239,7 @@ def search_knowledge(
     current_user: User = Depends(get_current_user),
 ):
     """检索知识库"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
 
     results = knowledge_base_service.search(
         project_id=project_id,
@@ -266,7 +253,6 @@ def search_knowledge(
         total=len(results),
     )
 
-
 @router.get("/stats", response_model=KnowledgeStatsResponse)
 def get_knowledge_stats(
     project_id: int,
@@ -274,14 +260,13 @@ def get_knowledge_stats(
     current_user: User = Depends(get_current_user),
 ):
     """获取知识库统计"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     stats = knowledge_base_service.get_stats(project_id)
     return KnowledgeStatsResponse(
         project_id=project_id,
         total_docs=stats.get("total_docs", 0),
         total_chunks=stats.get("total_chunks", 0),
     )
-
 
 @router.get("/{doc_id}", response_model=KnowledgeDocResponse)
 def get_knowledge_doc(
@@ -291,12 +276,11 @@ def get_knowledge_doc(
     current_user: User = Depends(get_current_user),
 ):
     """获取知识库文档详情"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     doc = db.query(KnowledgeDoc).filter(KnowledgeDoc.id == doc_id, KnowledgeDoc.project_id == project_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
     return KnowledgeDocResponse.model_validate(doc)
-
 
 @router.delete("/{doc_id}")
 def delete_knowledge_doc(
@@ -307,7 +291,7 @@ def delete_knowledge_doc(
     current_user: User = Depends(get_current_user),
 ):
     """删除知识库文档"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     doc = db.query(KnowledgeDoc).filter(KnowledgeDoc.id == doc_id, KnowledgeDoc.project_id == project_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")

@@ -11,6 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 from app.agents.llm_factory import llm_factory
+from app.agents.base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +59,18 @@ CASE_GENERATOR_PROMPT = """你是一名资深测试用例设计专家，拥有 1
 """
 
 
-class CaseGeneratorAgent:
+class CaseGeneratorAgent(BaseAgent):
     """用例生成 Agent"""
 
-    def __init__(self, db_session=None, llm_config_id: Optional[int] = None):
-        self.db = db_session
-        self.llm_config_id = llm_config_id
+    def __init__(self, db_session=None, llm_config_id: Optional[int] = None, project_id: Optional[int] = None):
+        super().__init__(db_session, agent_name="case_generator", project_id=project_id, llm_config_id=llm_config_id)
+
+    def run(self, **kwargs) -> Dict[str, Any]:
+        """BaseAgent 抽象方法实现"""
+        requirement_content = kwargs.get("requirement_content", "")
+        count = kwargs.get("count", 10)
+        result = self.generate(requirement_content, count)
+        return {"cases": result}
 
     def generate(
         self,
@@ -126,20 +133,19 @@ class CaseGeneratorAgent:
 
     def _fallback_parse(self, content: str) -> List[Dict[str, Any]]:
         """当 Pydantic 解析失败时的降级解析"""
-        import re
-        # 尝试提取 JSON 代码块
-        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
-        if json_match:
-            content = json_match.group(1)
+        from app.agents.utils import extract_json, extract_json_list
 
-        try:
-            data = json.loads(content)
-            if isinstance(data, dict) and "cases" in data:
-                return data["cases"]
-            elif isinstance(data, list):
-                return data
-        except json.JSONDecodeError:
-            pass
+        # 优先尝试解析为 {"cases": [...]} 对象
+        parsed = extract_json(content)
+        if parsed and isinstance(parsed, dict) and "cases" in parsed:
+            cases = parsed["cases"]
+            if isinstance(cases, list):
+                return cases
+
+        # 尝试直接解析为数组
+        parsed_list = extract_json_list(content)
+        if parsed_list:
+            return parsed_list
 
         # 最后降级：返回单条用例，内容为原始输出
         return [{

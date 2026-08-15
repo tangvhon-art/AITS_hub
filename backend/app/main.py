@@ -54,6 +54,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _auto_migrate(engine):
+    """轻量级自动迁移：为已有表补充新增列（create_all 不会修改已有表结构）"""
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    migrations = [
+        ("test_cases", "needs_update", "BOOLEAN DEFAULT 0"),
+    ]
+    with engine.begin() as conn:
+        for table, column, ddl in migrations:
+            if table not in inspector.get_table_names():
+                continue
+            existing_cols = [c["name"] for c in inspector.get_columns(table)]
+            if column not in existing_cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+                logger.info(f"自动迁移：{table}.{column} 已添加")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时创建数据库表"""
@@ -73,6 +90,7 @@ async def lifespan(app: FastAPI):
         ApiDebugHistory,
     )
     Base.metadata.create_all(bind=engine)
+    _auto_migrate(engine)
     logger.info("数据库表初始化完成")
     yield
     logger.info("应用关闭")

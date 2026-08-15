@@ -11,119 +11,18 @@
         @click="handleMenuClick"
         class="sider-menu"
       >
-        <a-menu-item key="/dashboard">
+        <a-menu-item v-for="item in globalMenus" :key="item.key">
           <template #icon>
-            <RobotOutlined />
+            <component :is="iconMap[item.icon || 'RobotOutlined']" />
           </template>
-          <span>智能助手</span>
+          <span>{{ item.title }}</span>
         </a-menu-item>
-        <a-menu-item key="/projects">
+        <a-menu-divider v-if="projectMenus.length > 0" />
+        <a-menu-item v-for="item in projectMenus" :key="item.key">
           <template #icon>
-            <ProjectOutlined />
+            <component :is="iconMap[item.icon || 'FileTextOutlined']" />
           </template>
-          <span>项目管理</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/versions`">
-          <template #icon>
-            <TagOutlined />
-          </template>
-          <span>版本管理</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/requirements`">
-          <template #icon>
-            <FileTextOutlined />
-          </template>
-          <span>需求管理</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/cases`">
-          <template #icon>
-            <UnorderedListOutlined />
-          </template>
-          <span>用例管理</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/execution`">
-          <template #icon>
-            <PlayCircleOutlined />
-          </template>
-          <span>UI 自动化</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/scripts`">
-          <template #icon>
-            <CodeOutlined />
-          </template>
-          <span>脚本库</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/suites`">
-          <template #icon>
-            <AppstoreOutlined />
-          </template>
-          <span>自动化编排</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/api-definitions`">
-          <template #icon>
-            <ApiOutlined />
-          </template>
-          <span>接口测试</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/defects`">
-          <template #icon>
-            <BugOutlined />
-          </template>
-          <span>缺陷管理</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/reports`">
-          <template #icon>
-            <FileTextOutlined />
-          </template>
-          <span>测试报告</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/knowledge`">
-          <template #icon>
-            <BookOutlined />
-          </template>
-          <span>知识库</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/plans`">
-          <template #icon>
-            <ScheduleOutlined />
-          </template>
-          <span>测试计划</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/dashboard`">
-          <template #icon>
-            <DashboardOutlined />
-          </template>
-          <span>质量看板</span>
-        </a-menu-item>
-        <a-menu-item v-if="currentProjectId" :key="`/projects/${currentProjectId}/import-export`">
-          <template #icon>
-            <ImportOutlined />
-          </template>
-          <span>数据导入导出</span>
-        </a-menu-item>
-        <a-menu-item key="/agent-tasks">
-          <template #icon>
-            <RobotOutlined />
-          </template>
-          <span>Agent 任务</span>
-        </a-menu-item>
-        <a-menu-item key="/audit-logs">
-          <template #icon>
-            <FileSearchOutlined />
-          </template>
-          <span>审计日志</span>
-        </a-menu-item>
-        <a-menu-item key="/llm-config">
-          <template #icon>
-            <SettingOutlined />
-          </template>
-          <span>模型配置</span>
-        </a-menu-item>
-        <a-menu-item key="/task-monitor">
-          <template #icon>
-            <MonitorOutlined />
-          </template>
-          <span>任务监控</span>
+          <span>{{ item.title }}</span>
         </a-menu-item>
       </a-menu>
     </a-layout-sider>
@@ -185,6 +84,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useMenu } from '@/composables/useMenu'
 import {
   BugOutlined,
   ProjectOutlined,
@@ -208,6 +108,15 @@ import {
   ApiOutlined
 } from '@ant-design/icons-vue'
 
+// 图标名 → 组件映射，供路由派生菜单动态渲染
+const iconMap: Record<string, any> = {
+  BugOutlined, ProjectOutlined, FileTextOutlined, UnorderedListOutlined,
+  PlayCircleOutlined, CodeOutlined, AppstoreOutlined, SettingOutlined,
+  BookOutlined, RobotOutlined, ScheduleOutlined, DashboardOutlined,
+  ImportOutlined, FileSearchOutlined, TagOutlined, MonitorOutlined,
+  ApiOutlined,
+}
+
 interface TabItem {
   path: string
   title: string
@@ -228,6 +137,9 @@ const currentProjectName = computed(() => {
   const p = projects.find((x: any) => x.id === Number(currentProjectId.value))
   return p?.name || ''
 })
+
+// 从路由派生菜单
+const { globalMenus, projectMenus } = useMenu(() => currentProjectId.value)
 
 // 从 localStorage 恢复标签页
 function loadTabs() {

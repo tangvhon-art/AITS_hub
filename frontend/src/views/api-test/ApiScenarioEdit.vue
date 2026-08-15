@@ -314,7 +314,9 @@ import {
   ArrowLeftOutlined, PlayCircleOutlined, ArrowUpOutlined,
   ArrowDownOutlined, DeleteOutlined, RobotOutlined
 } from '@ant-design/icons-vue'
-import { apiScenariosApi, apiDefinitionsApi, apiCasesApi, environmentsApi, chatApi, type ApiScenarioStep } from '@/api/apiTest'
+import { apiScenariosApi, apiDefinitionsApi, apiCasesApi, type ApiScenarioStep } from '@/api/apiTest'
+import { environmentsApi } from '@/api/environments'
+import { chat } from '@/api/chat'
 import MockDataInserter from './MockDataInserter.vue'
 
 const route = useRoute()
@@ -494,8 +496,8 @@ ${step.case_id ? '用例ID：' + step.case_id : ''}
 3. 后置脚本可使用 response.statusCode、response.body、response.headers 访问响应
 4. 可使用 tests.assert('名称', 条件) 添加测试断言
 5. 只输出代码，不要解释`
-    const res = await chatApi.send({ message: prompt, project_id: projectId })
-    step[field] = res.content || res.message || ''
+    const res = await chat({ message: prompt, project_id: projectId })
+    step[field] = res.content || ''
     message.success('脚本生成成功')
   } catch (e: any) {
     message.error('脚本生成失败：' + (e.message || '未知错误'))
@@ -609,7 +611,7 @@ const handleRun = async () => {
     try {
       const res = await apiScenariosApi.run(projectId, Number(scenarioId), {})
       if (res.execution_id) {
-        router.push(`/projects/${projectId}/api-executions/${res.execution_id}`)
+        router.push(`/projects/${projectId}/api-test/executions/${res.execution_id}`)
       }
     } catch {}
   }

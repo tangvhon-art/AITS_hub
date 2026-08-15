@@ -122,14 +122,10 @@ class CaseReviewerAgent(BaseAgent):
 
     def _parse_review(self, content: str) -> Dict[str, Any]:
         """解析评审结果"""
-        import re
-        # 尝试提取 JSON
-        json_match = re.search(r'\{[\s\S]*\}', content)
-        if json_match:
-            try:
-                return json.loads(json_match.group())
-            except json.JSONDecodeError:
-                pass
+        from app.agents.utils import extract_json
+        parsed = extract_json(content)
+        if parsed:
+            return parsed
 
         # 降级返回
         return {

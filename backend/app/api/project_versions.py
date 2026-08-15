@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.project import Project
@@ -22,16 +22,6 @@ from app.schemas.project_version import (
 
 router = APIRouter(prefix="/api/projects/{project_id}/versions", tags=["版本管理"])
 
-
-def _check_project_access(db: Session, user: User, project_id: int):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if not user.is_admin and project.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="无权限访问该项目")
-    return project
-
-
 @router.get("", response_model=VersionListResponse)
 def list_versions(
     project_id: int,
@@ -42,7 +32,7 @@ def list_versions(
     current_user: User = Depends(get_current_user),
 ):
     """获取版本列表"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     query = db.query(ProjectVersion).filter(ProjectVersion.project_id == project_id)
     if status:
         query = query.filter(ProjectVersion.status == status)
@@ -55,7 +45,6 @@ def list_versions(
         items=[VersionResponse.model_validate(v) for v in versions],
     )
 
-
 @router.post("", response_model=VersionResponse, status_code=201)
 def create_version(
     project_id: int,
@@ -65,7 +54,7 @@ def create_version(
     current_user: User = Depends(get_current_user),
 ):
     """创建版本"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     version = ProjectVersion(
         project_id=project_id,
         name=data.name,
@@ -90,7 +79,6 @@ def create_version(
     db.refresh(version)
     return VersionResponse.model_validate(version)
 
-
 @router.get("/{version_id}", response_model=VersionResponse)
 def get_version(
     project_id: int,
@@ -99,7 +87,7 @@ def get_version(
     current_user: User = Depends(get_current_user),
 ):
     """获取版本详情"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     version = db.query(ProjectVersion).filter(
         ProjectVersion.id == version_id,
         ProjectVersion.project_id == project_id,
@@ -107,7 +95,6 @@ def get_version(
     if not version:
         raise HTTPException(status_code=404, detail="版本不存在")
     return VersionResponse.model_validate(version)
-
 
 @router.put("/{version_id}", response_model=VersionResponse)
 def update_version(
@@ -119,7 +106,7 @@ def update_version(
     current_user: User = Depends(get_current_user),
 ):
     """更新版本"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     version = db.query(ProjectVersion).filter(
         ProjectVersion.id == version_id,
         ProjectVersion.project_id == project_id,
@@ -150,7 +137,6 @@ def update_version(
     db.refresh(version)
     return VersionResponse.model_validate(version)
 
-
 @router.delete("/{version_id}", status_code=204)
 def delete_version(
     project_id: int,
@@ -160,7 +146,7 @@ def delete_version(
     current_user: User = Depends(get_current_user),
 ):
     """删除版本"""
-    _check_project_access(db, current_user, project_id)
+    get_project(project_id, db, current_user)
     version = db.query(ProjectVersion).filter(
         ProjectVersion.id == version_id,
         ProjectVersion.project_id == project_id,

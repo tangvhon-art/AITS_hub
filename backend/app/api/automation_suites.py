@@ -7,7 +7,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.core.timezone import china_now_naive
 from app.models.user import User
@@ -37,17 +37,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/suites", tags=["自动化编排"])
 
-
-def _check_project_access(project_id: int, db: Session, user: User) -> Project:
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    return project
-
-
-# ============ 套件管理 ============
 @router.get("", response_model=List[AutomationSuiteResponse])
 def list_suites(
     project_id: int,
@@ -57,14 +46,13 @@ def list_suites(
     current_user: User = Depends(get_current_user),
 ):
     """获取编排套件列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(AutomationSuite).filter(AutomationSuite.project_id == project_id)
     if status:
         query = query.filter(AutomationSuite.status == status)
     if plan_id:
         query = query.filter(AutomationSuite.plan_id == plan_id)
     return query.order_by(AutomationSuite.updated_at.desc()).all()
-
 
 @router.get("/{suite_id}", response_model=AutomationSuiteResponse)
 def get_suite(
@@ -74,7 +62,7 @@ def get_suite(
     current_user: User = Depends(get_current_user),
 ):
     """获取套件详情"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     suite = db.query(AutomationSuite).filter(
         AutomationSuite.id == suite_id,
         AutomationSuite.project_id == project_id,
@@ -82,7 +70,6 @@ def get_suite(
     if not suite:
         raise HTTPException(status_code=404, detail="套件不存在")
     return suite
-
 
 @router.post("", response_model=AutomationSuiteResponse, status_code=status.HTTP_201_CREATED)
 def create_suite(
@@ -93,7 +80,7 @@ def create_suite(
     current_user: User = Depends(get_current_user),
 ):
     """创建套件"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     suite = AutomationSuite(
         project_id=project_id,
         name=data.name,
@@ -120,7 +107,6 @@ def create_suite(
     db.refresh(suite)
     return suite
 
-
 @router.put("/{suite_id}", response_model=AutomationSuiteResponse)
 def update_suite(
     project_id: int,
@@ -131,7 +117,7 @@ def update_suite(
     current_user: User = Depends(get_current_user),
 ):
     """更新套件"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     suite = db.query(AutomationSuite).filter(
         AutomationSuite.id == suite_id,
         AutomationSuite.project_id == project_id,
@@ -156,7 +142,6 @@ def update_suite(
     db.refresh(suite)
     return suite
 
-
 @router.delete("/{suite_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_suite(
     project_id: int,
@@ -166,7 +151,7 @@ def delete_suite(
     current_user: User = Depends(get_current_user),
 ):
     """删除套件"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     suite = db.query(AutomationSuite).filter(
         AutomationSuite.id == suite_id,
         AutomationSuite.project_id == project_id,
@@ -188,7 +173,6 @@ def delete_suite(
     )
     db.commit()
 
-
 # ============ 步骤管理 ============
 @router.get("/{suite_id}/steps", response_model=List[SuiteStepResponse])
 def get_suite_steps(
@@ -198,7 +182,7 @@ def get_suite_steps(
     current_user: User = Depends(get_current_user),
 ):
     """获取套件步骤列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     suite = db.query(AutomationSuite).filter(
         AutomationSuite.id == suite_id,
         AutomationSuite.project_id == project_id,
@@ -208,7 +192,6 @@ def get_suite_steps(
     return db.query(AutomationSuiteStep).filter(
         AutomationSuiteStep.suite_id == suite_id
     ).order_by(AutomationSuiteStep.sort_order.asc()).all()
-
 
 @router.post("/{suite_id}/steps", response_model=List[SuiteStepResponse])
 def batch_update_steps(
@@ -220,7 +203,7 @@ def batch_update_steps(
     current_user: User = Depends(get_current_user),
 ):
     """批量更新步骤（全量替换）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     suite = db.query(AutomationSuite).filter(
         AutomationSuite.id == suite_id,
         AutomationSuite.project_id == project_id,
@@ -267,7 +250,6 @@ def batch_update_steps(
         db.refresh(step)
     return new_steps
 
-
 # ============ 执行编排 ============
 @router.post("/{suite_id}/execute")
 async def execute_suite(
@@ -280,7 +262,7 @@ async def execute_suite(
     current_user: User = Depends(get_current_user),
 ):
     """执行编排套件（异步）"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     suite = db.query(AutomationSuite).filter(
         AutomationSuite.id == suite_id,
         AutomationSuite.project_id == project_id,
@@ -345,7 +327,6 @@ async def execute_suite(
         "celery_task_id": celery_task_id,
     }
 
-
 # ============ 执行记录 ============
 @router.get("/{suite_id}/runs", response_model=List[SuiteRunResponse])
 def get_suite_runs(
@@ -355,11 +336,10 @@ def get_suite_runs(
     current_user: User = Depends(get_current_user),
 ):
     """获取套件执行历史"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     return db.query(AutomationSuiteRun).filter(
         AutomationSuiteRun.suite_id == suite_id
     ).order_by(AutomationSuiteRun.created_at.desc()).limit(20).all()
-
 
 @router.get("/runs/{run_id}", response_model=SuiteRunResponse)
 def get_suite_run(
@@ -369,7 +349,7 @@ def get_suite_run(
     current_user: User = Depends(get_current_user),
 ):
     """获取执行记录详情"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     run = db.query(AutomationSuiteRun).filter(
         AutomationSuiteRun.id == run_id,
         AutomationSuiteRun.project_id == project_id,
@@ -377,7 +357,6 @@ def get_suite_run(
     if not run:
         raise HTTPException(status_code=404, detail="执行记录不存在")
     return run
-
 
 @router.get("/runs/{run_id}/results", response_model=List[SuiteRunResultResponse])
 def get_suite_run_results(
@@ -387,7 +366,7 @@ def get_suite_run_results(
     current_user: User = Depends(get_current_user),
 ):
     """获取单步执行结果列表"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     run = db.query(AutomationSuiteRun).filter(
         AutomationSuiteRun.id == run_id,
         AutomationSuiteRun.project_id == project_id,
@@ -398,10 +377,8 @@ def get_suite_run_results(
         AutomationSuiteRunResult.suite_run_id == run_id
     ).order_by(AutomationSuiteRunResult.sort_order.asc()).all()
 
-
 # ============ 全局执行记录路由 ============
 run_router = APIRouter(prefix="/api/projects/{project_id}/suite-runs", tags=["编排执行记录"])
-
 
 @run_router.get("", response_model=List[SuiteRunResponse])
 def list_all_suite_runs(
@@ -411,7 +388,7 @@ def list_all_suite_runs(
     current_user: User = Depends(get_current_user),
 ):
     """获取项目下所有编排执行记录"""
-    _check_project_access(project_id, db, current_user)
+    get_project(project_id, db, current_user)
     query = db.query(AutomationSuiteRun).filter(AutomationSuiteRun.project_id == project_id)
     if status:
         query = query.filter(AutomationSuiteRun.status == status)
