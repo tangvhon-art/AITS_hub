@@ -1,6 +1,6 @@
 # AITS 智能测试管理平台
 
-基于 LangChain + Agent 的下一代智能测试管理平台，覆盖测试全流程：**需求解析 → 用例生成 → UI 自动化执行 → 缺陷分析 → 报告生成 → 质量看板**。
+基于 LangChain + Agent 的下一代智能测试管理平台，覆盖测试全流程：**需求解析 → 用例生成 → UI 自动化执行 → 接口自动化测试 → 缺陷分析 → 报告生成 → 质量看板**。
 
 ## 功能概览
 
@@ -22,6 +22,14 @@
 | Agent 任务 | 异步任务监控 | 查看任务状态、日志、Token 消耗 |
 | 审计日志 | 操作审计追踪 | 记录关键操作日志 |
 | 数据导入导出 | 批量数据管理 | 导入/导出用例、缺陷等数据 |
+| 智能助手 | AI 对话 + 工具调用 | SSE 流式对话，支持知识库检索、项目数据查询 |
+| 接口管理 | 接口目录 + 接口定义 | 接口模块化管理、CRUD 维护 |
+| 接口调试 | 在线调试 + 历史记录 | 发送请求调试，支持变量/脚本，保存调试历史 |
+| 接口用例 | 用例 CRUD + AI 生成 | 断言管理，多策略 AI 生成（正常/异常/边界/全面） |
+| 接口场景 | 场景编排 + 变量提取 | 6 种步骤类型（API/用例/脚本/等待/条件/循环） |
+| Mock 服务 | Mock 期望 + 数据生成 | 按请求匹配返回 Mock 数据，支持 `{{$function()}}` 语法 |
+| 接口导入 | 多格式导入 | Postman / Swagger / JMeter / HAR / Apifox 五种格式 |
+| 环境变量 | 接口测试环境管理 | 环境级变量配置与引用 |
 
 ## 技术栈
 
@@ -119,8 +127,10 @@ AITS_hub/
 │   │   │   ├── defect_analyzer.py    #   缺陷分析 Agent
 │   │   │   ├── report_generator.py   #   报告生成 Agent（版本聚合）
 │   │   │   ├── notification_agent.py #   通知 Agent
+│   │   │   ├── chat_agent.py         #   智能助手 Agent（SSE 流式对话）
+│   │   │   ├── mcp_tools.py          #   Agent 工具集（项目数据查询等）
 │   │   │   └── supervisor.py         #   Supervisor 多 Agent 编排
-│   │   ├── api/                      # API 路由（18 个模块）
+│   │   ├── api/                      # API 路由（27 个模块）
 │   │   │   ├── auth.py               #   用户认证（注册/登录/JWT）
 │   │   │   ├── projects.py           #   项目管理
 │   │   │   ├── project_versions.py   #   版本管理（CRUD）
@@ -137,11 +147,30 @@ AITS_hub/
 │   │   │   ├── import_export.py      #   数据导入导出
 │   │   │   ├── automation_scripts.py #   自动化脚本库
 │   │   │   ├── automation_suites.py  #   自动化编排套件
-│   │   │   └── llm_configs.py        #   LLM 模型配置
-│   │   ├── models/                   # SQLAlchemy 数据模型（19 张表）
+│   │   │   ├── llm_configs.py        #   LLM 模型配置
+│   │   │   ├── chat.py               #   智能助手（SSE 流式对话）
+│   │   │   ├── api_modules.py        #   接口目录管理
+│   │   │   ├── api_definitions.py    #   接口定义管理
+│   │   │   ├── api_debug.py          #   接口调试 + 历史记录
+│   │   │   ├── api_cases.py          #   接口测试用例 + AI 生成
+│   │   │   ├── api_scenarios.py      #   接口场景编排 + 变量提取
+│   │   │   ├── api_executions.py     #   接口执行记录
+│   │   │   ├── api_mock.py           #   Mock 服务
+│   │   │   ├── api_import.py         #   接口多格式导入
+│   │   │   └── mock_data.py          #   Mock 数据生成
+│   │   ├── models/                   # SQLAlchemy 数据模型（34 张表）
+│   │   │   └── api_test.py           #   接口测试模型（模块/定义/用例/场景/Mock 等 11 张表）
 │   │   ├── schemas/                  # Pydantic 请求/响应模型
 │   │   ├── core/                     # 核心模块（安全/依赖注入/异常处理/审计）
-│   │   ├── services/                 # 业务服务（知识库 RAG）
+│   │   ├── services/                 # 业务服务（知识库 RAG + 接口测试引擎）
+│   │   │   ├── http_client.py        #   HTTP 请求客户端
+│   │   │   ├── variable_engine.py    #   变量引擎（环境/全局变量）
+│   │   │   ├── assertion_engine.py   #   断言引擎
+│   │   │   ├── script_engine.py      #   脚本引擎（前置/后置脚本）
+│   │   │   ├── scenario_executor.py  #   接口场景执行引擎（6 种步骤类型）
+│   │   │   ├── api_case_generator.py #   接口用例 AI 生成器（多策略）
+│   │   │   ├── mock_data_generator.py#   Mock 数据生成器（{{$function()}} 语法）
+│   │   │   └── importers/            #   接口导入解析器（Postman/Swagger/JMeter/HAR/Apifox）
 │   │   ├── config.py                 # Pydantic Settings 配置
 │   │   ├── database.py               # 数据库连接（SQLAlchemy Engine）
 │   │   ├── celery_app.py             # Celery 实例配置
@@ -155,14 +184,18 @@ AITS_hub/
 │   └── Dockerfile
 ├── frontend/                         # 前端应用
 │   ├── src/
-│   │   ├── views/                    # 页面组件（20 个 Vue 页面）
+│   │   ├── views/                    # 页面组件（38 个 Vue 页面）
 │   │   │   ├── Login.vue             #   登录/注册
 │   │   │   ├── Layout.vue            #   主布局（侧边栏 + 多标签页）
+│   │   │   ├── Dashboard.vue         #   智能助手（AI 对话）
 │   │   │   ├── Projects.vue          #   项目管理
 │   │   │   ├── Versions.vue          #   版本管理
 │   │   │   ├── Requirements.vue      #   需求管理
 │   │   │   ├── Cases.vue             #   用例管理
 │   │   │   ├── TestPlans.vue         #   测试计划
+│   │   │   ├── TestPlanEdit.vue      #   测试计划编排（用例/场景混合选择）
+│   │   │   ├── TestPlanRun.vue       #   测试计划执行
+│   │   │   ├── TestPlanReport.vue    #   测试计划报告
 │   │   │   ├── Execution.vue         #   UI 自动化执行
 │   │   │   ├── Scripts.vue           #   自动化脚本库
 │   │   │   ├── AutomationSuites.vue  #   自动化编排
@@ -172,10 +205,20 @@ AITS_hub/
 │   │   │   ├── QualityDashboard.vue  #   质量看板
 │   │   │   ├── Knowledge.vue         #   知识库
 │   │   │   ├── AgentTasks.vue        #   Agent 任务监控
+│   │   │   ├── TaskMonitor.vue       #   Celery 任务监控
 │   │   │   ├── AuditLogs.vue         #   审计日志
 │   │   │   ├── ImportExport.vue      #   数据导入导出
-│   │   │   └── LLMConfig.vue         #   LLM 模型配置
-│   │   ├── api/                      # API 封装（17 个 TypeScript 模块）
+│   │   │   ├── LLMConfig.vue         #   LLM 模型配置
+│   │   │   └── api-test/             #   接口自动化测试页面（14 个）
+│   │   │       ├── ApiTestLayout.vue #     接口测试布局
+│   │   │       ├── ApiDefinitions.vue / ApiDefinitionEdit.vue   #   接口管理
+│   │   │       ├── ApiDebug.vue      #     接口调试
+│   │   │       ├── ApiCases.vue / ApiCaseEdit.vue / AiGenerateCasesModal.vue  #   接口用例 + AI 生成
+│   │   │       ├── ApiScenarios.vue / ApiScenarioEdit.vue       #   场景编排
+│   │   │       ├── ApiExecutions.vue / ApiExecutionDetail.vue   #   执行记录
+│   │   │       ├── ApiMock.vue / MockDataInserter.vue           #   Mock 服务
+│   │   │       └── ApiEnvironments.vue #   环境变量
+│   │   ├── api/                      # API 封装（18 个 TypeScript 模块）
 │   │   ├── stores/user.ts            # Pinia 用户状态
 │   │   ├── router/index.ts           # Vue Router 路由配置
 │   │   ├── utils/date.ts             # 日期工具函数
@@ -204,6 +247,7 @@ AITS_hub/
 - **UI 执行 Agent**：驱动 Playwright 浏览器执行用例步骤，SSE 流式返回实时日志和截图
 - **脚本生成 Agent**：将用例步骤转换为可执行的 Playwright Python 脚本
 - **报告生成 Agent**：按版本聚合测试计划、需求、缺陷数据，调用 LLM 生成分析报告
+- **智能助手 Agent**：SSE 流式对话，支持知识库检索与项目数据查询（工具调用）
 - **Supervisor 编排**：多 Agent 流水线协作（需求解析 → 用例生成 → 评审 → 执行）
 
 ### 版本管理
@@ -212,6 +256,13 @@ AITS_hub/
 - 需求、测试计划、缺陷均可关联版本
 - 测试报告**必须选择版本**后生成，按版本聚合数据
 - 质量看板支持按版本筛选数据查看
+
+### 测试计划
+
+支持计划编排、环境管理与执行调度：
+- 计划节点支持**用例与场景混合编排**（UI 用例 / 接口场景），可批量勾选添加
+- 关联接口测试用例与场景编排，支持手动 / 定时 / 一次性执行
+- 执行结果按节点展示，支持生成计划报告
 
 ### 质量看板
 
@@ -261,7 +312,32 @@ AITS_hub/
 - 执行导航操作保留，方便直接路由到对应页面
 - 执行结果按步骤展示，包含日志、错误信息、耗时
 
+### 接口自动化测试
 
+覆盖接口测试全流程：**接口管理 → 调试 → 用例 → 场景编排 → 执行 → Mock**：
+
+```
+接口定义 → 调试验证 → 用例/场景编排 → 批量执行 → 执行记录
+                ↓
+        Mock 服务 / 环境变量 / 断言引擎
+```
+
+支持功能：
+- **接口管理**：接口目录（模块）与接口定义 CRUD，支持请求参数、请求头、响应体配置
+- **接口调试**：在线发送请求调试，支持变量与脚本，保存调试历史
+- **接口用例**：用例 CRUD + 断言管理，支持 AI 多策略生成（正常 / 异常 / 边界 / 全面）
+- **场景编排**：6 种步骤类型（API / 用例 / 脚本 / 等待 / 条件 / 循环），支持变量提取与传递
+- **执行记录**：批量执行与历史记录，按步骤展示请求、响应、断言结果与耗时
+- **Mock 服务**：按请求匹配返回 Mock 数据，支持 `{{$function()}}` 语法生成随机数据
+- **接口导入**：支持 Postman / Swagger / OpenAPI / JMeter / HAR / Apifox 五种格式导入
+- **环境变量**：环境级变量配置与引用，贯穿调试、用例、场景执行
+
+### 智能助手
+
+AI 驱动的测试管理助手，支持 SSE 流式对话：
+- 知识库检索增强回答（RAG）
+- 工具调用查询项目数据（用例统计、项目统计等）
+- 对话历史上下文保持
 
 ## API 概览
 
