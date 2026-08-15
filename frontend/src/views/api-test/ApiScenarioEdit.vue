@@ -140,26 +140,156 @@
                     </a-col>
                   </a-row>
 
+                  <!-- 等待步骤 -->
                   <a-form-item v-if="step.step_type === 'wait'" label="等待秒数">
                     <a-input-number v-model:value="step.wait_seconds" :min="0" style="width: 100%" size="small" />
                   </a-form-item>
 
+                  <!-- 脚本步骤 -->
                   <a-form-item v-if="step.step_type === 'script'" label="脚本内容">
-                    <a-textarea v-model:value="step.script_content" :rows="5" style="font-family: monospace" />
+                    <div class="script-header">
+                      <span class="script-tip">支持 JavaScript，可使用 <code>variables.get/set</code>、<code>response</code> 等对象</span>
+                      <a-button size="small" @click="handleAiGenerateScript(step, 'script_content')" :loading="step._aiLoading">
+                        <template #icon><RobotOutlined /></template>AI 生成
+                      </a-button>
+                    </div>
+                    <a-textarea v-model:value="step.script_content" :rows="5" style="font-family: monospace" placeholder="// 编写 JavaScript 脚本" />
                   </a-form-item>
 
-                  <a-form-item v-if="step.step_type === 'condition'" label="条件表达式">
-                    <a-textarea v-model:value="step.condition_expr" :rows="3" placeholder="{{var}} == 'value'" />
-                  </a-form-item>
+                  <!-- 条件步骤 - 工作流分支 -->
+                  <template v-if="step.step_type === 'condition'">
+                    <a-form-item label="条件表达式">
+                      <a-textarea v-model:value="step.condition_expr" :rows="2" placeholder="{{var}} == 'value' 或 {{status}} >= 200" />
+                    </a-form-item>
+                    <a-row :gutter="16">
+                      <a-col :span="12">
+                        <a-form-item label="条件成立时执行">
+                          <a-select v-model:value="step.loop_config.true_next" allow-clear placeholder="选择后续步骤（跳过则顺序执行）">
+                            <a-select-option v-for="(s, i) in steps" :key="i" :value="i" :disabled="i <= index">
+                              步骤 {{ i + 1 }}: {{ s.step_name }}
+                            </a-select-option>
+                          </a-select>
+                        </a-form-item>
+                      </a-col>
+                      <a-col :span="12">
+                        <a-form-item label="条件不成立时执行">
+                          <a-select v-model:value="step.loop_config.false_next" allow-clear placeholder="选择后续步骤（跳过则顺序执行）">
+                            <a-select-option v-for="(s, i) in steps" :key="i" :value="i" :disabled="i <= index">
+                              步骤 {{ i + 1 }}: {{ s.step_name }}
+                            </a-select-option>
+                          </a-select>
+                        </a-form-item>
+                      </a-col>
+                    </a-row>
+                    <a-alert type="info" show-icon :banner="false" style="margin-bottom: 8px"
+                      message="条件分支说明"
+                      description="条件成立时跳转到指定步骤，不成立时跳转到另一个步骤。不选择则按顺序执行下一步。" />
+                  </template>
 
-                  <a-tabs v-if="['api', 'case'].includes(step.step_type)" size="small">
-                    <a-tab-pane key="pre" tab="前置脚本">
-                      <a-textarea v-model:value="step.pre_script" :rows="4" style="font-family: monospace" />
-                    </a-tab-pane>
-                    <a-tab-pane key="post" tab="后置脚本">
-                      <a-textarea v-model:value="step.post_script" :rows="4" style="font-family: monospace" />
-                    </a-tab-pane>
-                  </a-tabs>
+                  <!-- 循环步骤 - 遍历参数 -->
+                  <template v-if="step.step_type === 'loop'">
+                    <a-row :gutter="16">
+                      <a-col :span="12">
+                        <a-form-item label="循环变量名">
+                          <a-input v-model:value="step.loop_config.var_name" placeholder="如 page、item" />
+                        </a-form-item>
+                      </a-col>
+                      <a-col :span="12">
+                        <a-form-item label="遍历值列表">
+                          <a-input v-model:value="step.loop_config.values" placeholder="如 1,2,3 或 a,b,c" />
+                        </a-form-item>
+                      </a-col>
+                    </a-row>
+                    <a-form-item label="循环体起始步骤">
+                      <a-select v-model:value="step.loop_config.body_start" allow-clear placeholder="选择循环体内第一个步骤">
+                        <a-select-option v-for="(s, i) in steps" :key="i" :value="i" :disabled="i <= index">
+                          步骤 {{ i + 1 }}: {{ s.step_name }}
+                        </a-select-option>
+                      </a-select>
+                    </a-form-item>
+                    <a-form-item label="循环体结束步骤（执行完回到循环）">
+                      <a-select v-model:value="step.loop_config.body_end" allow-clear placeholder="选择循环体内最后一个步骤">
+                        <a-select-option v-for="(s, i) in steps" :key="i" :value="i" :disabled="i <= index">
+                          步骤 {{ i + 1 }}: {{ s.step_name }}
+                        </a-select-option>
+                      </a-select>
+                    </a-form-item>
+                    <a-alert type="info" show-icon style="margin-bottom: 8px"
+                      message="循环说明"
+                      description="遍历值列表中的每个值，依次执行循环体步骤。循环变量可通过 {{变量名}} 引用。" />
+                  </template>
+
+                  <!-- API/用例步骤：脚本 + 响应提取 -->
+                  <template v-if="['api', 'case'].includes(step.step_type)">
+                    <a-tabs size="small">
+                      <a-tab-pane key="pre" tab="前置脚本">
+                        <div class="script-header">
+                          <span class="script-tip">支持 JavaScript，<code>variables.set('key','val')</code> 设置变量</span>
+                          <a-button size="small" @click="handleAiGenerateScript(step, 'pre_script')" :loading="step._aiLoading">
+                            <template #icon><RobotOutlined /></template>AI 生成
+                          </a-button>
+                        </div>
+                        <a-textarea v-model:value="step.pre_script" :rows="4" style="font-family: monospace" placeholder="// 请求前执行" />
+                      </a-tab-pane>
+                      <a-tab-pane key="post" tab="后置脚本">
+                        <div class="script-header">
+                          <span class="script-tip">支持 JavaScript，<code>response</code> 访问响应，<code>tests.assert()</code> 断言</span>
+                          <a-button size="small" @click="handleAiGenerateScript(step, 'post_script')" :loading="step._aiLoading">
+                            <template #icon><RobotOutlined /></template>AI 生成
+                          </a-button>
+                        </div>
+                        <a-textarea v-model:value="step.post_script" :rows="4" style="font-family: monospace" placeholder="// 响应后执行" />
+                      </a-tab-pane>
+                      <a-tab-pane key="extract" tab="响应变量提取">
+                        <div class="extract-header">
+                          <span class="extract-tip">从响应中提取变量，后续步骤可通过 <code>${变量名}</code> 引用</span>
+                          <a-button type="dashed" size="small" @click="addExtractVar(step)">+ 添加提取</a-button>
+                        </div>
+                        <a-table
+                          :data-source="step._extract_vars || []"
+                          :columns="extractColumns"
+                          :row-key="(_r: any, i: number) => i"
+                          size="small"
+                          pagination="false"
+                        >
+                          <template #bodyCell="{ column, record, idx }">
+                            <template v-if="column.key === 'var_name'">
+                              <a-input v-model:value="record.var_name" size="small" placeholder="变量名，如 user_id" />
+                            </template>
+                            <template v-else-if="column.key === 'extract_type'">
+                              <a-select v-model:value="record.extract_type" size="small" placeholder="类型">
+                                <a-select-option value="jsonpath">JSONPath</a-select-option>
+                                <a-select-option value="regex">正则</a-select-option>
+                                <a-select-option value="header">响应头</a-select-option>
+                                <a-select-option value="cookie">Cookie</a-select-option>
+                              </a-select>
+                            </template>
+                            <template v-else-if="column.key === 'extract_expr'">
+                              <a-input v-model:value="record.extract_expr" size="small" :placeholder="getExtractPlaceholder(record.extract_type)" />
+                            </template>
+                            <template v-else-if="column.key === 'default_value'">
+                              <a-input v-model:value="record.default_value" size="small" placeholder="默认值（可选）" />
+                            </template>
+                            <template v-else-if="column.key === 'scope'">
+                              <a-select v-model:value="record.scope" size="small" placeholder="范围">
+                                <a-select-option value="scenario">场景</a-select-option>
+                                <a-select-option value="global">全局</a-select-option>
+                              </a-select>
+                            </template>
+                            <template v-else-if="column.key === 'action'">
+                              <a-button type="link" danger size="small" @click="step._extract_vars.splice(idx, 1)">删除</a-button>
+                            </template>
+                          </template>
+                        </a-table>
+                        <div v-if="step._extract_vars && step._extract_vars.length > 0" class="extract-preview">
+                          <span class="preview-label">可引用变量：</span>
+                          <a-tag v-for="v in step._extract_vars.filter((x:any)=>x.var_name)" :key="v.var_name" color="blue">
+                            ${{ '{' }}{{ v.var_name }}{{ '}' }}
+                          </a-tag>
+                        </div>
+                      </a-tab-pane>
+                    </a-tabs>
+                  </template>
                 </a-form>
               </div>
             </div>
@@ -176,9 +306,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
   ArrowLeftOutlined, PlayCircleOutlined, ArrowUpOutlined,
-  ArrowDownOutlined, DeleteOutlined
+  ArrowDownOutlined, DeleteOutlined, RobotOutlined
 } from '@ant-design/icons-vue'
-import { apiScenariosApi, apiDefinitionsApi, apiCasesApi, type ApiScenarioStep } from '@/api/apiTest'
+import { apiScenariosApi, apiDefinitionsApi, apiCasesApi, environmentsApi, chatApi, type ApiScenarioStep } from '@/api/apiTest'
 
 const route = useRoute()
 const router = useRouter()
@@ -203,10 +333,19 @@ const form = ref<any>({
   post_script: '',
 })
 
-const steps = ref<ApiScenarioStep[]>([])
+const steps = ref<any[]>([])
 const expandedSteps = ref(new Set<number>())
 
 const allCollapsed = computed(() => expandedSteps.value.size === 0)
+
+const extractColumns = [
+  { title: '变量名', dataIndex: 'var_name', key: 'var_name', width: 120 },
+  { title: '提取类型', dataIndex: 'extract_type', key: 'extract_type', width: 100 },
+  { title: '提取表达式', dataIndex: 'extract_expr', key: 'extract_expr' },
+  { title: '默认值', dataIndex: 'default_value', key: 'default_value', width: 100 },
+  { title: '范围', dataIndex: 'scope', key: 'scope', width: 80 },
+  { title: '操作', key: 'action', width: 60 },
+]
 
 function toggleStep(index: number) {
   const s = new Set(expandedSteps.value)
@@ -259,79 +398,103 @@ const getStepTypeName = (type: string) => {
   return names[type] || type
 }
 
+const getExtractPlaceholder = (type: string) => {
+  const map: Record<string, string> = {
+    jsonpath: '$.data.id',
+    regex: '"id":(\\d+)',
+    header: 'X-Token',
+    cookie: 'session_id',
+  }
+  return map[type] || '提取表达式'
+}
+
+const createStep = (type: string, extra: any = {}) => ({
+  id: 0,
+  scenario_id: 0,
+  step_type: type,
+  step_name: getStepTypeName(type) + '步骤',
+  sort_order: 0,
+  enabled: true,
+  api_id: null,
+  case_id: null,
+  request_config: {},
+  script_content: '',
+  wait_seconds: 1,
+  condition_expr: '',
+  loop_config: {},
+  pre_script: '',
+  post_script: '',
+  continue_on_failure: false,
+  max_retries: 0,
+  _extract_vars: [],
+  _aiLoading: false,
+  ...extra,
+})
+
 const addApiStep = (api: any) => {
-  steps.value.push({
-    id: 0,
-    scenario_id: 0,
-    step_type: 'api',
+  steps.value.push(createStep('api', {
     step_name: api.name,
-    sort_order: steps.value.length,
-    enabled: true,
     api_id: api.id,
-    case_id: null,
     request_config: { method: api.method, path: api.path },
-    script_content: '',
-    wait_seconds: 0,
-    condition_expr: '',
-    loop_config: {},
-    pre_script: '',
-    post_script: '',
-    continue_on_failure: false,
-    max_retries: 0,
-  })
+  }))
   const newIdx = steps.value.length - 1
   selectedStepIndex.value = newIdx
   expandedSteps.value = new Set([...expandedSteps.value, newIdx])
 }
 
 const addCaseStep = (caseItem: any) => {
-  steps.value.push({
-    id: 0,
-    scenario_id: 0,
-    step_type: 'case',
+  steps.value.push(createStep('case', {
     step_name: caseItem.name,
-    sort_order: steps.value.length,
-    enabled: true,
-    api_id: null,
     case_id: caseItem.id,
-    request_config: {},
-    script_content: '',
-    wait_seconds: 0,
-    condition_expr: '',
-    loop_config: {},
-    pre_script: '',
-    post_script: '',
-    continue_on_failure: false,
-    max_retries: 0,
-  })
+  }))
   const newIdx = steps.value.length - 1
   selectedStepIndex.value = newIdx
   expandedSteps.value = new Set([...expandedSteps.value, newIdx])
 }
 
 const addStep = (type: string) => {
-  steps.value.push({
-    id: 0,
-    scenario_id: 0,
-    step_type: type,
-    step_name: getStepTypeName(type) + '步骤',
-    sort_order: steps.value.length,
-    enabled: true,
-    api_id: null,
-    case_id: null,
-    request_config: {},
-    script_content: '',
-    wait_seconds: 1,
-    condition_expr: '',
-    loop_config: {},
-    pre_script: '',
-    post_script: '',
-    continue_on_failure: false,
-    max_retries: 0,
-  })
+  steps.value.push(createStep(type))
   const newIdx = steps.value.length - 1
   selectedStepIndex.value = newIdx
   expandedSteps.value = new Set([...expandedSteps.value, newIdx])
+}
+
+const addExtractVar = (step: any) => {
+  if (!step._extract_vars) step._extract_vars = []
+  step._extract_vars.push({
+    var_name: '',
+    extract_type: 'jsonpath',
+    extract_expr: '',
+    default_value: '',
+    scope: 'scenario',
+  })
+}
+
+const handleAiGenerateScript = async (step: any, field: string) => {
+  step._aiLoading = true
+  try {
+    const fieldName = field === 'pre_script' ? '前置脚本' : field === 'post_script' ? '后置脚本' : '脚本'
+    const prompt = `请为接口测试场景步骤生成${fieldName}（JavaScript）：
+
+步骤名称：${step.step_name}
+步骤类型：${getStepTypeName(step.step_type)}
+${step.api_id ? '接口ID：' + step.api_id : ''}
+${step.case_id ? '用例ID：' + step.case_id : ''}
+
+要求：
+1. 代码简洁，有中文注释
+2. 可使用 variables.set('key', 'value') 设置变量，variables.get('key') 获取变量
+3. 后置脚本可使用 response.statusCode、response.body、response.headers 访问响应
+4. 可使用 tests.assert('名称', 条件) 添加测试断言
+5. 只输出代码，不要解释`
+    const res = await chatApi.send({ message: prompt, project_id: projectId })
+    step[field] = res.content || res.message || ''
+    message.success('脚本生成成功')
+  } catch (e: any) {
+    message.error('脚本生成失败：' + (e.message || '未知错误'))
+  } finally {
+    step._aiLoading = false
+  }
 }
 
 const moveStep = (index: number, direction: number) => {
@@ -354,19 +517,42 @@ const removeStep = (index: number) => {
 
 const loadData = async () => {
   try {
-    const [apis, cases] = await Promise.all([
+    const [apis, cases, envs] = await Promise.all([
       apiDefinitionsApi.list(projectId, { page_size: 100 }),
       apiCasesApi.list(projectId, { page_size: 100 }),
+      environmentsApi.list(projectId),
     ])
     apiList.value = apis.items
     caseList.value = cases.items
+    environments.value = envs
   } catch {}
 
   if (isEdit.value) {
     try {
       const data = await apiScenariosApi.get(projectId, Number(scenarioId))
       Object.assign(form.value, data)
-      steps.value = await apiScenariosApi.listSteps(projectId, Number(scenarioId))
+      const stepList = await apiScenariosApi.listSteps(projectId, Number(scenarioId))
+      steps.value = stepList.map((s: any) => ({
+        ...createStep(s.step_type, s),
+        loop_config: s.loop_config || {},
+        _extract_vars: [],
+      }))
+      // 加载所有步骤的提取变量，按 step_id 分组
+      if (steps.value.length > 0) {
+        try {
+          const allVars = await apiScenariosApi.listVariables(projectId, Number(scenarioId))
+          const varsByStep: Record<number, any[]> = {}
+          for (const v of allVars) {
+            if (!varsByStep[v.step_id]) varsByStep[v.step_id] = []
+            varsByStep[v.step_id].push(v)
+          }
+          for (let i = 0; i < steps.value.length; i++) {
+            if (steps.value[i].id && steps.value[i].id > 0) {
+              steps.value[i]._extract_vars = varsByStep[steps.value[i].id] || []
+            }
+          }
+        } catch {}
+      }
     } catch {}
   }
 }
@@ -384,10 +570,23 @@ const handleSave = async () => {
     for (let i = 0; i < steps.value.length; i++) {
       const step = steps.value[i]
       step.sort_order = i
+      // 移除内部字段
+      const { _extract_vars, _aiLoading, ...stepData } = step
       if (step.id && step.id > 0) {
-        await apiScenariosApi.updateStep(projectId, step.id, step)
+        await apiScenariosApi.updateStep(projectId, step.id, stepData)
       } else {
-        await apiScenariosApi.createStep(projectId, savedScenario.id, step)
+        const savedStep = await apiScenariosApi.createStep(projectId, savedScenario.id, stepData)
+        step.id = savedStep.id
+      }
+      // 保存提取变量
+      if (_extract_vars && _extract_vars.length > 0) {
+        for (const v of _extract_vars) {
+          if (v.var_name) {
+            try {
+              await apiScenariosApi.createVariable(projectId, savedScenario.id, step.id, v)
+            } catch {}
+          }
+        }
       }
     }
     message.success('保存成功')
@@ -496,5 +695,48 @@ onMounted(() => loadData())
   border-top: 1px solid #f0f0f0;
   padding: 12px 0 4px;
   margin-top: 8px;
+}
+.script-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.script-tip {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+.script-tip code {
+  background: #f5f5f5;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.extract-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.extract-tip {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+.extract-tip code {
+  background: #f5f5f5;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.extract-preview {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.preview-label {
+  font-size: 12px;
+  color: #8c8c8c;
 }
 </style>

@@ -6,6 +6,10 @@
         返回
       </a-button>
       <h2>{{ isEdit ? '编辑接口' : '新建接口' }}</h2>
+      <a-button @click="showAiDocModal = true">
+        <template #icon><RobotOutlined /></template>
+        AI 生成文档
+      </a-button>
     </div>
 
     <a-form :model="form" layout="vertical" ref="formRef">
@@ -13,7 +17,7 @@
         <a-row :gutter="16">
           <a-col :span="6">
             <a-form-item label="请求方法">
-              <a-select v-model:value="form.method">
+              <a-select v-model:value="form.method" placeholder="选择方法">
                 <a-select-option value="GET">GET</a-select-option>
                 <a-select-option value="POST">POST</a-select-option>
                 <a-select-option value="PUT">PUT</a-select-option>
@@ -54,10 +58,19 @@
       <a-card title="请求参数" style="margin-top: 16px">
         <a-tabs v-model:activeKey="activeTab">
           <a-tab-pane key="headers" tab="Headers">
-            <a-table :data-source="form.headers" :columns="paramColumns" row-key="key" size="small" pagination="false">
+            <a-table :data-source="form.headers" :columns="paramColumns" :row-key="(_r: any, index: number) => index" size="small" pagination="false">
               <template #bodyCell="{ column, record, index }">
                 <template v-if="column.key === 'enabled'">
                   <a-checkbox v-model:checked="record.enabled" />
+                </template>
+                <template v-else-if="column.key === 'key'">
+                  <a-input v-model:value="record.key" placeholder="Header名" size="small" />
+                </template>
+                <template v-else-if="column.key === 'value'">
+                  <a-input v-model:value="record.value" placeholder="Header值" size="small" />
+                </template>
+                <template v-else-if="column.key === 'description'">
+                  <a-input v-model:value="record.description" placeholder="描述" size="small" />
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <a-button type="link" danger size="small" @click="removeParam('headers', index)">删除</a-button>
@@ -67,10 +80,19 @@
             <a-button type="dashed" block style="margin-top: 8px" @click="addParam('headers')">+ 添加 Header</a-button>
           </a-tab-pane>
           <a-tab-pane key="query" tab="Query Params">
-            <a-table :data-source="form.query_params" :columns="paramColumns" row-key="key" size="small" pagination="false">
+            <a-table :data-source="form.query_params" :columns="paramColumns" :row-key="(_r: any, index: number) => index" size="small" pagination="false">
               <template #bodyCell="{ column, record, index }">
                 <template v-if="column.key === 'enabled'">
                   <a-checkbox v-model:checked="record.enabled" />
+                </template>
+                <template v-else-if="column.key === 'key'">
+                  <a-input v-model:value="record.key" placeholder="参数名" size="small" />
+                </template>
+                <template v-else-if="column.key === 'value'">
+                  <a-input v-model:value="record.value" placeholder="参数值" size="small" />
+                </template>
+                <template v-else-if="column.key === 'description'">
+                  <a-input v-model:value="record.description" placeholder="描述" size="small" />
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <a-button type="link" danger size="small" @click="removeParam('query_params', index)">删除</a-button>
@@ -98,7 +120,7 @@
               v-else-if="form.body_type === 'form-data' || form.body_type === 'x-www-form-urlencoded'"
               :data-source="bodyParams"
               :columns="paramColumns"
-              row-key="key"
+              :row-key="(_r: any, index: number) => index"
               size="small"
               pagination="false"
             >
@@ -106,12 +128,21 @@
                 <template v-if="column.key === 'enabled'">
                   <a-checkbox v-model:checked="record.enabled" />
                 </template>
+                <template v-else-if="column.key === 'key'">
+                  <a-input v-model:value="record.key" placeholder="参数名" size="small" />
+                </template>
+                <template v-else-if="column.key === 'value'">
+                  <a-input v-model:value="record.value" placeholder="参数值" size="small" />
+                </template>
+                <template v-else-if="column.key === 'description'">
+                  <a-input v-model:value="record.description" placeholder="描述" size="small" />
+                </template>
                 <template v-else-if="column.key === 'action'">
-                  <a-button type="link" danger size="small" @click="bodyParams.splice(index, 1)">删除</a-button>
+                  <a-button type="link" danger size="small" @click="removeBodyParam(index)">删除</a-button>
                 </template>
               </template>
             </a-table>
-            <a-button v-if="form.body_type !== 'none'" type="dashed" block style="margin-top: 8px" @click="bodyParams.push({ key: '', value: '', enabled: true })">+ 添加字段</a-button>
+            <a-button v-if="form.body_type !== 'none'" type="dashed" block style="margin-top: 8px" @click="addBodyParam">+ 添加字段</a-button>
           </a-tab-pane>
         </a-tabs>
       </a-card>
@@ -121,6 +152,40 @@
         <a-button type="primary" :loading="saving" @click="handleSave">保存</a-button>
       </div>
     </a-form>
+
+    <!-- AI 生成接口文档弹窗 -->
+    <a-modal
+      v-model:open="showAiDocModal"
+      title="AI 生成接口文档"
+      width="700px"
+      :footer="null"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="选择模型">
+          <a-select v-model:value="aiDocConfig.llm_config_id" placeholder="使用默认模型" allow-clear>
+            <a-select-option v-for="cfg in llmConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="接口描述（AI 生成）">
+          <a-textarea
+            v-model:value="aiDocResult"
+            :rows="10"
+            placeholder="点击下方按钮生成接口文档..."
+            style="font-family: monospace"
+          />
+        </a-form-item>
+      </a-form>
+      <div style="display: flex; justify-content: space-between">
+        <a-button :loading="aiGenerating" @click="handleAiGenerateDoc">
+          <template #icon><RobotOutlined /></template>
+          生成文档
+        </a-button>
+        <div>
+          <a-button @click="showAiDocModal = false">取消</a-button>
+          <a-button type="primary" style="margin-left: 8px" @click="handleApplyAiDoc">应用到接口</a-button>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -128,8 +193,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { ArrowLeftOutlined } from '@ant-design/icons-vue'
-import { apiDefinitionsApi, apiModulesApi } from '@/api/apiTest'
+import { ArrowLeftOutlined, RobotOutlined } from '@ant-design/icons-vue'
+import { apiDefinitionsApi, apiModulesApi, llmConfigsApi, chatApi } from '@/api/apiTest'
 
 const route = useRoute()
 const router = useRouter()
@@ -141,6 +206,11 @@ const formRef = ref()
 const saving = ref(false)
 const activeTab = ref('headers')
 const moduleTree = ref<any[]>([])
+const showAiDocModal = ref(false)
+const aiGenerating = ref(false)
+const llmConfigs = ref<any[]>([])
+const aiDocResult = ref('')
+const aiDocConfig = ref({ llm_config_id: null as number | null })
 
 const form = ref<any>({
   name: '',
@@ -184,11 +254,74 @@ const removeParam = (type: string, index: number) => {
   form.value[type].splice(index, 1)
 }
 
+const addBodyParam = () => {
+  if (!Array.isArray(form.value.body_content)) {
+    form.value.body_content = []
+  }
+  form.value.body_content.push({ key: '', value: '', description: '', enabled: true })
+}
+
+const removeBodyParam = (index: number) => {
+  if (Array.isArray(form.value.body_content)) {
+    form.value.body_content.splice(index, 1)
+  }
+}
+
 const loadModules = async () => {
   try {
     const modules = await apiModulesApi.getTree(projectId)
     moduleTree.value = modules.map((m: any) => ({ title: m.name, value: m.id, children: m.children }))
   } catch {}
+}
+
+const loadLlmConfigs = async () => {
+  try {
+    llmConfigs.value = await llmConfigsApi.list()
+  } catch {}
+}
+
+const handleAiGenerateDoc = async () => {
+  aiGenerating.value = true
+  try {
+    const prompt = `请为以下接口生成清晰完整的接口文档：
+
+接口名称：${form.value.name || '（未填写）'}
+请求方法：${form.value.method}
+接口路径：${form.value.path}
+接口描述：${form.value.description || '（未填写）'}
+
+请生成包含以下内容的接口文档：
+1. 接口概述（功能说明）
+2. 请求参数说明（Headers、Query、Body 各字段的含义和示例）
+3. 响应参数说明（可能的返回字段）
+4. 错误码说明
+5. 调用示例
+
+请用 Markdown 格式输出，内容要清晰、专业、便于开发人员参考。`
+    const res = await chatApi.send({
+      message: prompt,
+      project_id: projectId,
+      llm_config_id: aiDocConfig.value.llm_config_id || undefined,
+    })
+    aiDocResult.value = res.content || res.message || JSON.stringify(res, null, 2)
+    message.success('文档生成成功')
+  } catch (e: any) {
+    message.error('文档生成失败：' + (e.message || '未知错误'))
+  } finally {
+    aiGenerating.value = false
+  }
+}
+
+const handleApplyAiDoc = () => {
+  if (!aiDocResult.value) {
+    message.warning('请先生成文档')
+    return
+  }
+  // 将生成的文档追加到接口描述中
+  const existingDesc = form.value.description ? form.value.description + '\n\n' : ''
+  form.value.description = existingDesc + '--- AI 生成文档 ---\n' + aiDocResult.value
+  message.success('已应用到接口描述')
+  showAiDocModal.value = false
 }
 
 const loadData = async () => {
@@ -216,6 +349,7 @@ const handleSave = async () => {
 onMounted(() => {
   loadModules()
   loadData()
+  loadLlmConfigs()
   // 新建时从 query 参数读取默认分组
   if (!isEdit.value && route.query.module_id) {
     form.value.module_id = Number(route.query.module_id)

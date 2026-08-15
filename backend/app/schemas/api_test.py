@@ -547,6 +547,8 @@ class ApiImportPreviewResponse(BaseModel):
 class ApiCaseRunRequest(BaseModel):
     environment_id: Optional[int] = None
     variables: Optional[Dict[str, Any]] = {}
+    environment_vars: Optional[Dict[str, Any]] = {}
+    base_url: Optional[str] = ""
 
 
 class ApiCaseBatchRunRequest(BaseModel):

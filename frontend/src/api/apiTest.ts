@@ -270,6 +270,12 @@ export const apiScenariosApi = {
   // 变量
   listVariables: (projectId: number, scenarioId: number) =>
     request.get<any[]>(`/projects/${projectId}/api-scenarios/${scenarioId}/variables`),
+  createVariable: (projectId: number, scenarioId: number, stepId: number, data: any) =>
+    request.post<any>(`/projects/${projectId}/api-scenarios/${scenarioId}/steps/${stepId}/variables`, data),
+  updateVariable: (projectId: number, variableId: number, data: any) =>
+    request.put<any>(`/projects/${projectId}/api-scenarios/variables/${variableId}`, data),
+  deleteVariable: (projectId: number, variableId: number) =>
+    request.delete(`/projects/${projectId}/api-scenarios/variables/${variableId}`),
   // 执行
   run: (projectId: number, id: number, data: any) =>
     request.post<any>(`/projects/${projectId}/api-scenarios/${id}/run`, data),
@@ -311,4 +317,28 @@ export const apiImportApi = {
     request.post<any>(`/projects/${projectId}/api-import`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+}
+
+// ==================== 模型配置 ====================
+export const llmConfigsApi = {
+  list: () =>
+    request.get<any[]>('/llm-configs'),
+}
+
+// ==================== 测试环境 ====================
+export const environmentsApi = {
+  list: (projectId: number) =>
+    request.get<any[]>(`/projects/${projectId}/environments`),
+  create: (projectId: number, data: any) =>
+    request.post<any>(`/projects/${projectId}/environments`, data),
+  update: (projectId: number, id: number, data: any) =>
+    request.put<any>(`/projects/${projectId}/environments/${id}`, data),
+  delete: (projectId: number, id: number) =>
+    request.delete(`/projects/${projectId}/environments/${id}`),
+}
+
+// ==================== AI 对话（用于生成文档/脚本） ====================
+export const chatApi = {
+  send: (data: { message: string; project_id?: number; llm_config_id?: number; stream?: boolean }) =>
+    request.post<any>('/chat', { ...data, stream: false }),
 }

@@ -22,6 +22,8 @@ from app.schemas.api_test import (
     ApiScenarioCreate, ApiScenarioUpdate, ApiScenarioResponse,
     ApiScenarioStepCreate, ApiScenarioStepUpdate, ApiScenarioStepResponse,
     ApiScenarioVariableResponse,
+    ApiScenarioVariableCreate,
+    ApiScenarioVariableUpdate,
     ApiScenarioRunRequest,
     PaginatedResponse,
 )
@@ -381,6 +383,79 @@ def list_scenario_variables(
         ApiScenarioVariable.step_id.in_(step_ids)
     ).all() if step_ids else []
     return variables
+
+
+@router.post("/{scenario_id}/steps/{step_id}/variables", response_model=ApiScenarioVariableResponse)
+def create_scenario_variable(
+    project_id: int,
+    scenario_id: int,
+    step_id: int,
+    data: ApiScenarioVariableCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """创建变量提取配置"""
+    _check_project_access(project_id, db, current_user)
+    step = db.query(ApiScenarioStep).filter(
+        ApiScenarioStep.id == step_id,
+        ApiScenarioStep.scenario_id == scenario_id,
+    ).first()
+    if not step:
+        raise HTTPException(status_code=404, detail="步骤不存在")
+
+    var = ApiScenarioVariable(
+        step_id=step_id,
+        var_name=data.var_name,
+        extract_type=data.extract_type,
+        extract_expr=data.extract_expr,
+        default_value=data.default_value,
+        scope=data.scope,
+    )
+    db.add(var)
+    db.commit()
+    db.refresh(var)
+    return var
+
+
+@router.put("/variables/{variable_id}", response_model=ApiScenarioVariableResponse)
+def update_scenario_variable(
+    project_id: int,
+    variable_id: int,
+    data: ApiScenarioVariableUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新变量提取配置"""
+    _check_project_access(project_id, db, current_user)
+    var = db.query(ApiScenarioVariable).filter(
+        ApiScenarioVariable.id == variable_id
+    ).first()
+    if not var:
+        raise HTTPException(status_code=404, detail="变量不存在")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(var, field, value)
+    db.commit()
+    db.refresh(var)
+    return var
+
+
+@router.delete("/variables/{variable_id}")
+def delete_scenario_variable(
+    project_id: int,
+    variable_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除变量提取配置"""
+    _check_project_access(project_id, db, current_user)
+    var = db.query(ApiScenarioVariable).filter(
+        ApiScenarioVariable.id == variable_id
+    ).first()
+    if not var:
+        raise HTTPException(status_code=404, detail="变量不存在")
+    var.is_deleted = True
+    db.commit()
+    return {"detail": "删除成功"}
 
 
 # ==================== 场景执行 ====================

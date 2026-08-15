@@ -13,12 +13,12 @@
         <a-row :gutter="16">
           <a-col :span="8">
             <a-form-item label="用例名称">
-              <a-input v-model:value="form.name" />
+              <a-input v-model:value="form.name" placeholder="请输入用例名称" />
             </a-form-item>
           </a-col>
           <a-col :span="4">
             <a-form-item label="优先级">
-              <a-select v-model:value="form.priority">
+              <a-select v-model:value="form.priority" placeholder="选择优先级">
                 <a-select-option value="P0">P0</a-select-option>
                 <a-select-option value="P1">P1</a-select-option>
                 <a-select-option value="P2">P2</a-select-option>
@@ -28,17 +28,18 @@
           </a-col>
           <a-col :span="6">
             <a-form-item label="请求方法">
-              <a-select v-model:value="form.method">
+              <a-select v-model:value="form.method" placeholder="选择方法" :disabled="!!form.api_id">
                 <a-select-option value="GET">GET</a-select-option>
                 <a-select-option value="POST">POST</a-select-option>
                 <a-select-option value="PUT">PUT</a-select-option>
                 <a-select-option value="DELETE">DELETE</a-select-option>
+                <a-select-option value="PATCH">PATCH</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
           <a-col :span="6">
             <a-form-item label="关联接口">
-              <a-select v-model:value="form.api_id" show-search placeholder="选择接口" allow-clear>
+              <a-select v-model:value="form.api_id" show-search placeholder="选择接口" allow-clear @change="handleApiChange">
                 <a-select-option v-for="api in apiList" :key="api.id" :value="api.id">
                   [{{ api.method }}] {{ api.name }}
                 </a-select-option>
@@ -47,20 +48,26 @@
           </a-col>
         </a-row>
         <a-form-item label="请求路径">
-          <a-input v-model:value="form.path" placeholder="/api/users/{{id}}" />
+          <a-input v-model:value="form.path" placeholder="/api/users/{{id}}" :disabled="!!form.api_id" />
         </a-form-item>
         <a-form-item label="用例描述">
-          <a-textarea v-model:value="form.description" :rows="2" />
+          <a-textarea v-model:value="form.description" :rows="2" placeholder="请输入用例描述" />
         </a-form-item>
       </a-card>
 
       <a-card title="请求配置" style="margin-top: 16px">
         <a-tabs v-model:activeKey="activeTab">
           <a-tab-pane key="headers" tab="Headers">
-            <a-table :data-source="form.headers" :columns="paramColumns" row-key="key" size="small" pagination="false">
+            <a-table :data-source="form.headers" :columns="paramColumns" :row-key="(_r: any, index: number) => index" size="small" pagination="false">
               <template #bodyCell="{ column, record, index }">
                 <template v-if="column.key === 'enabled'">
                   <a-checkbox v-model:checked="record.enabled" />
+                </template>
+                <template v-else-if="column.key === 'key'">
+                  <a-input v-model:value="record.key" placeholder="Header名" size="small" />
+                </template>
+                <template v-else-if="column.key === 'value'">
+                  <a-input v-model:value="record.value" placeholder="Header值" size="small" />
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <a-button type="link" danger size="small" @click="form.headers.splice(index, 1)">删除</a-button>
@@ -70,10 +77,16 @@
             <a-button type="dashed" block style="margin-top: 8px" @click="form.headers.push({ key: '', value: '', enabled: true })">+ 添加</a-button>
           </a-tab-pane>
           <a-tab-pane key="params" tab="Query">
-            <a-table :data-source="form.query_params" :columns="paramColumns" row-key="key" size="small" pagination="false">
+            <a-table :data-source="form.query_params" :columns="paramColumns" :row-key="(_r: any, index: number) => index" size="small" pagination="false">
               <template #bodyCell="{ column, record, index }">
                 <template v-if="column.key === 'enabled'">
                   <a-checkbox v-model:checked="record.enabled" />
+                </template>
+                <template v-else-if="column.key === 'key'">
+                  <a-input v-model:value="record.key" placeholder="参数名" size="small" />
+                </template>
+                <template v-else-if="column.key === 'value'">
+                  <a-input v-model:value="record.value" placeholder="参数值" size="small" />
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <a-button type="link" danger size="small" @click="form.query_params.splice(index, 1)">删除</a-button>
@@ -87,26 +100,58 @@
               <a-radio value="none">none</a-radio>
               <a-radio value="json">JSON</a-radio>
               <a-radio value="form-data">form-data</a-radio>
+              <a-radio value="x-www-form-urlencoded">x-www-form-urlencoded</a-radio>
               <a-radio value="raw">raw</a-radio>
             </a-radio-group>
             <a-textarea
-              v-if="form.body_type !== 'none'"
+              v-if="form.body_type === 'json' || form.body_type === 'raw'"
               v-model:value="bodyContent"
               :rows="6"
+              placeholder='{"key": "value"}'
               style="font-family: monospace"
             />
+            <a-table
+              v-if="form.body_type === 'form-data' || form.body_type === 'x-www-form-urlencoded'"
+              :data-source="bodyParams"
+              :columns="paramColumns"
+              :row-key="(_r: any, index: number) => index"
+              size="small"
+              pagination="false"
+            >
+              <template #bodyCell="{ column, record, index }">
+                <template v-if="column.key === 'enabled'">
+                  <a-checkbox v-model:checked="record.enabled" />
+                </template>
+                <template v-else-if="column.key === 'key'">
+                  <a-input v-model:value="record.key" placeholder="参数名" size="small" />
+                </template>
+                <template v-else-if="column.key === 'value'">
+                  <a-input v-model:value="record.value" placeholder="参数值" size="small" />
+                </template>
+                <template v-else-if="column.key === 'action'">
+                  <a-button type="link" danger size="small" @click="bodyParams.splice(index, 1)">删除</a-button>
+                </template>
+              </template>
+            </a-table>
+            <a-button
+              v-if="form.body_type === 'form-data' || form.body_type === 'x-www-form-urlencoded'"
+              type="dashed"
+              block
+              style="margin-top: 8px"
+              @click="bodyParams.push({ key: '', value: '', enabled: true })"
+            >+ 添加字段</a-button>
           </a-tab-pane>
         </a-tabs>
       </a-card>
 
       <a-card title="断言配置" style="margin-top: 16px">
-        <a-table :data-source="assertions" :columns="assertionColumns" row-key="id" size="small" pagination="false">
+        <a-table :data-source="assertions" :columns="assertionColumns" :row-key="(_r: any, index: number) => index" size="small" pagination="false">
           <template #bodyCell="{ column, record, index }">
             <template v-if="column.key === 'enabled'">
               <a-checkbox v-model:checked="record.enabled" />
             </template>
             <template v-else-if="column.key === 'assert_type'">
-              <a-select v-model:value="record.assert_type" size="small">
+              <a-select v-model:value="record.assert_type" size="small" placeholder="选择类型">
                 <a-select-option value="status_code">状态码</a-select-option>
                 <a-select-option value="response_time">响应时间</a-select-option>
                 <a-select-option value="header">响应头</a-select-option>
@@ -117,8 +162,11 @@
                 <a-select-option value="script">脚本</a-select-option>
               </a-select>
             </template>
+            <template v-else-if="column.key === 'assert_target'">
+              <a-input v-model:value="record.assert_target" size="small" :placeholder="getTargetPlaceholder(record.assert_type)" />
+            </template>
             <template v-else-if="column.key === 'operator'">
-              <a-select v-model:value="record.operator" size="small">
+              <a-select v-model:value="record.operator" size="small" placeholder="选择操作符">
                 <a-select-option value="equals">等于</a-select-option>
                 <a-select-option value="not_equals">不等于</a-select-option>
                 <a-select-option value="contains">包含</a-select-option>
@@ -127,6 +175,9 @@
                 <a-select-option value="greater_than">大于</a-select-option>
                 <a-select-option value="matches">匹配</a-select-option>
               </a-select>
+            </template>
+            <template v-else-if="column.key === 'expected_value'">
+              <a-input v-model:value="record.expected_value" size="small" :placeholder="getExpectedPlaceholder(record.assert_type)" />
             </template>
             <template v-else-if="column.key === 'action'">
               <a-button type="link" danger size="small" @click="assertions.splice(index, 1)">删除</a-button>
@@ -139,10 +190,24 @@
       <a-card title="脚本" style="margin-top: 16px">
         <a-tabs>
           <a-tab-pane tab="前置脚本" key="pre">
-            <a-textarea v-model:value="form.pre_script" :rows="6" placeholder="// 请求前执行" style="font-family: monospace" />
+            <div class="script-header">
+              <span class="script-tip">支持 JavaScript，可通过 <code>variables.set('key', 'value')</code> 设置变量，<code>variables.get('key')</code> 获取变量</span>
+              <a-button size="small" @click="handleAiGenerateScript('pre')" :loading="aiGenerating.pre">
+                <template #icon><RobotOutlined /></template>
+                AI 生成
+              </a-button>
+            </div>
+            <a-textarea v-model:value="form.pre_script" :rows="6" placeholder="// 请求前执行，例如：&#10;// variables.set('timestamp', Date.now())" style="font-family: monospace" />
           </a-tab-pane>
           <a-tab-pane tab="后置脚本" key="post">
-            <a-textarea v-model:value="form.post_script" :rows="6" placeholder="// 响应后执行" style="font-family: monospace" />
+            <div class="script-header">
+              <span class="script-tip">支持 JavaScript，可通过 <code>response</code> 访问响应，<code>tests.assert('名称', 条件)</code> 添加断言</span>
+              <a-button size="small" @click="handleAiGenerateScript('post')" :loading="aiGenerating.post">
+                <template #icon><RobotOutlined /></template>
+                AI 生成
+              </a-button>
+            </div>
+            <a-textarea v-model:value="form.post_script" :rows="6" placeholder="// 响应后执行，例如：&#10;// tests.assert('状态码为200', response.statusCode === 200)&#10;// variables.set('user_id', response.body.data.id)" style="font-family: monospace" />
           </a-tab-pane>
         </a-tabs>
       </a-card>
@@ -156,10 +221,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { ArrowLeftOutlined } from '@ant-design/icons-vue'
+import { ArrowLeftOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiCasesApi, apiDefinitionsApi } from '@/api/apiTest'
 
 const route = useRoute()
@@ -172,6 +237,7 @@ const saving = ref(false)
 const activeTab = ref('headers')
 const apiList = ref<any[]>([])
 const assertions = ref<any[]>([])
+const aiGenerating = reactive({ pre: false, post: false })
 
 const form = ref<any>({
   name: '',
@@ -188,6 +254,11 @@ const form = ref<any>({
   post_script: '',
   param_source: 'none',
   param_data: null,
+})
+
+const bodyParams = computed({
+  get: () => Array.isArray(form.value.body_content) ? form.value.body_content : [],
+  set: (val) => { form.value.body_content = val }
 })
 
 const bodyContent = computed({
@@ -213,6 +284,34 @@ const assertionColumns = [
   { title: '操作', key: 'action', width: 60 },
 ]
 
+const getTargetPlaceholder = (type: string) => {
+  const map: Record<string, string> = {
+    status_code: '无需填写',
+    response_time: '无需填写',
+    header: 'Header 名称，如 Content-Type',
+    jsonpath: 'JSONPath，如 $.data.id',
+    contains: '响应文本',
+    equals: '响应文本',
+    regex: '响应文本',
+    script: '脚本表达式',
+  }
+  return map[type] || '断言目标'
+}
+
+const getExpectedPlaceholder = (type: string) => {
+  const map: Record<string, string> = {
+    status_code: '如 200',
+    response_time: '如 1000（毫秒）',
+    header: '期望的 Header 值',
+    jsonpath: '期望的值',
+    contains: '期望包含的文本',
+    equals: '期望等于的文本',
+    regex: '正则表达式',
+    script: 'true / false',
+  }
+  return map[type] || '期望值'
+}
+
 const addAssertion = () => {
   assertions.value.push({
     id: Date.now(),
@@ -223,6 +322,40 @@ const addAssertion = () => {
     enabled: true,
     sort_order: assertions.value.length,
   })
+}
+
+const handleApiChange = (apiId: number | null) => {
+  if (!apiId) return
+  const api = apiList.value.find(a => a.id === apiId)
+  if (api) {
+    form.value.method = api.method
+    form.value.path = api.path
+    // 保留用户已配置的参数，不覆盖
+    if (form.value.headers.length === 0 && api.headers) {
+      form.value.headers = api.headers
+    }
+    if (form.value.query_params.length === 0 && api.query_params) {
+      form.value.query_params = api.query_params
+    }
+    if (form.value.body_type === 'none' && api.body_type && api.body_type !== 'none') {
+      form.value.body_type = api.body_type
+      form.value.body_content = api.body_content
+    }
+  }
+}
+
+const handleAiGenerateScript = async (type: 'pre' | 'post') => {
+  aiGenerating[type] = true
+  try {
+    // 调用 AI 生成脚本（使用现有 LLM 接口）
+    const prompt = type === 'pre'
+      ? `请为以下接口测试用例生成前置 JavaScript 脚本：\n用例名称：${form.value.name}\n请求方法：${form.value.method}\n请求路径：${form.value.path}\n\n要求：\n1. 脚本用于请求发送前执行\n2. 可使用 variables.set('key', 'value') 设置变量\n3. 可使用 variables.get('key') 获取变量\n4. 代码简洁，有注释说明`
+      : `请为以下接口测试用例生成后置 JavaScript 脚本：\n用例名称：${form.value.name}\n请求方法：${form.value.method}\n请求路径：${form.value.path}\n\n要求：\n1. 脚本用于响应返回后执行\n2. 可使用 response.statusCode、response.body、response.headers 访问响应\n3. 可使用 tests.assert('名称', 条件) 添加测试断言\n4. 可使用 variables.set('key', 'value') 提取响应变量供后续使用\n5. 代码简洁，有注释说明`
+    // 这里调用通用 AI 接口，实际项目中替换为真实接口
+    message.info('AI 脚本生成功能开发中，请手动编写脚本')
+  } finally {
+    aiGenerating[type] = false
+  }
 }
 
 const loadApis = async () => {
@@ -244,6 +377,10 @@ const loadData = async () => {
 const handleSave = async () => {
   saving.value = true
   try {
+    // 同步 bodyParams 到 body_content
+    if (form.value.body_type === 'form-data' || form.value.body_type === 'x-www-form-urlencoded') {
+      form.value.body_content = bodyParams.value.filter((p: any) => p.enabled && p.key)
+    }
     let savedCase: any
     if (isEdit.value) {
       savedCase = await apiCasesApi.update(projectId, Number(caseId), form.value)
@@ -287,5 +424,21 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+.script-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.script-tip {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+.script-tip code {
+  background: #f5f5f5;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
 }
 </style>

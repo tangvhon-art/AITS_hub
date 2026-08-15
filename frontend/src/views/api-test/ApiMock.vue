@@ -50,7 +50,7 @@
         <a-row :gutter="16">
           <a-col :span="6">
             <a-form-item label="方法">
-              <a-select v-model:value="form.method">
+              <a-select v-model:value="form.method" placeholder="选择方法">
                 <a-select-option value="GET">GET</a-select-option>
                 <a-select-option value="POST">POST</a-select-option>
                 <a-select-option value="PUT">PUT</a-select-option>

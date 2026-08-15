@@ -20,7 +20,7 @@
     <a-card>
       <!-- 请求行 -->
       <div class="request-line">
-        <a-select v-model:value="request.method" style="width: 100px">
+        <a-select v-model:value="request.method" style="width: 100px" placeholder="方法">
           <a-select-option value="GET">GET</a-select-option>
           <a-select-option value="POST">POST</a-select-option>
           <a-select-option value="PUT">PUT</a-select-option>
@@ -86,6 +86,36 @@
             placeholder='{"key": "value"}'
             style="font-family: monospace"
           />
+          <a-table
+            v-if="request.body_type === 'form-data' || request.body_type === 'x-www-form-urlencoded'"
+            :data-source="bodyParams"
+            :columns="paramColumns"
+            :row-key="(_r: any, index: number) => index"
+            size="small"
+            :pagination="false"
+          >
+            <template #bodyCell="{ column, record, index }">
+              <template v-if="column.key === 'enabled'">
+                <a-checkbox v-model:checked="record.enabled" />
+              </template>
+              <template v-else-if="column.key === 'key'">
+                <a-input v-model:value="record.key" placeholder="参数名" size="small" />
+              </template>
+              <template v-else-if="column.key === 'value'">
+                <a-input v-model:value="record.value" placeholder="参数值" size="small" />
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-button type="link" danger size="small" @click="bodyParams.splice(index, 1)">删除</a-button>
+              </template>
+            </template>
+          </a-table>
+          <a-button
+            v-if="request.body_type === 'form-data' || request.body_type === 'x-www-form-urlencoded'"
+            type="dashed"
+            block
+            style="margin-top: 8px"
+            @click="bodyParams.push({ key: '', value: '', enabled: true })"
+          >+ 添加字段</a-button>
         </a-tab-pane>
         <a-tab-pane key="pre-script" tab="Pre-request">
           <a-textarea v-model:value="request.pre_script" :rows="8" placeholder="// 请求前执行的脚本" style="font-family: monospace" />
@@ -197,6 +227,24 @@ const request = ref<any>({
   timeout: 30,
 })
 
+const bodyParams = ref<any[]>([])
+
+const syncBodyContent = () => {
+  if (request.value.body_type === 'form-data' || request.value.body_type === 'x-www-form-urlencoded') {
+    request.value.body_content = bodyParams.value.filter((p: any) => p.enabled && p.key)
+  }
+}
+
+watch(() => request.value.body_type, (type) => {
+  if (type === 'form-data' || type === 'x-www-form-urlencoded') {
+    if (Array.isArray(request.value.body_content)) {
+      bodyParams.value = request.value.body_content
+    } else {
+      bodyParams.value = []
+    }
+  }
+})
+
 const bodyContent = computed({
   get: () => typeof request.value.body_content === 'string' ? request.value.body_content : JSON.stringify(request.value.body_content, null, 2),
   set: (val: string) => {
@@ -236,6 +284,7 @@ const handleSend = async () => {
     message.warning('请输入请求URL')
     return
   }
+  syncBodyContent()
   sending.value = true
   response.value = null
   try {
@@ -261,6 +310,10 @@ const loadFromHistory = (item: any) => {
   request.value.url = item.url
   if (item.request_config) {
     Object.assign(request.value, item.request_config)
+    if ((item.request_config.body_type === 'form-data' || item.request_config.body_type === 'x-www-form-urlencoded')
+        && Array.isArray(item.request_config.body_content)) {
+      bodyParams.value = item.request_config.body_content
+    }
   }
   showHistory.value = false
 }
@@ -276,6 +329,10 @@ const loadApiFromQuery = async () => {
       request.value.query_params = api.query_params || []
       request.value.body_type = api.body_type
       request.value.body_content = api.body_content
+      if ((api.body_type === 'form-data' || api.body_type === 'x-www-form-urlencoded')
+          && Array.isArray(api.body_content)) {
+        bodyParams.value = api.body_content
+      }
     } catch {}
   }
 }
@@ -289,13 +346,22 @@ const handleSaveAsApi = async () => {
     message.warning('请先填写请求URL')
     return
   }
+  syncBodyContent()
   saving.value = true
   try {
+    // 提取路径部分，去掉域名
+    let apiPath = request.value.url
+    try {
+      const urlObj = new URL(request.value.url)
+      apiPath = urlObj.pathname + urlObj.search
+    } catch {
+      // 如果不是完整URL，保持原样
+    }
     const created = await apiDefinitionsApi.create(projectId, {
       name: saveForm.value.name,
       description: saveForm.value.description,
       method: request.value.method,
-      path: request.value.url,
+      path: apiPath,
       headers: request.value.headers,
       query_params: request.value.query_params,
       body_type: request.value.body_type,

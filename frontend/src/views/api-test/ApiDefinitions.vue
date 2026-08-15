@@ -104,7 +104,7 @@
     <a-modal v-model:open="showImportModal" title="导入接口" width="600px">
       <a-form layout="vertical">
         <a-form-item label="导入格式">
-          <a-select v-model:value="importType" style="width: 100%">
+          <a-select v-model:value="importType" style="width: 100%" placeholder="选择导入格式">
             <a-select-option value="swagger">Swagger / OpenAPI</a-select-option>
             <a-select-option value="postman">Postman Collection</a-select-option>
             <a-select-option value="jmeter">JMeter</a-select-option>
@@ -503,44 +503,86 @@ onMounted(() => {
 .tree-node-item {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
+  padding: 6px 12px 6px 0;
   cursor: pointer;
   font-size: 13px;
   color: rgba(0, 0, 0, 0.65);
   transition: all 0.15s;
   position: relative;
   user-select: none;
+  border-radius: 4px;
+  margin: 1px 4px;
 }
 .tree-node-item:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: #f0f5ff;
 }
 .tree-node-item.active {
   background: #e6f4ff;
   color: #1677ff;
   font-weight: 500;
 }
+.module-node-group {
+  position: relative;
+}
+.module-node-group::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #e8e8e8;
+}
+.module-node-group > .tree-node-item::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: #e8e8e8;
+}
 .expand-icon {
-  width: 16px;
+  width: 18px;
+  height: 18px;
   font-size: 10px;
-  color: #999;
+  color: #8c8c8c;
   cursor: pointer;
   text-align: center;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  transition: all 0.15s;
+  z-index: 1;
+  background: #fafafa;
+}
+.expand-icon:hover {
+  background: #e6f4ff;
+  color: #1677ff;
 }
 .expand-icon.placeholder {
-  width: 16px;
+  width: 18px;
+  background: transparent;
 }
 .node-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-left: 4px;
 }
 .node-count {
   font-size: 11px;
-  color: #999;
+  color: #bfbfbf;
   margin-left: auto;
   flex-shrink: 0;
+  background: #f0f0f0;
+  padding: 0 6px;
+  border-radius: 8px;
+  min-width: 18px;
+  text-align: center;
 }
 .node-actions {
   display: flex;
@@ -549,25 +591,31 @@ onMounted(() => {
   margin-left: auto;
   flex-shrink: 0;
   padding-left: 8px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.tree-node-item:hover .node-actions {
+  opacity: 1;
 }
 .node-actions.actions-active {
-  background: #e6f4ff;
+  opacity: 1;
 }
 .action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
   font-size: 12px;
   color: rgba(0, 0, 0, 0.45);
   cursor: pointer;
   transition: all 0.15s;
 }
 .action-btn:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: #fff;
   color: #1677ff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 .action-btn.danger:hover {
   background: #fff1f0;

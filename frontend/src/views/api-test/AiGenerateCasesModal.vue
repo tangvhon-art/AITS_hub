@@ -20,7 +20,7 @@
         <a-row :gutter="16">
           <a-col :span="8">
             <a-form-item label="生成策略">
-              <a-select v-model:value="config.strategy">
+              <a-select v-model:value="config.strategy" placeholder="选择策略">
                 <a-select-option value="normal">正常流程</a-select-option>
                 <a-select-option value="abnormal">异常场景</a-select-option>
                 <a-select-option value="boundary">边界值</a-select-option>
@@ -35,7 +35,7 @@
           </a-col>
           <a-col :span="8">
             <a-form-item label="断言深度">
-              <a-select v-model:value="config.assertion_depth">
+              <a-select v-model:value="config.assertion_depth" placeholder="选择深度">
                 <a-select-option value="basic">基础（仅状态码）</a-select-option>
                 <a-select-option value="standard">标准（状态码+关键字段）</a-select-option>
                 <a-select-option value="deep">深度（全字段+业务规则）</a-select-option>
@@ -105,7 +105,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { apiCasesApi, apiDefinitionsApi } from '@/api/apiTest'
+import { apiCasesApi, apiDefinitionsApi, llmConfigsApi } from '@/api/apiTest'
 
 const props = defineProps<{
   open: boolean
@@ -146,6 +146,12 @@ const loadApis = async () => {
   try {
     const res = await apiDefinitionsApi.list(props.projectId, { page_size: 100 })
     apiList.value = res.items
+  } catch {}
+}
+
+const loadLlmConfigs = async () => {
+  try {
+    llmConfigs.value = await llmConfigsApi.list()
   } catch {}
 }
 
@@ -217,11 +223,15 @@ const handleCancel = () => {
 watch(() => props.open, (val) => {
   if (val) {
     loadApis()
+    loadLlmConfigs()
   }
 })
 
 onMounted(() => {
-  if (props.open) loadApis()
+  if (props.open) {
+    loadApis()
+    loadLlmConfigs()
+  }
 })
 </script>
 

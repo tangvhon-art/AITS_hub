@@ -157,6 +157,14 @@ const routes: RouteRecordRaw[] = [
         ]
       },
       {
+        path: 'projects/:id/api-environments',
+        component: () => import('@/views/api-test/ApiTestLayout.vue'),
+        meta: { title: '接口测试', icon: 'ApiOutlined', activeMenu: 'environments' },
+        children: [
+          { path: '', name: 'ApiEnvironments', component: () => import('@/views/api-test/ApiEnvironments.vue'), meta: { title: '环境变量', activeMenu: 'environments' } },
+        ]
+      },
+      {
         path: 'agent-tasks',
         name: 'AgentTasks',
         component: () => import('@/views/AgentTasks.vue'),
