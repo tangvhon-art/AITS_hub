@@ -47,13 +47,6 @@
             </a-form-item>
           </a-col>
         </a-row>
-        <a-form-item label="请求路径">
-          <a-input v-model:value="form.path" placeholder="/api/users/{{id}}，支持 {{$mock函数}}" :disabled="!!form.api_id">
-            <template #addonAfter>
-              <MockDataInserter v-model="form.path" />
-            </template>
-          </a-input>
-        </a-form-item>
         <a-form-item label="用例描述">
           <a-textarea v-model:value="form.description" :rows="2" placeholder="请输入用例描述" />
         </a-form-item>

@@ -112,29 +112,6 @@ def create_scenario(
     db.add(scenario)
     db.flush()
 
-    # 创建步骤
-    if data.steps:
-        for idx, step_data in enumerate(data.steps):
-            step = ApiScenarioStep(
-                scenario_id=scenario.id,
-                step_type=step_data.step_type,
-                step_name=step_data.step_name,
-                sort_order=idx,
-                enabled=step_data.enabled,
-                api_id=step_data.api_id,
-                case_id=step_data.case_id,
-                request_config=step_data.request_config,
-                script_content=step_data.script_content,
-                wait_seconds=step_data.wait_seconds,
-                condition_expr=step_data.condition_expr,
-                loop_config=step_data.loop_config,
-                pre_script=step_data.pre_script,
-                post_script=step_data.post_script,
-                continue_on_failure=step_data.continue_on_failure,
-                max_retries=step_data.max_retries,
-            )
-            db.add(step)
-
     log_audit(
         db, action="create", resource_type="plan",
         resource_id=scenario.id, resource_name=scenario.name,

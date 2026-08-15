@@ -319,9 +319,20 @@ class ScenarioExecutor:
             result.error_message = f"用例不存在: {case_id}"
             return
 
-        # 构建请求
-        method = case.method or "GET"
-        path = case.path or ""
+        # 如果关联了接口，使用接口的 method 和 path
+        if case.api_id:
+            from app.models.api_test import ApiDefinition
+            api_def = self.db.query(ApiDefinition).filter(ApiDefinition.id == case.api_id).first()
+            if api_def:
+                method = api_def.method or "GET"
+                path = api_def.path or ""
+            else:
+                method = case.method or "GET"
+                path = case.path or ""
+        else:
+            method = case.method or "GET"
+            path = case.path or ""
+
         base_url = self.variable_engine.get("base_url") or ""
         url = self.variable_engine.replace(base_url + path)
         headers = self.variable_engine.replace_headers(case.headers)

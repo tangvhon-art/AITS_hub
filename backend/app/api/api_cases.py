@@ -365,8 +365,22 @@ async def run_case(
         var_engine.load_from_dict("environment", data.environment_vars)
     base_url = data.base_url or var_engine.get("base_url") or ""
 
-    method = case.method or "GET"
-    url = var_engine.replace(base_url + (case.path or ""))
+    # 如果关联了接口，使用接口的 method 和 path
+    if case.api_id:
+        api_def = db.query(ApiDefinition).filter(
+            ApiDefinition.id == case.api_id, ApiDefinition.project_id == project_id
+        ).first()
+        if api_def:
+            method = api_def.method or "GET"
+            path = api_def.path or ""
+        else:
+            method = case.method or "GET"
+            path = case.path or ""
+    else:
+        method = case.method or "GET"
+        path = case.path or ""
+
+    url = var_engine.replace(base_url + path)
     headers = var_engine.replace_headers(case.headers)
     params = var_engine.replace_params(case.query_params)
     body_content = var_engine.replace_body(case.body_type, case.body_content)
@@ -384,7 +398,7 @@ async def run_case(
         for k, v in script_result.variables.items():
             var_engine.set("scenario", k, v)
         console_log += script_result.output
-        url = var_engine.replace(base_url + (case.path or ""))
+        url = var_engine.replace(base_url + path)
         headers = var_engine.replace_headers(case.headers)
         params = var_engine.replace_params(case.query_params)
         body_content = var_engine.replace_body(case.body_type, case.body_content)
