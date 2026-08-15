@@ -290,12 +290,30 @@ class ScenarioExecutor:
         # 提取变量
         self._extract_variables(step.get("id"), response)
 
-        # 断言
+        # 断言：优先使用步骤自带的断言，否则尝试从关联用例加载
         assertions = step.get("assertions", [])
+        if not assertions and step.get("case_id"):
+            from app.models.api_test import ApiCaseAssertion
+            case_id = step.get("case_id")
+            case_assertions = self.db.query(ApiCaseAssertion).filter(
+                ApiCaseAssertion.case_id == case_id,
+                ApiCaseAssertion.enabled == True,
+            ).order_by(ApiCaseAssertion.sort_order).all()
+            assertions = [
+                {
+                    "assert_type": a.assert_type,
+                    "assert_target": a.assert_target,
+                    "operator": a.operator,
+                    "expected_value": a.expected_value,
+                    "enabled": a.enabled,
+                }
+                for a in case_assertions
+            ]
+
         if assertions:
             assertion_results = self.assertion_engine.run_all(assertions, response)
             result.assertions = [a.to_dict() for a in assertion_results]
-            all_passed = all(a.passed for a in assertion_results)
+            all_passed = all(a.passed for a in assertion_results) if assertion_results else True
             result.status = "passed" if all_passed else "failed"
             if not all_passed:
                 failed = [a for a in assertion_results if not a.passed]

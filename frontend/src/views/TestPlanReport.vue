@@ -102,8 +102,8 @@
                   >
                     <span class="failed-rank">{{ idx + 1 }}</span>
                     <span class="failed-name">{{ r.item_name }}</span>
-                    <a-tag :color="r.item_type === 'case' ? 'blue' : 'purple'" size="small">
-                      {{ r.item_type === 'case' ? '用例' : '场景' }}
+                    <a-tag :color="getItemTypeColor(r.item_type)" size="small">
+                      {{ getItemTypeLabel(r.item_type) }}
                     </a-tag>
                   </div>
                 </div>
@@ -128,8 +128,8 @@
                       {{ getResultStatusText(result.status) }}
                     </a-tag>
                     <span class="result-name">{{ result.item_name }}</span>
-                    <a-tag :color="result.item_type === 'case' ? 'blue' : 'purple'" size="small">
-                      {{ result.item_type === 'case' ? '用例' : '场景' }}
+                    <a-tag :color="getItemTypeColor(result.item_type)" size="small">
+                      {{ getItemTypeLabel(result.item_type) }}
                     </a-tag>
                     <span class="result-duration">{{ result.duration_ms }}ms</span>
                     <span v-if="result.retry_count > 0" class="result-retry">重试{{ result.retry_count }}次</span>
@@ -139,14 +139,14 @@
                 <div class="result-detail">
                   <a-descriptions :column="2" bordered size="small" style="margin-bottom: 12px">
                     <a-descriptions-item label="节点类型">
-                      {{ result.item_type === 'case' ? '接口用例' : '场景编排' }}
+                      {{ getItemTypeDetailLabel(result.item_type) }}
                     </a-descriptions-item>
                     <a-descriptions-item label="关联ID">{{ result.ref_id }}</a-descriptions-item>
                     <a-descriptions-item label="开始时间">{{ formatDateTime(result.started_at) }}</a-descriptions-item>
                     <a-descriptions-item label="结束时间">{{ formatDateTime(result.finished_at) }}</a-descriptions-item>
                   </a-descriptions>
 
-                  <a-tabs v-model:activeKey="getDetailTab(result.id)">
+                  <a-tabs :active-key="getDetailTab(result.id)" @change="(k: string) => setDetailTab(result.id, k)">
                     <a-tab-pane key="request" tab="请求信息">
                       <pre class="code-block">{{ formatJson(result.request_data) }}</pre>
                     </a-tab-pane>
@@ -163,11 +163,17 @@
                           <a-tag :color="a.passed ? 'green' : 'red'">
                             {{ a.passed ? '通过' : '失败' }}
                           </a-tag>
-                          <span class="assertion-text">
-                            {{ a.assert_type }}: {{ a.assert_target }} {{ a.operator }} {{ a.expected_value }}
+                          <span class="assertion-text" v-if="hasAssertionText(a)">
+                            {{ assertTypeLabel(a.assert_type) }}: {{ a.assert_target }} {{ a.operator }} {{ stringify(a.expected_value) }}
                           </span>
-                          <span v-if="a.actual_value !== undefined" class="assertion-actual">
-                            实际: {{ a.actual_value }}
+                          <span class="assertion-text" v-else>
+                            {{ a.message || '断言详情缺失' }}
+                          </span>
+                          <span v-if="hasActualValue(a)" class="assertion-actual">
+                            实际: {{ stringify(a.actual_value) }}
+                          </span>
+                          <span v-if="a.step_name" class="assertion-step">
+                            <a-tag size="small" color="blue">步骤: {{ a.step_name }}</a-tag>
                           </span>
                         </div>
                       </div>
@@ -248,6 +254,7 @@ import { FileTextOutlined, CodeOutlined } from '@ant-design/icons-vue'
 import {
   testPlanExecutionsApi,
   testPlansApi,
+  getItemTypeLabel, getItemTypeColor, getItemTypeDetailLabel,
   type TestPlanExecution,
   type TestPlanExecutionResult,
 } from '@/api/testPlans'
@@ -363,6 +370,10 @@ function getDetailTab(id: number) {
   return detailTabs.value[id] || 'request'
 }
 
+function setDetailTab(id: number, key: string) {
+  detailTabs.value[id] = key
+}
+
 function formatJson(data: any) {
   if (!data) return '{}'
   try {
@@ -370,6 +381,42 @@ function formatJson(data: any) {
   } catch {
     return String(data)
   }
+}
+
+function stringify(v: any): string {
+  if (v === undefined || v === null) return '-'
+  if (typeof v === 'object') {
+    try { return JSON.stringify(v) } catch { return String(v) }
+  }
+  return String(v)
+}
+
+function hasAssertionText(a: any): boolean {
+  return !!(a && (a.assert_type || a.assert_target || a.expected_value !== undefined))
+}
+
+function hasActualValue(a: any): boolean {
+  return !!(a && a.actual_value !== undefined && a.actual_value !== null && a.actual_value !== '')
+}
+
+function assertTypeLabel(t: string): string {
+  const map: Record<string, string> = {
+    status_code: '状态码',
+    response_time: '响应时间',
+    jsonpath: 'JSONPath',
+    xpath: 'XPath',
+    header: '响应头',
+    contains: '包含',
+    equals: '等于',
+    regex: '正则匹配',
+    script: '脚本断言',
+    in_range: '范围',
+    not_equals: '不等于',
+    not_contains: '不包含',
+    greater_than: '大于',
+    less_than: '小于',
+  }
+  return map[t || ''] || (t || '断言')
 }
 
 async function loadReport() {
@@ -382,14 +429,20 @@ async function loadReport() {
   }
 }
 
-function exportHtml() {
-  const url = testPlanExecutionsApi.exportHtml(executionId)
-  window.open(url, '_blank')
+async function exportHtml() {
+  try {
+    await testPlanExecutionsApi.downloadHtml(executionId)
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '导出失败')
+  }
 }
 
-function exportJunit() {
-  const url = testPlanExecutionsApi.exportJunit(executionId)
-  window.open(url, '_blank')
+async function exportJunit() {
+  try {
+    await testPlanExecutionsApi.downloadJunit(executionId)
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '导出失败')
+  }
 }
 
 async function reRun() {
@@ -397,7 +450,7 @@ async function reRun() {
   try {
     const res = await testPlanExecutionsApi.run(projectId, planId)
     message.success('已重新启动执行')
-    router.push(`/test-plans/${planId}/run/${res.execution_id}`)
+    router.push(`/projects/${projectId}/test-plans/${planId}/run/${res.execution_id}`)
   } catch (e: any) {
     message.error(e.response?.data?.detail || '执行失败')
   }

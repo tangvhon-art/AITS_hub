@@ -75,3 +75,4 @@ dist-ssr/
 /backend/data/knowledge_base/project_3/faiss.index
 /测试计划模块改造需求文档.md
 /fix_mysql_metadata_locks.sh
+/dump.rdb

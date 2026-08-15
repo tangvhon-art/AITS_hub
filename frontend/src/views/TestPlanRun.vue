@@ -83,8 +83,8 @@
               {{ record.sort_order + 1 }}
             </template>
             <template v-else-if="column.key === 'item_type'">
-              <a-tag :color="record.item_type === 'case' ? 'blue' : 'purple'">
-                {{ record.item_type === 'case' ? '用例' : '场景' }}
+              <a-tag :color="getItemTypeColor(record.item_type)">
+                {{ getItemTypeLabel(record.item_type) }}
               </a-tag>
             </template>
             <template v-else-if="column.key === 'status'">
@@ -133,7 +133,7 @@
         <a-descriptions :column="2" bordered size="small" style="margin-bottom: 16px">
           <a-descriptions-item label="节点名称">{{ currentResult.item_name }}</a-descriptions-item>
           <a-descriptions-item label="节点类型">
-            {{ currentResult.item_type === 'case' ? '接口用例' : '场景编排' }}
+            {{ getItemTypeDetailLabel(currentResult.item_type) }}
           </a-descriptions-item>
           <a-descriptions-item label="执行状态">
             <a-tag :color="getResultStatusColor(currentResult.status)">
@@ -162,11 +162,17 @@
                 <a-tag :color="a.passed ? 'green' : 'red'">
                   {{ a.passed ? '通过' : '失败' }}
                 </a-tag>
-                <span class="assertion-text">
-                  {{ a.assert_type }}: {{ a.assert_target }} {{ a.operator }} {{ a.expected_value }}
+                <span class="assertion-text" v-if="a && (a.assert_type || a.assert_target || a.expected_value !== undefined)">
+                  {{ assertTypeLabel(a.assert_type) }}: {{ a.assert_target }} {{ a.operator }} {{ stringify(a.expected_value) }}
                 </span>
-                <span v-if="a.actual_value !== undefined" class="assertion-actual">
-                  实际值: {{ a.actual_value }}
+                <span class="assertion-text" v-else>
+                  {{ a?.message || '断言详情缺失' }}
+                </span>
+                <span v-if="a && a.actual_value !== undefined && a.actual_value !== null && a.actual_value !== ''" class="assertion-actual">
+                  实际值: {{ stringify(a.actual_value) }}
+                </span>
+                <span v-if="a?.step_name" class="assertion-step">
+                  <a-tag size="small" color="blue">步骤: {{ a.step_name }}</a-tag>
                 </span>
               </div>
             </div>
@@ -187,6 +193,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import {
   testPlanExecutionsApi,
+  getItemTypeLabel, getItemTypeColor, getItemTypeDetailLabel,
   type TestPlanExecution,
   type TestPlanExecutionResult,
 } from '@/api/testPlans'
@@ -298,13 +305,34 @@ function formatJson(data: any) {
   }
 }
 
+function stringify(v: any): string {
+  if (v === undefined || v === null) return '-'
+  if (typeof v === 'object') {
+    try { return JSON.stringify(v) } catch { return String(v) }
+  }
+  return String(v)
+}
+
+function assertTypeLabel(t: string): string {
+  const map: Record<string, string> = {
+    status_code: '状态码', response_time: '响应时间',
+    jsonpath: 'JSONPath', xpath: 'XPath', header: '响应头',
+    contains: '包含', equals: '等于', regex: '正则匹配',
+    script: '脚本断言', in_range: '范围',
+    not_equals: '不等于', not_contains: '不包含',
+    greater_than: '大于', less_than: '小于',
+  }
+  return map[t || ''] || (t || '断言')
+}
+
 async function loadExecution() {
   try {
     const [statusRes, detailRes] = await Promise.all([
       testPlanExecutionsApi.status(executionId),
       testPlanExecutionsApi.detail(executionId),
     ])
-    execution.value = { ...execution.value, ...statusRes } as TestPlanExecution
+    // 以详情为基准（含 plan_name 等字段），再叠加最新轮询状态
+    execution.value = { ...detailRes.execution, ...statusRes } as TestPlanExecution
     results.value = detailRes.results
   } catch (e: any) {
     console.error('加载执行状态失败', e)
@@ -369,7 +397,7 @@ async function handleCancel() {
 }
 
 function viewReport() {
-  router.push(`/test-plans/${planId}/report/${executionId}`)
+  router.push(`/projects/${projectId}/test-plans/${planId}/report/${executionId}`)
 }
 
 function goBack() {

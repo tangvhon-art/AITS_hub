@@ -37,9 +37,12 @@ class AssertionResult:
         return {
             "passed": self.passed,
             "assert_type": self.assert_type,
+            "assert_target": self.target,
             "target": self.target,
             "operator": self.operator,
+            "expected_value": self.expected,
             "expected": self.expected,
+            "actual_value": self.actual,
             "actual": self.actual,
             "message": self.message,
         }

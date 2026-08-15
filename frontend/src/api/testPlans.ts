@@ -117,7 +117,34 @@ export interface AvailableItem {
   path?: string
   priority?: string
   description?: string
+  target_url?: string
+  language?: string
+  version?: number
+  total_steps?: number
   added: boolean
+}
+
+// ==================== 节点类型工具 ====================
+
+export function getItemTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    case: '用例', scenario: '场景', script: 'UI脚本', suite: '套件'
+  }
+  return map[type] || type
+}
+
+export function getItemTypeColor(type: string): string {
+  const map: Record<string, string> = {
+    case: 'blue', scenario: 'purple', script: 'magenta', suite: 'cyan'
+  }
+  return map[type] || 'default'
+}
+
+export function getItemTypeDetailLabel(type: string): string {
+  const map: Record<string, string> = {
+    case: '接口用例', scenario: '场景编排', script: 'UI自动化脚本', suite: '编排套件'
+  }
+  return map[type] || type
 }
 
 // ==================== 测试计划 API ====================
@@ -165,7 +192,7 @@ export const testPlanItemsApi = {
     request.post(`/projects/${projectId}/plans/${planId}/items/reorder`, { item_ids: itemIds }),
 
   available: (projectId: number, planId: number, params?: { item_type?: string; keyword?: string; page?: number; page_size?: number }) =>
-    request.get<{ cases: AvailableItem[]; scenarios: AvailableItem[]; total: number }>(
+    request.get<{ cases: AvailableItem[]; scenarios: AvailableItem[]; scripts: AvailableItem[]; suites: AvailableItem[]; total: number }>(
       `/projects/${projectId}/plans/${planId}/available-items`, { params }
     ),
 }
@@ -196,12 +223,30 @@ export const testPlanExecutionsApi = {
   cancel: (executionId: number) =>
     request.post(`/test-plan-executions/${executionId}/cancel`),
 
-  // 报告导出
-  exportHtml: (executionId: number) =>
-    `${import.meta.env.VITE_API_BASE_URL || '/api'}/test-plan-executions/${executionId}/report/html`,
+  // 报告导出（携带鉴权 token 的下载，window.open 无法带 header）
+  downloadHtml: (executionId: number) =>
+    request.get<Blob>(
+      `/test-plan-executions/${executionId}/report/html`,
+      { responseType: 'blob' }
+    ).then((blob) => triggerDownload(blob, `test_report_${executionId}.html`)),
 
-  exportJunit: (executionId: number) =>
-    `${import.meta.env.VITE_API_BASE_URL || '/api'}/test-plan-executions/${executionId}/report/junit`,
+  downloadJunit: (executionId: number) =>
+    request.get<Blob>(
+      `/test-plan-executions/${executionId}/report/junit`,
+      { responseType: 'blob' }
+    ).then((blob) => triggerDownload(blob, `test_report_${executionId}.xml`)),
+}
+
+/** 触发浏览器下载 */
+function triggerDownload(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
 }
 
 // ==================== 测试环境 API ====================

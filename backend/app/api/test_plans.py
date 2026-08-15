@@ -19,6 +19,8 @@ from app.models.test_plan import (
 )
 from app.models.test_case import TestCase
 from app.models.api_test import ApiTestCase, ApiScenario
+from app.models.automation_script import AutomationScript
+from app.models.automation_suite import AutomationSuite
 from app.schemas.test_plan import (
     TestPlanCreate, TestPlanUpdate, TestPlanResponse, TestPlanListResponse,
     TestPlanCaseUpdate, TestPlanCaseResponse,
@@ -397,6 +399,18 @@ def add_plan_item(project_id: int, plan_id: int, data: TestPlanItemCreate, reque
             raise HTTPException(status_code=404, detail="场景编排不存在")
         if not item_name:
             item_name = scenario.name
+    elif data.item_type == "script":
+        script = db.query(AutomationScript).filter(AutomationScript.id == data.ref_id).first()
+        if not script:
+            raise HTTPException(status_code=404, detail="UI脚本不存在")
+        if not item_name:
+            item_name = script.name
+    elif data.item_type == "suite":
+        suite = db.query(AutomationSuite).filter(AutomationSuite.id == data.ref_id).first()
+        if not suite:
+            raise HTTPException(status_code=404, detail="编排套件不存在")
+        if not item_name:
+            item_name = suite.name
     else:
         raise HTTPException(status_code=400, detail="不支持的节点类型")
 
@@ -530,7 +544,7 @@ def get_available_items(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """获取可添加到计划的节点库（接口用例+场景编排）"""
+    """获取可添加到计划的节点库（接口用例+场景编排+UI脚本+编排套件）"""
     plan = db.query(TestPlan).filter(
         TestPlan.id == plan_id, TestPlan.project_id == project_id
     ).first()
@@ -544,8 +558,10 @@ def get_available_items(
     ).all()
     existing_case_ids = {it.ref_id for it in existing_items if it.item_type == "case"}
     existing_scenario_ids = {it.ref_id for it in existing_items if it.item_type == "scenario"}
+    existing_script_ids = {it.ref_id for it in existing_items if it.item_type == "script"}
+    existing_suite_ids = {it.ref_id for it in existing_items if it.item_type == "suite"}
 
-    result = {"cases": [], "scenarios": [], "total": 0}
+    result = {"cases": [], "scenarios": [], "scripts": [], "suites": [], "total": 0}
 
     if not item_type or item_type == "case":
         query = db.query(ApiTestCase).filter(
@@ -575,7 +591,40 @@ def get_available_items(
             for s in scenarios
         ]
 
-    result["total"] = len(result["cases"]) + len(result["scenarios"])
+    if not item_type or item_type == "script":
+        query = db.query(AutomationScript).filter(
+            AutomationScript.project_id == project_id,
+            AutomationScript.is_deleted == False,
+        )
+        if keyword:
+            query = query.filter(AutomationScript.name.like(f"%{keyword}%"))
+        scripts = query.order_by(AutomationScript.id.desc()).all()
+        result["scripts"] = [
+            {"id": s.id, "name": s.name, "target_url": s.target_url,
+             "language": s.language, "version": s.version, "status": s.status,
+             "added": s.id in existing_script_ids}
+            for s in scripts
+        ]
+        logger.info(f"加载UI脚本: project_id={project_id}, count={len(scripts)}")
+
+    if not item_type or item_type == "suite":
+        query = db.query(AutomationSuite).filter(
+            AutomationSuite.project_id == project_id,
+            AutomationSuite.is_deleted == False,
+        )
+        if keyword:
+            query = query.filter(AutomationSuite.name.like(f"%{keyword}%"))
+        suites = query.order_by(AutomationSuite.id.desc()).all()
+        result["suites"] = [
+            {"id": s.id, "name": s.name, "description": s.description,
+             "total_steps": s.total_steps, "status": s.status,
+             "added": s.id in existing_suite_ids}
+            for s in suites
+        ]
+        logger.info(f"加载编排套件: project_id={project_id}, count={len(suites)}")
+
+    result["total"] = (len(result["cases"]) + len(result["scenarios"])
+                       + len(result["scripts"]) + len(result["suites"]))
     return result
 
 
@@ -641,11 +690,11 @@ def run_plan(project_id: int, plan_id: int, request: Request, db: Session = Depe
         from app.tasks.test_plan_tasks import execute_test_plan_task
         execute_test_plan_task.delay(execution.id)
     except Exception as e:
-        logger.warning(f"Celery任务提交失败，降级为同步执行: {e}")
-        # 降级：在后台线程执行
+        logger.warning(f"Celery任务提交失败，降级为后台线程执行: {e}")
+        # 降级：在后台线程执行核心逻辑（避免直接调用 bind=True 的 Celery 任务）
         import threading
-        from app.tasks.test_plan_tasks import execute_test_plan_task
-        thread = threading.Thread(target=execute_test_plan_task, args=(execution.id,), daemon=True)
+        from app.tasks.test_plan_tasks import _run_test_plan_execution
+        thread = threading.Thread(target=_run_test_plan_execution, args=(execution.id,), daemon=True)
         thread.start()
 
     return {"execution_id": execution.id, "status": "pending", "detail": "测试计划已启动"}
@@ -778,13 +827,29 @@ def export_html_report(execution_id: int, db: Session = Depends(get_db), current
     # 生成HTML
     status_colors = {"passed": "#52c41a", "failed": "#ff4d4f", "skipped": "#faad14", "error": "#ff4d4f"}
     status_texts = {"passed": "通过", "failed": "失败", "skipped": "跳过", "error": "错误"}
+    type_labels = {"case": "接口用例", "scenario": "场景编排", "script": "UI脚本", "suite": "编排套件"}
 
     results_html = ""
     for r in results:
         color = status_colors.get(r.status, "#999")
         text = status_texts.get(r.status, r.status)
+        type_label = type_labels.get(r.item_type, r.item_type)
         req = r.request_data or {}
         resp = r.response_data or {}
+        category = req.get("category") or resp.get("category", "")
+
+        # 根据节点类别渲染请求/响应信息
+        if category in ("ui_script", "ui_suite"):
+            if category == "ui_script":
+                req_info = f"脚本: {req.get('script','')} | 目标: {req.get('target_url','')}"
+            else:
+                req_info = f"套件: {req.get('suite','')} | 步骤数: {req.get('total_steps',0)}"
+            resp_info = (f"状态: {resp.get('status','')} | 通过: {resp.get('passed_steps',0)}"
+                         f"/失败: {resp.get('failed_steps',0)} | 耗时: {resp.get('total_duration',0)}s")
+        else:
+            req_info = f"{req.get('method','')} {req.get('url','')}"
+            resp_info = f"{resp.get('status_code','')} ({resp.get('duration','')}ms)"
+
         assertions_html = ""
         if r.assertions:
             for a in r.assertions:
@@ -798,11 +863,11 @@ def export_html_report(execution_id: int, db: Session = Depends(get_db), current
                 <span style="color:{color};font-weight:bold;">{text}</span>
             </div>
             <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                类型: {r.item_type} | 耗时: {r.duration_ms}ms | 重试: {r.retry_count}次
+                类型: {type_label} | 耗时: {r.duration_ms}ms | 重试: {r.retry_count}次
             </div>
             <div style="background:#fafafa;padding:8px;border-radius:4px;margin-bottom:8px;">
-                <div><strong>请求:</strong> {req.get("method","")} {req.get("url","")}</div>
-                <div><strong>响应:</strong> {resp.get("status_code","")} ({resp.get("duration","")}ms)</div>
+                <div><strong>请求:</strong> {req_info}</div>
+                <div><strong>响应:</strong> {resp_info}</div>
             </div>
             {assertions_html}
             {f'<div style="color:#ff4d4f;margin-top:8px;">错误: {r.error_message}</div>' if r.error_message else ''}

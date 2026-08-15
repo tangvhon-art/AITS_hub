@@ -3,6 +3,7 @@
     <a-page-header title="测试计划编辑" @back="goBack">
       <template #extra>
         <a-button @click="goBack">取消</a-button>
+        <a-button :loading="running" :disabled="!planId" @click="handleExecute">执行</a-button>
         <a-button type="primary" :loading="saving" @click="handleSave">保存</a-button>
       </template>
     </a-page-header>
@@ -53,20 +54,48 @@
                 <div class="library-header">
                   <a-input
                     v-model:value="searchKeyword"
-                    placeholder="搜索用例/场景"
-                    size="small"
+                    placeholder="搜索用例/场景/脚本/套件"
                     allow-clear
                   >
                     <template #prefix><SearchOutlined /></template>
                   </a-input>
-                  <a-radio-group v-model:value="filterType" size="small" style="margin-top: 8px">
+                  <a-radio-group v-model:value="filterType" size="small" button-style="solid" class="filter-radio-group">
                     <a-radio-button value="">全部</a-radio-button>
                     <a-radio-button value="case">用例</a-radio-button>
                     <a-radio-button value="scenario">场景</a-radio-button>
+                    <a-radio-button value="script">UI脚本</a-radio-button>
+                    <a-radio-button value="suite">套件</a-radio-button>
                   </a-radio-group>
+                  <a-divider style="margin: 4px 0" />
+                  <div class="library-actions">
+                    <div class="batch-summary">
+                      <a-badge :count="checkedKeys.size" :show-zero="false" :color="checkedKeys.size > 0 ? '#1890ff' : '#d9d9d9'">
+                        <span class="batch-label">已选节点</span>
+                      </a-badge>
+                      <span class="batch-hint" v-if="checkedKeys.size === 0">勾选后可批量添加</span>
+                    </div>
+                    <a-space :size="4">
+                      <a-button
+                        type="primary"
+                        size="small"
+                        :disabled="checkedKeys.size === 0 || !planId"
+                        @click="batchAdd"
+                      >
+                        <template #icon><PlusOutlined /></template>
+                        添加已选 ({{ checkedKeys.size }})
+                      </a-button>
+                      <a-button
+                        size="small"
+                        :disabled="checkedKeys.size === 0"
+                        @click="clearCheck"
+                      >
+                        清空
+                      </a-button>
+                    </a-space>
+                  </div>
                 </div>
                 <div class="library-list">
-                  <div v-if="filterType !== 'scenario'" class="library-group">
+                  <div v-if="!filterType || filterType === 'case'" class="library-group">
                     <div class="group-title">接口用例 ({{ availableCases.length }})</div>
                     <div
                       v-for="item in availableCases"
@@ -75,16 +104,24 @@
                       :class="{ disabled: item.added }"
                       @click="!item.added && addItem('case', item)"
                     >
-                      <div class="item-name">
-                        <ApiOutlined /> {{ item.name }}
-                      </div>
-                      <div class="item-meta">
-                        <a-tag :color="getMethodColor(item.method)" size="small">{{ item.method }}</a-tag>
-                        <span class="item-path">{{ item.path }}</span>
+                      <a-checkbox
+                        :checked="checkedKeys.has('case-' + item.id)"
+                        :disabled="item.added"
+                        @click.stop
+                        @change="(e: any) => toggleCheck('case', item.id, e.target.checked)"
+                      />
+                      <div class="item-body">
+                        <div class="item-name">
+                          <ApiOutlined /> {{ item.name }}
+                        </div>
+                        <div class="item-meta">
+                          <a-tag :color="getMethodColor(item.method)" size="small">{{ item.method }}</a-tag>
+                          <span class="item-path">{{ item.path }}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                  <div v-if="filterType !== 'case'" class="library-group">
+                  <div v-if="!filterType || filterType === 'scenario'" class="library-group">
                     <div class="group-title">场景编排 ({{ availableScenarios.length }})</div>
                     <div
                       v-for="item in availableScenarios"
@@ -93,11 +130,71 @@
                       :class="{ disabled: item.added }"
                       @click="!item.added && addItem('scenario', item)"
                     >
-                      <div class="item-name">
-                        <NodeIndexOutlined /> {{ item.name }}
+                      <a-checkbox
+                        :checked="checkedKeys.has('scenario-' + item.id)"
+                        :disabled="item.added"
+                        @click.stop
+                        @change="(e: any) => toggleCheck('scenario', item.id, e.target.checked)"
+                      />
+                      <div class="item-body">
+                        <div class="item-name">
+                          <NodeIndexOutlined /> {{ item.name }}
+                        </div>
+                        <div class="item-meta">
+                          <span class="item-path">{{ item.description || '场景编排' }}</span>
+                        </div>
                       </div>
-                      <div class="item-meta">
-                        <span class="item-path">{{ item.description || '场景编排' }}</span>
+                    </div>
+                  </div>
+                  <div v-if="!filterType || filterType === 'script'" class="library-group">
+                    <div class="group-title">UI脚本 ({{ availableScripts.length }})</div>
+                    <div
+                      v-for="item in availableScripts"
+                      :key="'script-' + item.id"
+                      class="library-item"
+                      :class="{ disabled: item.added }"
+                      @click="!item.added && addItem('script', item)"
+                    >
+                      <a-checkbox
+                        :checked="checkedKeys.has('script-' + item.id)"
+                        :disabled="item.added"
+                        @click.stop
+                        @change="(e: any) => toggleCheck('script', item.id, e.target.checked)"
+                      />
+                      <div class="item-body">
+                        <div class="item-name">
+                          <CodeOutlined /> {{ item.name }}
+                        </div>
+                        <div class="item-meta">
+                          <a-tag color="purple" size="small">{{ item.language || 'python' }}</a-tag>
+                          <span class="item-path">{{ item.target_url || 'UI自动化脚本' }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="!filterType || filterType === 'suite'" class="library-group">
+                    <div class="group-title">编排套件 ({{ availableSuites.length }})</div>
+                    <div
+                      v-for="item in availableSuites"
+                      :key="'suite-' + item.id"
+                      class="library-item"
+                      :class="{ disabled: item.added }"
+                      @click="!item.added && addItem('suite', item)"
+                    >
+                      <a-checkbox
+                        :checked="checkedKeys.has('suite-' + item.id)"
+                        :disabled="item.added"
+                        @click.stop
+                        @change="(e: any) => toggleCheck('suite', item.id, e.target.checked)"
+                      />
+                      <div class="item-body">
+                        <div class="item-name">
+                          <AppstoreOutlined /> {{ item.name }}
+                        </div>
+                        <div class="item-meta">
+                          <a-tag color="cyan" size="small">{{ item.total_steps || 0 }}步</a-tag>
+                          <span class="item-path">{{ item.description || '自动化编排套件' }}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -109,7 +206,12 @@
             <a-col :span="14">
               <div class="selected-nodes">
                 <div class="selected-header">
-                  <span>已选节点 ({{ selectedItems.length }})</span>
+                  <span>
+                    已选节点 ({{ selectedItems.length }})
+                    <span class="mixed-summary" v-if="selectedItems.length">
+                      （接口: 用例 {{ caseCount }} · 场景 {{ scenarioCount }} | UI: 脚本 {{ scriptCount }} · 套件 {{ suiteCount }}）
+                    </span>
+                  </span>
                   <a-button size="small" @click="clearAll" :disabled="selectedItems.length === 0">
                     清空
                   </a-button>
@@ -195,17 +297,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
   SearchOutlined, ApiOutlined, NodeIndexOutlined, HolderOutlined,
-  ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined
+  ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined,
+  CodeOutlined, AppstoreOutlined, PlusOutlined
 } from '@ant-design/icons-vue'
 import {
-  testPlansApi, testPlanItemsApi, getEnvironments,
+  testPlansApi, testPlanItemsApi, testPlanExecutionsApi, getEnvironments,
   type TestPlan, type TestPlanItem, type TestEnvironment, type AvailableItem
 } from '@/api/testPlans'
+import { getScripts } from '@/api/automationScripts'
+import { getSuites } from '@/api/automationSuites'
 
 const route = useRoute()
 const router = useRouter()
@@ -214,14 +319,24 @@ const planId = Number(route.params.planId)
 
 const saving = ref(false)
 const loading = ref(false)
+const running = ref(false)
 const searchKeyword = ref('')
 const filterType = ref('')
 const environments = ref<TestEnvironment[]>([])
 const availableCases = ref<AvailableItem[]>([])
 const availableScenarios = ref<AvailableItem[]>([])
+const availableScripts = ref<AvailableItem[]>([])
+const availableSuites = ref<AvailableItem[]>([])
 const selectedItems = ref<(TestPlanItem & { tempId?: string })[]>([])
 const globalTimeout = ref(0)
 const globalRetries = ref(0)
+// 节点库多选（支持用例+场景混合勾选），key 格式 "case-5" / "scenario-3"
+const checkedKeys = ref<Set<string>>(new Set())
+
+const caseCount = computed(() => selectedItems.value.filter(i => i.item_type === 'case').length)
+const scenarioCount = computed(() => selectedItems.value.filter(i => i.item_type === 'scenario').length)
+const scriptCount = computed(() => selectedItems.value.filter(i => i.item_type === 'script').length)
+const suiteCount = computed(() => selectedItems.value.filter(i => i.item_type === 'suite').length)
 
 const form = ref<Partial<TestPlan>>({
   name: '',
@@ -269,19 +384,60 @@ async function loadItems() {
 }
 
 async function loadAvailable() {
-  try {
-    const res = await testPlanItemsApi.available(projectId, planId || 0, {
-      keyword: searchKeyword.value || undefined,
-      item_type: filterType.value || undefined,
-    })
-    availableCases.value = res.cases
-    availableScenarios.value = res.scenarios
-  } catch (e) {
-    console.error('加载可用节点失败', e)
+  // 1) 接口用例/场景：从 available-items 获取，带 added 标记（需 planId）
+  if (planId && (!filterType.value || filterType.value === 'case' || filterType.value === 'scenario')) {
+    try {
+      const res = await testPlanItemsApi.available(projectId, planId, {
+        keyword: searchKeyword.value || undefined,
+        item_type: filterType.value && ['case', 'scenario'].includes(filterType.value)
+          ? filterType.value : undefined,
+      })
+      availableCases.value = res.cases || []
+      availableScenarios.value = res.scenarios || []
+    } catch (e) {
+      console.error('加载接口节点失败', e)
+    }
+  }
+  // 2) UI 脚本/套件：从独立列表 API 获取，本地根据已选节点计算 added（不依赖 planId）
+  const addedScriptIds = new Set(selectedItems.value.filter(i => i.item_type === 'script').map(i => i.ref_id))
+  const addedSuiteIds = new Set(selectedItems.value.filter(i => i.item_type === 'suite').map(i => i.ref_id))
+
+  if (!filterType.value || filterType.value === 'script') {
+    try {
+      const scripts = await getScripts(projectId, { keyword: searchKeyword.value || undefined })
+      availableScripts.value = (scripts || []).map(s => ({
+        id: s.id as number, name: s.name as string,
+        target_url: s.target_url, language: s.language, version: s.version,
+        status: s.status,
+        added: addedScriptIds.has(s.id as number),
+      }))
+    } catch (e) {
+      console.error('加载UI脚本失败', e)
+      availableScripts.value = []
+    }
+  }
+  if (!filterType.value || filterType.value === 'suite') {
+    try {
+      const suites = await getSuites(projectId, { status: undefined })
+      let list = suites || []
+      if (searchKeyword.value) {
+        const kw = searchKeyword.value.toLowerCase()
+        list = list.filter(s => (s.name || '').toLowerCase().includes(kw))
+      }
+      availableSuites.value = list.map(s => ({
+        id: s.id as number, name: s.name as string,
+        description: s.description, total_steps: s.total_steps,
+        status: s.status,
+        added: addedSuiteIds.has(s.id as number),
+      }))
+    } catch (e) {
+      console.error('加载编排套件失败', e)
+      availableSuites.value = []
+    }
   }
 }
 
-function addItem(type: string, item: AvailableItem) {
+function addItem(type: string, item: AvailableItem, reload = true) {
   const newItem: TestPlanItem & { tempId?: string } = {
     id: 0,
     plan_id: planId,
@@ -299,11 +455,67 @@ function addItem(type: string, item: AvailableItem) {
     updated_at: '',
   }
   selectedItems.value.push(newItem)
+  // 立即本地标记左侧节点为已添加，避免等待异步 reload
+  _markAdded(type, item.id, true)
   // 如果是编辑模式，立即保存到后端
   if (planId) {
     saveNewItem(newItem)
   }
-  loadAvailable()
+  if (reload) {
+    loadAvailable()
+  }
+}
+
+/** 本地同步左侧节点库的 added 状态（添加/移除时即时反馈） */
+function _markAdded(type: string, id: number, added: boolean) {
+  const list = type === 'case' ? availableCases.value
+    : type === 'scenario' ? availableScenarios.value
+    : type === 'script' ? availableScripts.value
+    : availableSuites.value
+  const target = list.find(i => i.id === id)
+  if (target) {
+    target.added = added
+  }
+}
+
+function toggleCheck(type: string, id: number, checked: boolean) {
+  const key = `${type}-${id}`
+  const next = new Set(checkedKeys.value)
+  if (checked) {
+    next.add(key)
+  } else {
+    next.delete(key)
+  }
+  checkedKeys.value = next
+}
+
+function clearCheck() {
+  checkedKeys.value = new Set()
+}
+
+async function batchAdd() {
+  if (checkedKeys.value.size === 0 || !planId) return
+  const keys = Array.from(checkedKeys.value)
+  let count = 0
+  for (const key of keys) {
+    const dashIdx = key.indexOf('-')
+    const type = key.slice(0, dashIdx)
+    const id = Number(key.slice(dashIdx + 1))
+    const list = type === 'case' ? availableCases.value
+      : type === 'scenario' ? availableScenarios.value
+      : type === 'script' ? availableScripts.value
+      : availableSuites.value
+    const item = list.find(i => i.id === id)
+    if (item && !item.added) {
+      addItem(type, item, false)
+      count++
+    }
+  }
+  clearCheck()
+  if (count > 0) {
+    await loadAvailable()
+    message.success(`已添加 ${count} 个节点`)
+  }
 }
 
 async function saveNewItem(item: any) {
@@ -350,6 +562,8 @@ async function removeItem(index: number) {
     }
   }
   selectedItems.value.splice(index, 1)
+  // 立即本地标记左侧节点为未添加
+  _markAdded(item.item_type, item.ref_id, false)
   // 重新排序
   selectedItems.value.forEach((it, idx) => { it.sort_order = idx })
   if (planId) {
@@ -382,7 +596,10 @@ function moveDown(index: number) {
 }
 
 function clearAll() {
+  // 本地恢复所有左侧节点的 added 状态
+  selectedItems.value.forEach(it => _markAdded(it.item_type, it.ref_id, false))
   selectedItems.value = []
+  checkedKeys.value = new Set()
   if (planId) {
     loadAvailable()
   }
@@ -418,9 +635,40 @@ async function handleSave() {
   }
 }
 
+async function handleExecute() {
+  if (!planId) {
+    message.warning('请先保存计划')
+    return
+  }
+  running.value = true
+  try {
+    // 先保存基本信息，再触发执行
+    await testPlansApi.update(projectId, planId, {
+      ...form.value,
+      execution_config: {
+        timeout: globalTimeout.value,
+        max_retries: globalRetries.value,
+      },
+    })
+    const res = await testPlanExecutionsApi.run(projectId, planId)
+    message.success('计划已启动')
+    router.push(`/projects/${projectId}/test-plans/${planId}/run/${res.execution_id}`)
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '执行失败')
+  } finally {
+    running.value = false
+  }
+}
+
 function goBack() {
   router.push(`/projects/${projectId}/plans`)
 }
+
+// 搜索/筛选变化时重新加载节点库并清空勾选
+watch([searchKeyword, filterType], () => {
+  checkedKeys.value = new Set()
+  loadAvailable()
+})
 
 onMounted(() => {
   loadEnvironments()
@@ -442,16 +690,55 @@ onMounted(() => {
   flex-direction: column;
 }
 .library-header, .selected-header {
-  padding: 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid #f0f0f0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  background: #fafafa;
 }
 .selected-header {
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
+  background: transparent;
+}
+.filter-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+}
+.library-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.batch-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.batch-label {
+  font-size: 13px;
+  color: #333;
+  font-weight: 500;
+}
+.batch-hint {
+  font-size: 12px;
+  color: #bfbfbf;
+}
+.mixed-summary {
+  font-size: 12px;
+  color: #1890ff;
+  margin-left: 4px;
+}
+.library-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.item-body {
+  flex: 1;
+  min-width: 0;
 }
 .library-list, .selected-list {
   flex: 1;

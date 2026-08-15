@@ -15,7 +15,7 @@
         <a-button @click="showEnvModal = true" style="margin-right: 8px">
           <EnvironmentOutlined /> 环境管理
         </a-button>
-        <a-button type="primary" @click="showCreateModal = true">
+        <a-button type="primary" @click="openCreateModal">
           <PlusOutlined /> 新建计划
         </a-button>
       </div>
@@ -62,21 +62,23 @@
       </a-table>
     </a-card>
 
-    <!-- 新建/编辑计划弹窗 -->
+    <!-- 新建计划弹窗（仅基本信息，创建后跳转编排页） -->
     <a-modal
       v-model:open="showCreateModal"
-      :title="editingPlan ? '编辑测试计划' : '新建测试计划'"
-      width="700px"
+      title="新建测试计划"
+      width="600px"
       @ok="handleSubmit"
       :confirm-loading="submitting"
+      @cancel="resetForm"
     >
       <a-form layout="vertical" :model="formData">
+        <a-form-item label="计划名称" required>
+          <a-input v-model:value="formData.name" placeholder="请输入计划名称" />
+        </a-form-item>
+        <a-form-item label="计划描述">
+          <a-textarea v-model:value="formData.description" :rows="3" placeholder="请输入计划描述" />
+        </a-form-item>
         <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="计划名称" required>
-              <a-input v-model:value="formData.name" placeholder="请输入计划名称" />
-            </a-form-item>
-          </a-col>
           <a-col :span="12">
             <a-form-item label="优先级">
               <a-select v-model:value="formData.priority">
@@ -87,11 +89,6 @@
               </a-select>
             </a-form-item>
           </a-col>
-        </a-row>
-        <a-form-item label="计划描述">
-          <a-textarea v-model:value="formData.description" :rows="3" placeholder="请输入计划描述" />
-        </a-form-item>
-        <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="所属版本">
               <a-select v-model:value="formData.version_id" allow-clear placeholder="选择版本（可选）">
@@ -99,117 +96,22 @@
               </a-select>
             </a-form-item>
           </a-col>
-          <a-col :span="12">
-            <a-form-item label="测试环境">
-              <a-select v-model:value="formData.environment_id" allow-clear placeholder="选择测试环境">
-                <a-select-option v-for="env in environments" :key="env.id" :value="env.id">
-                  {{ env.name }} ({{ env.base_url }})
-                </a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
         </a-row>
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="调度类型">
-              <a-select v-model:value="formData.schedule_type">
-                <a-select-option value="manual">手动执行</a-select-option>
-                <a-select-option value="once">一次性执行</a-select-option>
-                <a-select-option value="cron">定时执行</a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="开始时间">
-              <a-date-picker v-model:value="formData.start_date" show-time style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="结束时间">
-              <a-date-picker v-model:value="formData.end_date" show-time style="width: 100%" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="关联用例">
-          <a-select
-            v-model:value="formData.case_ids"
-            mode="multiple"
-            placeholder="选择要关联的测试用例"
-            :filter-option="filterCaseOption"
-            style="width: 100%"
-          >
-            <a-select-option v-for="c in allCases" :key="c.id" :value="c.id">
-              [{{ c.priority }}] {{ c.title }}
+        <a-form-item label="测试环境">
+          <a-select v-model:value="formData.environment_id" allow-clear placeholder="选择测试环境">
+            <a-select-option v-for="env in environments" :key="env.id" :value="env.id">
+              {{ env.name }} ({{ env.base_url }})
             </a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item label="调度类型">
+          <a-select v-model:value="formData.schedule_type">
+            <a-select-option value="manual">手动执行</a-select-option>
+            <a-select-option value="once">一次性执行</a-select-option>
+            <a-select-option value="cron">定时执行</a-select-option>
+          </a-select>
+        </a-form-item>
       </a-form>
-    </a-modal>
-
-    <!-- 计划详情弹窗 -->
-    <a-modal v-model:open="showDetailModal" title="计划详情" width="800px" :footer="null">
-      <div v-if="currentPlan">
-        <a-descriptions :column="2" bordered size="small">
-          <a-descriptions-item label="计划名称">{{ currentPlan.name }}</a-descriptions-item>
-          <a-descriptions-item label="状态">
-            <a-tag :color="getStatusColor(currentPlan.status)">{{ getStatusText(currentPlan.status) }}</a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="优先级">{{ currentPlan.priority }}</a-descriptions-item>
-          <a-descriptions-item label="通过率">{{ currentPlan.pass_rate || 0 }}%</a-descriptions-item>
-          <a-descriptions-item label="用例总数">{{ currentPlan.total_cases || 0 }}</a-descriptions-item>
-          <a-descriptions-item label="通过/失败">{{ currentPlan.passed_cases || 0 }} / {{ currentPlan.failed_cases || 0 }}</a-descriptions-item>
-          <a-descriptions-item label="计划描述" :span="2">{{ currentPlan.description || '-' }}</a-descriptions-item>
-        </a-descriptions>
-        <a-divider>关联用例（{{ planCases.length }}）</a-divider>
-        <a-table
-          :columns="caseColumns"
-          :data-source="planCases"
-          :loading="casesLoading"
-          size="small"
-          :pagination="false"
-          row-key="id"
-          :locale="{ emptyText: '暂无关联用例，请在编辑计划中添加' }"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'case_title'">
-              <span v-if="record.case_title">{{ record.case_title }}</span>
-              <span v-else style="color: #999">用例已删除（ID: {{ record.case_id }}）</span>
-            </template>
-            <template v-else-if="column.key === 'status'">
-              <a-tag :color="getCaseStatusColor(record.status)">{{ getCaseStatusText(record.status) }}</a-tag>
-            </template>
-          </template>
-        </a-table>
-
-        <a-divider>关联编排套件（{{ linkedSuites.length }}）</a-divider>
-        <a-table
-          :columns="suiteColumns"
-          :data-source="linkedSuites"
-          size="small"
-          :pagination="false"
-          row-key="id"
-          :locale="{ emptyText: '暂无关联编排套件' }"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'last_run'">
-              <span v-if="record.last_run_at">
-                <a-tag :color="getRunStatusColor(record.last_run_status)" size="small">
-                  {{ getRunStatusText(record.last_run_status) }}
-                </a-tag>
-                {{ $formatDateTime(record.last_run_at) }}
-              </span>
-              <span v-else style="color: #999">从未执行</span>
-            </template>
-            <template v-else-if="column.key === 'action'">
-              <a-button type="link" size="small" @click="goToSuite(record.id)">
-                查看编排
-              </a-button>
-            </template>
-          </template>
-        </a-table>
-      </div>
     </a-modal>
 
     <!-- 环境管理弹窗 -->
@@ -264,17 +166,15 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import {
   PlusOutlined, EnvironmentOutlined
 } from '@ant-design/icons-vue'
 import {
   testPlansApi, testPlanExecutionsApi,
   getEnvironments, createEnvironment, updateEnvironment, deleteEnvironment,
-  type TestPlan, type TestPlanCase, type TestEnvironment
+  type TestPlan, type TestEnvironment
 } from '@/api/testPlans'
-import { getCases, type TestCase } from '@/api/cases'
-import { getSuites, type AutomationSuite } from '@/api/automationSuites'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 
 const route = useRoute()
@@ -288,21 +188,7 @@ const versions = ref<ProjectVersion[]>([])
 const filterVersionId = ref<number | undefined>(undefined)
 
 const showCreateModal = ref(false)
-const showDetailModal = ref(false)
 const submitting = ref(false)
-const editingPlan = ref<TestPlan | null>(null)
-const currentPlan = ref<TestPlan | null>(null)
-const planCases = ref<TestPlanCase[]>([])
-const casesLoading = ref(false)
-const allCases = ref<TestCase[]>([])
-const linkedSuites = ref<AutomationSuite[]>([])
-
-const suiteColumns = [
-  { title: '套件名称', dataIndex: 'name' },
-  { title: '步骤数', dataIndex: 'total_steps', width: 80 },
-  { title: '最近执行', key: 'last_run', width: 200 },
-  { title: '操作', key: 'action', width: 100 },
-]
 
 const formData = ref({
   name: '',
@@ -311,10 +197,6 @@ const formData = ref({
   environment_id: null as number | null,
   version_id: null as number | null,
   schedule_type: 'manual',
-  schedule_cron: '',
-  start_date: null as any,
-  end_date: null as any,
-  case_ids: [] as number[]
 })
 
 // 环境管理
@@ -342,18 +224,6 @@ const columns = [
   { title: '操作', key: 'action', width: 280, fixed: 'right' as const }
 ]
 
-function getVersionName(versionId?: number | null) {
-  if (!versionId) return '-'
-  return versions.value.find(v => v.id === versionId)?.name || '-'
-}
-
-const caseColumns = [
-  { title: '序号', dataIndex: 'sort_order', key: 'sort_order', width: 60 },
-  { title: '用例标题', dataIndex: 'case_title', key: 'case_title' },
-  { title: '优先级', dataIndex: 'case_priority', key: 'case_priority', width: 80 },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 100 }
-]
-
 const envColumns = [
   { title: '环境名称', dataIndex: 'name', key: 'name' },
   { title: '基础URL', dataIndex: 'base_url', key: 'base_url' },
@@ -361,12 +231,18 @@ const envColumns = [
   { title: '操作', key: 'action', width: 120 }
 ]
 
+function getVersionName(versionId?: number | null) {
+  if (!versionId) return '-'
+  return versions.value.find(v => v.id === versionId)?.name || '-'
+}
+
 function getStatusColor(status?: string) {
   const map: Record<string, string> = {
     draft: 'default',
     scheduled: 'blue',
     running: 'processing',
     completed: 'success',
+    failed: 'error',
     archived: 'default'
   }
   return map[status || ''] || 'default'
@@ -378,6 +254,7 @@ function getStatusText(status?: string) {
     scheduled: '已排期',
     running: '执行中',
     completed: '已完成',
+    failed: '已失败',
     archived: '已归档'
   }
   return map[status || ''] || status
@@ -386,46 +263,6 @@ function getStatusText(status?: string) {
 function getPriorityColor(priority?: string) {
   const map: Record<string, string> = { P0: 'red', P1: 'orange', P2: 'blue', P3: 'default' }
   return map[priority || ''] || 'default'
-}
-
-function getCaseStatusColor(status?: string) {
-  const map: Record<string, string> = {
-    pending: 'default',
-    running: 'processing',
-    passed: 'success',
-    failed: 'error',
-    skipped: 'warning'
-  }
-  return map[status || ''] || 'default'
-}
-
-function getCaseStatusText(status?: string) {
-  const map: Record<string, string> = {
-    pending: '待执行',
-    running: '执行中',
-    passed: '已通过',
-    failed: '失败',
-    skipped: '已跳过'
-  }
-  return map[status || ''] || status
-}
-
-function getRunStatusColor(status?: string | null) {
-  const map: Record<string, string> = { passed: 'green', failed: 'red', partial: 'orange', running: 'blue' }
-  return map[status || ''] || 'default'
-}
-
-function getRunStatusText(status?: string | null) {
-  const map: Record<string, string> = { passed: '通过', failed: '失败', partial: '部分通过', running: '执行中' }
-  return map[status || ''] || status
-}
-
-function goToSuite(suiteId: number) {
-  router.push(`/projects/${projectId}/suites`)
-}
-
-function filterCaseOption(input: string, option: any) {
-  return (option.children || '').toLowerCase().includes(input.toLowerCase())
 }
 
 async function loadPlans() {
@@ -453,46 +290,18 @@ async function loadEnvironments() {
   }
 }
 
-async function loadAllCases() {
-  try {
-    allCases.value = await getCases(projectId)
-  } catch (e: any) {
-    console.error('加载用例失败', e)
-  }
-}
-
 function handleTableChange(pag: any) {
   pagination.value.current = pag.current
   pagination.value.pageSize = pag.pageSize
   loadPlans()
 }
 
-async function editPlan(record: TestPlan) {
-  editingPlan.value = record
-  formData.value = {
-    name: record.name,
-    description: record.description || '',
-    priority: record.priority || 'P2',
-    environment_id: record.environment_id || null,
-    version_id: record.version_id || null,
-    schedule_type: record.schedule_type || 'manual',
-    schedule_cron: record.schedule_cron || '',
-    start_date: record.start_date ? new Date(record.start_date) : null,
-    end_date: record.end_date ? new Date(record.end_date) : null,
-    case_ids: []
-  }
-  // 加载已关联的用例
-  try {
-    const cases = await testPlansApi.getCases(projectId, record.id!)
-    formData.value.case_ids = cases.map((c: any) => c.case_id)
-  } catch (e) {
-    console.error('加载计划用例失败', e)
-  }
+function openCreateModal() {
+  resetForm()
   showCreateModal.value = true
 }
 
 function resetForm() {
-  editingPlan.value = null
   formData.value = {
     name: '',
     description: '',
@@ -500,10 +309,6 @@ function resetForm() {
     environment_id: null,
     version_id: null,
     schedule_type: 'manual',
-    schedule_cron: '',
-    start_date: null,
-    end_date: null,
-    case_ids: []
   }
 }
 
@@ -514,25 +319,21 @@ async function handleSubmit() {
   }
   submitting.value = true
   try {
-    const data: any = { ...formData.value }
-    if (data.start_date) data.start_date = data.start_date.toISOString()
-    if (data.end_date) data.end_date = data.end_date.toISOString()
-
-    if (editingPlan.value) {
-      await testPlansApi.update(projectId, editingPlan.value.id!, data)
-      message.success('更新成功')
-    } else {
-      await testPlansApi.create(projectId, data)
-      message.success('创建成功')
-    }
+    const created = await testPlansApi.create(projectId, formData.value)
+    message.success('创建成功，请编排节点')
     showCreateModal.value = false
-    resetForm()
-    loadPlans()
+    // 创建后直接跳转到编排页进行节点编排
+    router.push(`/projects/${projectId}/test-plans/${created.id}/edit`)
   } catch (e: any) {
     message.error(e.response?.data?.detail || '操作失败')
   } finally {
     submitting.value = false
   }
+}
+
+function editPlan(record: TestPlan) {
+  // 编辑直接跳转到编排页
+  router.push(`/projects/${projectId}/test-plans/${record.id}/edit`)
 }
 
 async function handleDelete(record: TestPlan) {
@@ -558,22 +359,6 @@ async function handleExecute(record: TestPlan) {
 function viewReport(record: TestPlan) {
   if (record.last_execution_id) {
     router.push(`/projects/${projectId}/test-plans/${record.id}/report/${record.last_execution_id}`)
-  }
-}
-
-async function viewPlan(record: TestPlan) {
-  currentPlan.value = record
-  showDetailModal.value = true
-  casesLoading.value = true
-  try {
-    planCases.value = await testPlansApi.getCases(projectId, record.id!)
-    // 加载关联编排
-    const allSuites = await getSuites(projectId)
-    linkedSuites.value = allSuites.filter(s => s.plan_id === record.id)
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '加载失败')
-  } finally {
-    casesLoading.value = false
   }
 }
 
@@ -639,7 +424,6 @@ async function loadVersions() {
 onMounted(() => {
   loadPlans()
   loadEnvironments()
-  loadAllCases()
   loadVersions()
 })
 </script>
