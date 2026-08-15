@@ -1,10 +1,11 @@
 """
 变量替换引擎
-支持 {{var_name}} 语法，优先级: local > scenario > environment > global
+支持 {{var_name}} 语法，优先级: Mock函数 > local > scenario > environment > global
 """
 import re
 import json
 from typing import Any, Dict, Optional
+from app.services.mock_data_generator import mock_generator
 
 
 class VariableEngine:
@@ -17,6 +18,7 @@ class VariableEngine:
         self.environment_vars: Dict[str, Any] = {}
         self.scenario_vars: Dict[str, Any] = {}
         self.local_vars: Dict[str, Any] = {}
+        self.mock_generator = mock_generator
 
     def set(self, scope: str, name: str, value: Any):
         """设置变量"""
@@ -47,9 +49,12 @@ class VariableEngine:
                 or name in self.environment_vars or name in self.global_vars)
 
     def replace(self, text: str) -> str:
-        """替换文本中的 {{var_name}} 变量"""
+        """替换文本中的 {{var_name}} 变量，先执行 Mock 函数替换"""
         if not text or not isinstance(text, str):
             return text
+
+        # 第一步：Mock 函数替换（优先级最高）
+        text = self.mock_generator.generate(text)
 
         def _replace_match(match):
             var_name = match.group(1)

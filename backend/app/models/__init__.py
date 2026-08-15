@@ -8,7 +8,7 @@ from app.models.llm_config import LLMConfig
 from app.models.defect import Defect
 from app.models.report import TestReport
 from app.models.knowledge_doc import KnowledgeDoc
-from app.models.test_plan import TestPlan, TestPlanCase, TestEnvironment
+from app.models.test_plan import TestPlan, TestPlanCase, TestEnvironment, TestPlanItem, TestPlanExecution, TestPlanExecutionResult
 from app.models.audit_log import AuditLog
 from app.models.project_version import ProjectVersion
 from app.models.automation_script import AutomationScript
@@ -46,6 +46,9 @@ __all__ = [
     "TestPlan",
     "TestPlanCase",
     "TestEnvironment",
+    "TestPlanItem",
+    "TestPlanExecution",
+    "TestPlanExecutionResult",
     "AuditLog",
     "ProjectVersion",
     "AutomationScript",

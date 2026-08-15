@@ -16,6 +16,7 @@ celery_app = Celery(
     include=[
         "app.tasks.script_tasks",
         "app.tasks.api_case_tasks",
+        "app.tasks.test_plan_tasks",
     ],
 )
 

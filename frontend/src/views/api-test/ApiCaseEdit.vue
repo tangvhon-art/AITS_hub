@@ -48,7 +48,11 @@
           </a-col>
         </a-row>
         <a-form-item label="请求路径">
-          <a-input v-model:value="form.path" placeholder="/api/users/{{id}}" :disabled="!!form.api_id" />
+          <a-input v-model:value="form.path" placeholder="/api/users/{{id}}，支持 {{$mock函数}}" :disabled="!!form.api_id">
+            <template #addonAfter>
+              <MockDataInserter v-model="form.path" />
+            </template>
+          </a-input>
         </a-form-item>
         <a-form-item label="用例描述">
           <a-textarea v-model:value="form.description" :rows="2" placeholder="请输入用例描述" />
@@ -67,7 +71,10 @@
                   <a-input v-model:value="record.key" placeholder="Header名" size="small" />
                 </template>
                 <template v-else-if="column.key === 'value'">
-                  <a-input v-model:value="record.value" placeholder="Header值" size="small" />
+                  <div style="display: flex; gap: 4px; align-items: center">
+                    <a-input v-model:value="record.value" placeholder="Header值" size="small" style="flex: 1" />
+                    <MockDataInserter v-model="record.value" />
+                  </div>
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <a-button type="link" danger size="small" @click="form.headers.splice(index, 1)">删除</a-button>
@@ -86,7 +93,10 @@
                   <a-input v-model:value="record.key" placeholder="参数名" size="small" />
                 </template>
                 <template v-else-if="column.key === 'value'">
-                  <a-input v-model:value="record.value" placeholder="参数值" size="small" />
+                  <div style="display: flex; gap: 4px; align-items: center">
+                    <a-input v-model:value="record.value" placeholder="参数值" size="small" style="flex: 1" />
+                    <MockDataInserter v-model="record.value" />
+                  </div>
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <a-button type="link" danger size="small" @click="form.query_params.splice(index, 1)">删除</a-button>
@@ -103,11 +113,14 @@
               <a-radio value="x-www-form-urlencoded">x-www-form-urlencoded</a-radio>
               <a-radio value="raw">raw</a-radio>
             </a-radio-group>
+            <div v-if="form.body_type === 'json' || form.body_type === 'raw'" style="margin-bottom: 8px; display: flex; justify-content: flex-end">
+              <MockDataInserter v-model="bodyContent" />
+            </div>
             <a-textarea
               v-if="form.body_type === 'json' || form.body_type === 'raw'"
               v-model:value="bodyContent"
               :rows="6"
-              placeholder='{"key": "value"}'
+              placeholder='{"key": "value"}，支持 {{$mock函数}}'
               style="font-family: monospace"
             />
             <a-table
@@ -126,7 +139,10 @@
                   <a-input v-model:value="record.key" placeholder="参数名" size="small" />
                 </template>
                 <template v-else-if="column.key === 'value'">
-                  <a-input v-model:value="record.value" placeholder="参数值" size="small" />
+                  <div style="display: flex; gap: 4px; align-items: center">
+                    <a-input v-model:value="record.value" placeholder="参数值" size="small" style="flex: 1" />
+                    <MockDataInserter v-model="record.value" />
+                  </div>
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <a-button type="link" danger size="small" @click="bodyParams.splice(index, 1)">删除</a-button>
@@ -226,6 +242,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiCasesApi, apiDefinitionsApi } from '@/api/apiTest'
+import MockDataInserter from './MockDataInserter.vue'
 
 const route = useRoute()
 const router = useRouter()

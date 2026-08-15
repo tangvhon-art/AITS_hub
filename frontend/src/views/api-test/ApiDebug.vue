@@ -27,7 +27,11 @@
           <a-select-option value="DELETE">DELETE</a-select-option>
           <a-select-option value="PATCH">PATCH</a-select-option>
         </a-select>
-        <a-input v-model:value="request.url" placeholder="输入请求URL，支持 {{变量}}" />
+        <a-input v-model:value="request.url" placeholder="输入请求URL，支持 {{变量}} 和 {{$mock函数}}">
+          <template #addonAfter>
+            <MockDataInserter v-model="request.url" />
+          </template>
+        </a-input>
         <a-button type="primary" :loading="sending" @click="handleSend">发送</a-button>
       </div>
 
@@ -43,7 +47,10 @@
                 <a-input v-model:value="record.key" placeholder="参数名" size="small" />
               </template>
               <template v-else-if="column.key === 'value'">
-                <a-input v-model:value="record.value" placeholder="参数值" size="small" />
+                <div style="display: flex; gap: 4px; align-items: center">
+                  <a-input v-model:value="record.value" placeholder="参数值" size="small" style="flex: 1" />
+                  <MockDataInserter v-model="record.value" />
+                </div>
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-button type="link" danger size="small" @click="request.query_params.splice(index, 1)">删除</a-button>
@@ -62,7 +69,10 @@
                 <a-input v-model:value="record.key" placeholder="Header名" size="small" />
               </template>
               <template v-else-if="column.key === 'value'">
-                <a-input v-model:value="record.value" placeholder="Header值" size="small" />
+                <div style="display: flex; gap: 4px; align-items: center">
+                  <a-input v-model:value="record.value" placeholder="Header值" size="small" style="flex: 1" />
+                  <MockDataInserter v-model="record.value" />
+                </div>
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-button type="link" danger size="small" @click="request.headers.splice(index, 1)">删除</a-button>
@@ -79,11 +89,14 @@
             <a-radio value="x-www-form-urlencoded">x-www-form-urlencoded</a-radio>
             <a-radio value="raw">raw</a-radio>
           </a-radio-group>
+          <div v-if="request.body_type === 'json' || request.body_type === 'raw'" style="margin-bottom: 8px; display: flex; justify-content: flex-end">
+            <MockDataInserter v-model="bodyContent" />
+          </div>
           <a-textarea
             v-if="request.body_type === 'json' || request.body_type === 'raw'"
             v-model:value="bodyContent"
             :rows="8"
-            placeholder='{"key": "value"}'
+            placeholder='{"key": "value"}，支持 {{$mock函数}}'
             style="font-family: monospace"
           />
           <a-table
@@ -102,7 +115,10 @@
                 <a-input v-model:value="record.key" placeholder="参数名" size="small" />
               </template>
               <template v-else-if="column.key === 'value'">
-                <a-input v-model:value="record.value" placeholder="参数值" size="small" />
+                <div style="display: flex; gap: 4px; align-items: center">
+                  <a-input v-model:value="record.value" placeholder="参数值" size="small" style="flex: 1" />
+                  <MockDataInserter v-model="record.value" />
+                </div>
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-button type="link" danger size="small" @click="bodyParams.splice(index, 1)">删除</a-button>
@@ -198,6 +214,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { HistoryOutlined, SaveOutlined } from '@ant-design/icons-vue'
 import { apiDebugApi, apiDefinitionsApi } from '@/api/apiTest'
+import MockDataInserter from './MockDataInserter.vue'
 
 const route = useRoute()
 const router = useRouter()

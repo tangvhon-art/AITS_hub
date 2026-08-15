@@ -40,7 +40,7 @@
             <div style="display: flex; align-items: center; justify-content: space-between; width: 100%">
               <span>{{ selectedEnv.name }} - 变量配置</span>
               <a-space>
-                <a-button size="small" @click="showEditEnv = true">编辑环境</a-button>
+                <a-button size="small" @click="openEditEnv">编辑环境</a-button>
                 <a-popconfirm title="确定删除该环境？" @confirm="handleDeleteEnv">
                   <a-button size="small" danger>删除</a-button>
                 </a-popconfirm>
@@ -205,6 +205,18 @@ const handleSaveVars = async () => {
   } finally {
     saving.value = false
   }
+}
+
+const openEditEnv = () => {
+  if (selectedEnv.value) {
+    envForm.value = {
+      name: selectedEnv.value.name || '',
+      base_url: selectedEnv.value.base_url || '',
+      description: selectedEnv.value.description || '',
+      is_default: selectedEnv.value.is_default || false,
+    }
+  }
+  showEditEnv.value = true
 }
 
 const handleSaveEnv = async () => {

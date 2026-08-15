@@ -47,6 +47,7 @@ class TestPlanBase(BaseModel):
     end_date: Optional[datetime] = None
     environment_id: Optional[int] = None
     config: Optional[Dict[str, Any]] = {}
+    execution_config: Optional[Dict[str, Any]] = {}
     schedule_type: Optional[str] = "manual"
     schedule_cron: Optional[str] = None
     version_id: Optional[int] = None
@@ -65,6 +66,7 @@ class TestPlanUpdate(BaseModel):
     end_date: Optional[datetime] = None
     environment_id: Optional[int] = None
     config: Optional[Dict[str, Any]] = None
+    execution_config: Optional[Dict[str, Any]] = None
     schedule_type: Optional[str] = None
     schedule_cron: Optional[str] = None
     case_ids: Optional[List[int]] = None
@@ -83,6 +85,8 @@ class TestPlanResponse(TestPlanBase):
     passed_cases: int
     failed_cases: int
     pass_rate: int
+    last_execution_id: Optional[int] = None
+    last_pass_rate: Optional[float] = 0
     version_id: Optional[int] = None
     next_run_time: Optional[datetime] = None
     created_by: Optional[int] = None
@@ -197,3 +201,129 @@ class RiskAlertResponse(BaseModel):
     medium: int
     low: int
     items: List[RiskAlertItem]
+
+
+# ==================== 测试计划节点 ====================
+
+class TestPlanItemBase(BaseModel):
+    item_type: str = Field(..., description="节点类型：case/scenario")
+    ref_id: int = Field(..., description="关联的用例ID或场景ID")
+    item_name: Optional[str] = ""
+    sort_order: Optional[int] = 0
+    enabled: Optional[bool] = True
+    fail_strategy: Optional[str] = "stop"
+    timeout: Optional[int] = 0
+    max_retries: Optional[int] = 0
+    config: Optional[Dict[str, Any]] = {}
+
+
+class TestPlanItemCreate(TestPlanItemBase):
+    pass
+
+
+class TestPlanItemUpdate(BaseModel):
+    item_name: Optional[str] = None
+    sort_order: Optional[int] = None
+    enabled: Optional[bool] = None
+    fail_strategy: Optional[str] = None
+    timeout: Optional[int] = None
+    max_retries: Optional[int] = None
+    config: Optional[Dict[str, Any]] = None
+
+
+class TestPlanItemResponse(TestPlanItemBase):
+    id: int
+    plan_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TestPlanItemReorderRequest(BaseModel):
+    item_ids: List[int]
+
+
+# ==================== 测试计划执行 ====================
+
+class TestPlanExecutionBase(BaseModel):
+    plan_id: int
+    environment_id: Optional[int] = None
+
+
+class TestPlanExecutionCreate(TestPlanExecutionBase):
+    pass
+
+
+class TestPlanExecutionResponse(BaseModel):
+    id: int
+    plan_id: int
+    plan_name: str
+    environment_id: Optional[int] = None
+    environment_name: str = ""
+    status: str
+    triggered_by: Optional[int] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    total_items: int = 0
+    passed_count: int = 0
+    failed_count: int = 0
+    skipped_count: int = 0
+    pass_rate: float = 0
+    error_message: str = ""
+    report_data: Optional[Dict[str, Any]] = {}
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TestPlanExecutionStatusResponse(BaseModel):
+    id: int
+    status: str
+    total_items: int
+    passed_count: int
+    failed_count: int
+    skipped_count: int
+    pass_rate: float
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
+class TestPlanExecutionListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[TestPlanExecutionResponse]
+
+
+# ==================== 执行结果明细 ====================
+
+class TestPlanExecutionResultResponse(BaseModel):
+    id: int
+    execution_id: int
+    item_id: Optional[int] = None
+    item_type: str = ""
+    ref_id: Optional[int] = None
+    item_name: str = ""
+    sort_order: int = 0
+    status: str
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    duration_ms: int = 0
+    request_data: Optional[Dict[str, Any]] = {}
+    response_data: Optional[Dict[str, Any]] = {}
+    assertions: Optional[List[Any]] = []
+    extracted_vars: Optional[Dict[str, Any]] = {}
+    error_message: str = ""
+    retry_count: int = 0
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TestPlanExecutionDetailResponse(BaseModel):
+    execution: TestPlanExecutionResponse
+    results: List[TestPlanExecutionResultResponse]

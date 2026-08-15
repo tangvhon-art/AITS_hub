@@ -292,7 +292,7 @@ import {
   type AutomationSuite, type SuiteStep, type SuiteRun, type SuiteRunResult
 } from '@/api/automationSuites'
 import { getScripts, type AutomationScript } from '@/api/automationScripts'
-import { getPlans, type TestPlan } from '@/api/testPlans'
+import { testPlansApi, type TestPlan } from '@/api/testPlans'
 import { getCases, type TestCase } from '@/api/cases'
 
 const route = useRoute()
@@ -651,7 +651,7 @@ onMounted(() => {
 
 async function loadTestPlans() {
   try {
-    const res = await getPlans(projectId, { page_size: 100 })
+    const res = await testPlansApi.list(projectId, { page_size: 100 })
     testPlans.value = res.items || []
   } catch (e) {
     // 忽略

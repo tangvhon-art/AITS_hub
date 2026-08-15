@@ -93,6 +93,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '测试计划', icon: 'Schedule' }
       },
       {
+        path: 'projects/:projectId/test-plans/:planId/edit',
+        name: 'TestPlanEdit',
+        component: () => import('@/views/TestPlanEdit.vue'),
+        meta: { title: '测试计划编辑', icon: 'Schedule' }
+      },
+      {
+        path: 'projects/:projectId/test-plans/:planId/run/:executionId',
+        name: 'TestPlanRun',
+        component: () => import('@/views/TestPlanRun.vue'),
+        meta: { title: '执行进度', icon: 'Schedule' }
+      },
+      {
+        path: 'projects/:projectId/test-plans/:planId/report/:executionId',
+        name: 'TestPlanReport',
+        component: () => import('@/views/TestPlanReport.vue'),
+        meta: { title: '测试报告', icon: 'Schedule' }
+      },
+      {
         path: 'projects/:id/dashboard',
         name: 'QualityDashboard',
         component: () => import('@/views/QualityDashboard.vue'),

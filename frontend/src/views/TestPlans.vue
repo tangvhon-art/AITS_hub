@@ -41,15 +41,19 @@
           <template v-else-if="column.key === 'priority'">
             <a-tag :color="getPriorityColor(record.priority)">{{ record.priority }}</a-tag>
           </template>
-          <template v-else-if="column.key === 'pass_rate'">
-            <a-progress :percent="record.pass_rate || 0" size="small" />
+          <template v-else-if="column.key === 'last_pass_rate'">
+            <a-progress :percent="record.last_pass_rate || 0" size="small" />
+          </template>
+          <template v-else-if="column.key === 'last_execution_id'">
+            <a-tag v-if="record.last_execution_id" color="blue" style="cursor:pointer" @click="viewReport(record)">
+              #{{ record.last_execution_id }}
+            </a-tag>
+            <span v-else style="color:#999">-</span>
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button type="link" size="small" @click="viewPlan(record)">详情</a-button>
+            <a-button type="link" size="small" @click="handleExecute(record)" :disabled="record.status === 'running'">执行</a-button>
             <a-button type="link" size="small" @click="editPlan(record)">编辑</a-button>
-            <a-button type="link" size="small" @click="handleExecute(record)" :disabled="record.status === 'running'">
-              执行
-            </a-button>
+            <a-button type="link" size="small" @click="viewReport(record)" v-if="record.last_execution_id">报告</a-button>
             <a-popconfirm title="确定删除该计划？" @confirm="handleDelete(record)">
               <a-button type="link" size="small" danger>删除</a-button>
             </a-popconfirm>
@@ -265,8 +269,8 @@ import {
   PlusOutlined, EnvironmentOutlined
 } from '@ant-design/icons-vue'
 import {
-  getPlans, createPlan, updatePlan, deletePlan, executePlan,
-  getPlanCases, getEnvironments, createEnvironment, updateEnvironment, deleteEnvironment,
+  testPlansApi, testPlanExecutionsApi,
+  getEnvironments, createEnvironment, updateEnvironment, deleteEnvironment,
   type TestPlan, type TestPlanCase, type TestEnvironment
 } from '@/api/testPlans'
 import { getCases, type TestCase } from '@/api/cases'
@@ -331,10 +335,11 @@ const columns = [
   { title: '所属版本', dataIndex: 'version_id', key: 'version', width: 120 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
-  { title: '用例数', dataIndex: 'total_cases', key: 'total_cases', width: 80 },
-  { title: '通过率', dataIndex: 'pass_rate', key: 'pass_rate', width: 150 },
+  { title: '节点数', dataIndex: 'total_cases', key: 'total_cases', width: 80 },
+  { title: '最近通过率', dataIndex: 'last_pass_rate', key: 'last_pass_rate', width: 120 },
+  { title: '最近执行', dataIndex: 'last_execution_id', key: 'last_execution_id', width: 120 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 220, fixed: 'right' as const }
+  { title: '操作', key: 'action', width: 280, fixed: 'right' as const }
 ]
 
 function getVersionName(versionId?: number | null) {
@@ -426,7 +431,7 @@ function filterCaseOption(input: string, option: any) {
 async function loadPlans() {
   loading.value = true
   try {
-    const res = await getPlans(projectId, {
+    const res = await testPlansApi.list(projectId, {
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
       version_id: filterVersionId.value
@@ -478,8 +483,8 @@ async function editPlan(record: TestPlan) {
   }
   // 加载已关联的用例
   try {
-    const cases = await getPlanCases(projectId, record.id!)
-    formData.value.case_ids = cases.map(c => c.case_id)
+    const cases = await testPlansApi.getCases(projectId, record.id!)
+    formData.value.case_ids = cases.map((c: any) => c.case_id)
   } catch (e) {
     console.error('加载计划用例失败', e)
   }
@@ -514,10 +519,10 @@ async function handleSubmit() {
     if (data.end_date) data.end_date = data.end_date.toISOString()
 
     if (editingPlan.value) {
-      await updatePlan(projectId, editingPlan.value.id!, data)
+      await testPlansApi.update(projectId, editingPlan.value.id!, data)
       message.success('更新成功')
     } else {
-      await createPlan(projectId, data)
+      await testPlansApi.create(projectId, data)
       message.success('创建成功')
     }
     showCreateModal.value = false
@@ -532,7 +537,7 @@ async function handleSubmit() {
 
 async function handleDelete(record: TestPlan) {
   try {
-    await deletePlan(projectId, record.id!)
+    await testPlansApi.delete(projectId, record.id!)
     message.success('删除成功')
     loadPlans()
   } catch (e: any) {
@@ -542,11 +547,17 @@ async function handleDelete(record: TestPlan) {
 
 async function handleExecute(record: TestPlan) {
   try {
-    await executePlan(projectId, record.id!)
+    const res = await testPlanExecutionsApi.run(projectId, record.id!)
     message.success('计划已启动')
-    loadPlans()
+    router.push(`/projects/${projectId}/test-plans/${record.id}/run/${res.execution_id}`)
   } catch (e: any) {
     message.error(e.response?.data?.detail || '执行失败')
+  }
+}
+
+function viewReport(record: TestPlan) {
+  if (record.last_execution_id) {
+    router.push(`/projects/${projectId}/test-plans/${record.id}/report/${record.last_execution_id}`)
   }
 }
 
@@ -555,7 +566,7 @@ async function viewPlan(record: TestPlan) {
   showDetailModal.value = true
   casesLoading.value = true
   try {
-    planCases.value = await getPlanCases(projectId, record.id!)
+    planCases.value = await testPlansApi.getCases(projectId, record.id!)
     // 加载关联编排
     const allSuites = await getSuites(projectId)
     linkedSuites.value = allSuites.filter(s => s.plan_id === record.id)

@@ -159,7 +159,10 @@
                   <!-- 条件步骤 - 工作流分支 -->
                   <template v-if="step.step_type === 'condition'">
                     <a-form-item label="条件表达式">
-                      <a-textarea v-model:value="step.condition_expr" :rows="2" placeholder="{{var}} == 'value' 或 {{status}} >= 200" />
+                      <div style="display: flex; gap: 4px; align-items: flex-start">
+                        <a-textarea v-model:value="step.condition_expr" :rows="2" placeholder="{{var}} == 'value' 或 {{status}} >= 200，支持 {{$mock函数}}" style="flex: 1" />
+                        <MockDataInserter v-model="step.condition_expr" />
+                      </div>
                     </a-form-item>
                     <a-row :gutter="16">
                       <a-col :span="12">
@@ -268,7 +271,10 @@
                               <a-input v-model:value="record.extract_expr" size="small" :placeholder="getExtractPlaceholder(record.extract_type)" />
                             </template>
                             <template v-else-if="column.key === 'default_value'">
-                              <a-input v-model:value="record.default_value" size="small" placeholder="默认值（可选）" />
+                              <div style="display: flex; gap: 4px; align-items: center">
+                                <a-input v-model:value="record.default_value" size="small" placeholder="默认值（可选）" style="flex: 1" />
+                                <MockDataInserter v-model="record.default_value" />
+                              </div>
                             </template>
                             <template v-else-if="column.key === 'scope'">
                               <a-select v-model:value="record.scope" size="small" placeholder="范围">
@@ -309,6 +315,7 @@ import {
   ArrowDownOutlined, DeleteOutlined, RobotOutlined
 } from '@ant-design/icons-vue'
 import { apiScenariosApi, apiDefinitionsApi, apiCasesApi, environmentsApi, chatApi, type ApiScenarioStep } from '@/api/apiTest'
+import MockDataInserter from './MockDataInserter.vue'
 
 const route = useRoute()
 const router = useRouter()

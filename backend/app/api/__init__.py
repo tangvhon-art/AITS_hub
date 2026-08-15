@@ -11,6 +11,7 @@ from app.api.agent_tasks import router as agent_tasks_router
 from app.api.agent_tasks import project_router as agent_tasks_project_router
 from app.api.test_plans import router as test_plans_router
 from app.api.test_plans import project_router as test_plans_project_router
+from app.api.test_plans import execution_router as test_plan_executions_router
 from app.api.quality import router as quality_router
 from app.api.quality import project_router as quality_project_router
 from app.api.audit_logs import router as audit_logs_router
@@ -29,6 +30,7 @@ from app.api.api_scenarios import router as api_scenarios_router
 from app.api.api_executions import router as api_executions_router
 from app.api.api_mock import router as api_mock_router
 from app.api.api_import import router as api_import_router
+from app.api.mock_data import router as mock_data_router
 
 __all__ = [
     "auth_router",
@@ -44,6 +46,7 @@ __all__ = [
     "agent_tasks_project_router",
     "test_plans_router",
     "test_plans_project_router",
+    "test_plan_executions_router",
     "quality_router",
     "quality_project_router",
     "audit_logs_router",
@@ -62,4 +65,5 @@ __all__ = [
     "api_executions_router",
     "api_mock_router",
     "api_import_router",
+    "mock_data_router",
 ]

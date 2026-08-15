@@ -25,6 +25,7 @@ from app.api import (
     agent_tasks_project_router,
     test_plans_router,
     test_plans_project_router,
+    test_plan_executions_router,
     quality_router,
     quality_project_router,
     audit_logs_router,
@@ -43,6 +44,7 @@ from app.api import (
     api_executions_router,
     api_mock_router,
     api_import_router,
+    mock_data_router,
 )
 
 logging.basicConfig(
@@ -61,6 +63,7 @@ async def lifespan(app: FastAPI):
         User, Project, TestRequirement, TestCase, TestRun,
         AgentTask, LLMConfig, Defect, TestReport, KnowledgeDoc,
         TestPlan, TestPlanCase, TestEnvironment, AuditLog,
+        TestPlanItem, TestPlanExecution, TestPlanExecutionResult,
         AutomationScript, AutomationSuite, AutomationSuiteStep,
         AutomationSuiteRun, AutomationSuiteRunResult,
         ProjectVersion,
@@ -110,6 +113,7 @@ app.include_router(agent_tasks_router)
 app.include_router(agent_tasks_project_router)
 app.include_router(test_plans_router)
 app.include_router(test_plans_project_router)
+app.include_router(test_plan_executions_router)
 app.include_router(quality_router)
 app.include_router(quality_project_router)
 app.include_router(audit_logs_router)
@@ -128,6 +132,7 @@ app.include_router(api_scenarios_router)
 app.include_router(api_executions_router)
 app.include_router(api_mock_router)
 app.include_router(api_import_router)
+app.include_router(mock_data_router)
 
 
 @app.get("/api/health", tags=["系统"])
