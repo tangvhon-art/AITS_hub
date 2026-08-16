@@ -162,8 +162,8 @@ def _create_execution_report(db, plan: TestPlan, execution: TestPlanExecution):
                 "skipped_count": skipped,
                 "pass_rate": pass_rate,
                 "duration": duration,
-                "trigger_type": execution.trigger_type,
-                "executed_by": execution.executed_by,
+                "trigger_type": execution.triggered_by,
+                "executed_by": execution.triggered_by,
                 "started_at": execution.started_at.isoformat() if execution.started_at else None,
                 "finished_at": execution.finished_at.isoformat() if execution.finished_at else None,
             },
@@ -173,7 +173,7 @@ def _create_execution_report(db, plan: TestPlan, execution: TestPlanExecution):
             pass_rate=pass_rate,
             total_runs=1,
             avg_duration=duration,
-            created_by=execution.executed_by,
+            created_by=execution.triggered_by,
         )
         db.add(report)
         logger.info(f"已创建测试报告: plan={plan.name}, execution_id={execution.id}")
@@ -377,6 +377,9 @@ async def _execute_any_item(
                 await _execute_script_node(db, item, result)
             elif item.item_type == "suite":
                 await _execute_suite_node(db, item, result, plan_id)
+            elif item.item_type == "ui_case":
+                result.status = "skipped"
+                result.error_message = "功能用例需手动执行"
             else:
                 result.status = "error"
                 result.error_message = f"不支持的节点类型: {item.item_type}"

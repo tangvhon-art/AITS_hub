@@ -1,20 +1,10 @@
 import request from './request'
 
-// ==================== 类型定义 ====================
+// P1-6: 环境相关类型和 API 统一从 environments.ts 导入，消除重复定义
+export type { TestEnvironment } from './environments'
+export { getEnvironments, createEnvironment, updateEnvironment, deleteEnvironment } from './environments'
 
-export interface TestEnvironment {
-  id: number
-  project_id: number
-  name: string
-  base_url: string
-  description: string
-  config: Record<string, any>
-  is_default: boolean
-  status: string
-  created_by: number | null
-  created_at: string
-  updated_at: string
-}
+// ==================== 类型定义 ====================
 
 export interface TestPlanCase {
   id: number
@@ -248,17 +238,3 @@ function triggerDownload(blob: Blob, filename: string) {
   document.body.removeChild(link)
   window.URL.revokeObjectURL(url)
 }
-
-// ==================== 测试环境 API ====================
-
-export const getEnvironments = (projectId: number) =>
-  request.get<TestEnvironment[]>(`/projects/${projectId}/environments`)
-
-export const createEnvironment = (projectId: number, data: Partial<TestEnvironment>) =>
-  request.post<TestEnvironment>(`/projects/${projectId}/environments`, data)
-
-export const updateEnvironment = (projectId: number, id: number, data: Partial<TestEnvironment>) =>
-  request.put<TestEnvironment>(`/projects/${projectId}/environments/${id}`, data)
-
-export const deleteEnvironment = (projectId: number, id: number) =>
-  request.delete(`/projects/${projectId}/environments/${id}`)

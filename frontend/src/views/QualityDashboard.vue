@@ -66,6 +66,46 @@
       </a-col>
     </a-row>
 
+    <!-- 覆盖率指标卡片 -->
+    <a-row :gutter="16" style="margin-top: 16px">
+      <a-col :span="5">
+        <a-card class="metric-card">
+          <a-statistic title="接口覆盖率" :value="coverageData.api_coverage_rate" suffix="%" />
+          <a-progress :percent="coverageData.api_coverage_rate" size="small" :show-info="false" />
+        </a-card>
+      </a-col>
+      <a-col :span="5">
+        <a-card class="metric-card">
+          <a-statistic title="场景覆盖率" :value="coverageData.scenario_coverage_rate" suffix="%" />
+          <a-progress :percent="coverageData.scenario_coverage_rate" size="small" :show-info="false" />
+        </a-card>
+      </a-col>
+      <a-col :span="5">
+        <a-card class="metric-card">
+          <a-statistic title="已覆盖接口" :value="coverageData.covered_apis" />
+          <div class="metric-sub">总计 {{ coverageData.total_apis }}</div>
+        </a-card>
+      </a-col>
+      <a-col :span="5">
+        <a-card class="metric-card">
+          <a-statistic title="未覆盖接口" :value="coverageData.uncovered_apis.length" value-style="color: #ff4d4f" />
+          <div class="metric-sub">用例关联 {{ coverageData.cases_with_api }} / {{ coverageData.total_cases }}</div>
+        </a-card>
+      </a-col>
+      <a-col :span="4">
+        <a-card class="metric-card">
+          <div style="text-align: center; padding-top: 8px">
+            <a-button type="primary" size="small" @click="handleRecalculate" :loading="coverageLoading">
+              重新计算
+            </a-button>
+            <div class="metric-sub" style="margin-top: 8px">
+              {{ coverageData.calculated_at ? '更新于 ' + coverageData.calculated_at.substring(5, 16) : '未计算' }}
+            </div>
+          </div>
+        </a-card>
+      </a-col>
+    </a-row>
+
     <!-- 图表区域 -->
     <a-row :gutter="16" style="margin-top: 16px">
       <a-col :span="12">
@@ -94,6 +134,33 @@
       <a-col :span="8">
         <a-card title="模块通过率">
           <div ref="moduleChartRef" class="chart-container"></div>
+        </a-card>
+      </a-col>
+    </a-row>
+
+    <!-- 覆盖率趋势与未覆盖接口 -->
+    <a-row :gutter="16" style="margin-top: 16px">
+      <a-col :span="14">
+        <a-card title="覆盖率趋势">
+          <div ref="coverageChartRef" class="chart-container"></div>
+        </a-card>
+      </a-col>
+      <a-col :span="10">
+        <a-card title="未覆盖接口列表">
+          <a-list :data-source="coverageData.uncovered_apis.slice(0, 10)" size="small" :pagination="{ pageSize: 5, size: 'small' }">
+            <template #renderItem="{ item }">
+              <a-list-item>
+                <a-list-item-meta>
+                  <template #title>
+                    <a-tag :color="methodColor(item.method)">{{ item.method }}</a-tag>
+                    <span style="font-size: 13px">{{ item.path }}</span>
+                  </template>
+                  <template #description>{{ item.name }}</template>
+                </a-list-item-meta>
+              </a-list-item>
+            </template>
+          </a-list>
+          <a-empty v-if="coverageData.uncovered_apis.length === 0" description="所有接口已覆盖" />
         </a-card>
       </a-col>
     </a-row>
@@ -160,6 +227,7 @@ import {
   type QualityDashboard, type RiskAlertResponse, type InsightResponse
 } from '@/api/quality'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
+import { coverageApi, type CoverageData } from '@/api/coverage'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -190,17 +258,34 @@ const metrics = ref({
 
 const alerts = ref<RiskAlertResponse>({ total: 0, high: 0, medium: 0, low: 0, items: [] })
 
+const coverageData = ref<CoverageData>({
+  total_apis: 0,
+  covered_apis: 0,
+  api_coverage_rate: 0,
+  uncovered_apis: [],
+  total_scenarios: 0,
+  covered_scenarios: 0,
+  scenario_coverage_rate: 0,
+  total_cases: 0,
+  cases_with_api: 0,
+  calculated_at: null,
+})
+const coverageTrend = ref<any[]>([])
+const coverageLoading = ref(false)
+
 const passRateChartRef = ref<HTMLElement>()
 const executionChartRef = ref<HTMLElement>()
 const severityChartRef = ref<HTMLElement>()
 const categoryChartRef = ref<HTMLElement>()
 const moduleChartRef = ref<HTMLElement>()
+const coverageChartRef = ref<HTMLElement>()
 
 let passRateChart: echarts.ECharts | null = null
 let executionChart: echarts.ECharts | null = null
 let severityChart: echarts.ECharts | null = null
 let categoryChart: echarts.ECharts | null = null
 let moduleChart: echarts.ECharts | null = null
+let coverageChart: echarts.ECharts | null = null
 
 function getAlertColor(level?: string) {
   const map: Record<string, string> = { high: 'red', medium: 'orange', low: 'green' }
@@ -212,12 +297,20 @@ function getAlertLevelText(level?: string) {
   return map[level || ''] || level
 }
 
+function methodColor(method?: string) {
+  const map: Record<string, string> = {
+    GET: 'blue', POST: 'green', PUT: 'orange', DELETE: 'red', PATCH: 'purple'
+  }
+  return map[(method || '').toUpperCase()] || 'default'
+}
+
 function initCharts() {
   if (passRateChartRef.value) passRateChart = echarts.init(passRateChartRef.value)
   if (executionChartRef.value) executionChart = echarts.init(executionChartRef.value)
   if (severityChartRef.value) severityChart = echarts.init(severityChartRef.value)
   if (categoryChartRef.value) categoryChart = echarts.init(categoryChartRef.value)
   if (moduleChartRef.value) moduleChart = echarts.init(moduleChartRef.value)
+  if (coverageChartRef.value) coverageChart = echarts.init(coverageChartRef.value)
 }
 
 function updateCharts(data: QualityDashboard) {
@@ -323,6 +416,64 @@ async function loadDashboard() {
   }
 }
 
+function updateCoverageChart() {
+  if (!coverageChart) return
+  coverageChart.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['接口覆盖率', '场景覆盖率'], top: 0 },
+    grid: { left: 40, right: 20, top: 40, bottom: 30 },
+    xAxis: { type: 'category', data: coverageTrend.value.map(d => d.date) },
+    yAxis: { type: 'value', max: 100, name: '%' },
+    series: [
+      {
+        name: '接口覆盖率',
+        data: coverageTrend.value.map(d => d.api_coverage_rate),
+        type: 'line',
+        smooth: true,
+        areaStyle: { opacity: 0.3 },
+        itemStyle: { color: '#1677ff' },
+        lineStyle: { color: '#1677ff' },
+      },
+      {
+        name: '场景覆盖率',
+        data: coverageTrend.value.map(d => d.scenario_coverage_rate),
+        type: 'line',
+        smooth: true,
+        areaStyle: { opacity: 0.3 },
+        itemStyle: { color: '#722ed1' },
+        lineStyle: { color: '#722ed1' },
+      },
+    ],
+  })
+}
+
+async function loadCoverage() {
+  try {
+    const [data, trend] = await Promise.all([
+      coverageApi.get(projectId, selectedVersionId.value),
+      coverageApi.getTrend(projectId, 30),
+    ])
+    coverageData.value = data
+    coverageTrend.value = trend
+    updateCoverageChart()
+  } catch (e: any) {
+    console.error('加载覆盖率失败', e)
+  }
+}
+
+async function handleRecalculate() {
+  coverageLoading.value = true
+  try {
+    await coverageApi.recalculate(projectId, selectedVersionId.value)
+    message.success('覆盖率重新计算完成')
+    await loadCoverage()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '重新计算失败')
+  } finally {
+    coverageLoading.value = false
+  }
+}
+
 async function loadAlerts() {
   try {
     alerts.value = await getRiskAlerts(projectId, selectedVersionId.value)
@@ -349,11 +500,13 @@ function handleResize() {
   severityChart?.resize()
   categoryChart?.resize()
   moduleChart?.resize()
+  coverageChart?.resize()
 }
 
 async function loadAll() {
   loadDashboard()
   loadAlerts()
+  loadCoverage()
 }
 
 onMounted(async () => {
@@ -361,6 +514,7 @@ onMounted(async () => {
   initCharts()
   loadDashboard()
   loadAlerts()
+  loadCoverage()
   if (projectId) {
     getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
   }
@@ -374,6 +528,7 @@ onUnmounted(() => {
   severityChart?.dispose()
   categoryChart?.dispose()
   moduleChart?.dispose()
+  coverageChart?.dispose()
 })
 </script>
 

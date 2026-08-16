@@ -45,6 +45,12 @@ from app.api import (
     api_mock_router,
     api_import_router,
     mock_data_router,
+    performance_tests_router,
+    performance_run_router,
+    coverage_router,
+    data_pools_router,
+    env_variables_router,
+    env_compare_router,
 )
 
 logging.basicConfig(
@@ -60,6 +66,9 @@ def _auto_migrate(engine):
     inspector = inspect(engine)
     migrations = [
         ("test_cases", "needs_update", "BOOLEAN DEFAULT 0"),
+        ("performance_tests", "data_pool_id", "INTEGER"),
+        ("api_test_cases", "data_pool_id", "INTEGER"),
+        ("api_scenarios", "data_pool_id", "INTEGER"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:
@@ -88,6 +97,9 @@ async def lifespan(app: FastAPI):
         ApiScenario, ApiScenarioStep, ApiScenarioVariable,
         ApiExecution, ApiExecutionResult, ApiMockExpectation,
         ApiDebugHistory,
+        PerformanceTest, PerformanceTestRun,
+        CoverageConfig, CoverageSnapshot,
+        TestDataPool, EnvironmentVariableOverride,
     )
     Base.metadata.create_all(bind=engine)
     _auto_migrate(engine)
@@ -151,6 +163,12 @@ app.include_router(api_executions_router)
 app.include_router(api_mock_router)
 app.include_router(api_import_router)
 app.include_router(mock_data_router)
+app.include_router(performance_tests_router)
+app.include_router(performance_run_router)
+app.include_router(coverage_router)
+app.include_router(data_pools_router)
+app.include_router(env_variables_router)
+app.include_router(env_compare_router)
 
 
 @app.get("/api/health", tags=["系统"])

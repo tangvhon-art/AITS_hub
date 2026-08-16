@@ -158,6 +158,7 @@ class ApiTestCaseBase(BaseModel):
     post_script: Optional[str] = ""
     param_source: str = "none"
     param_data: Optional[List[Dict[str, Any]]] = []
+    data_pool_id: Optional[int] = None
 
 
 class ApiTestCaseCreate(ApiTestCaseBase):
@@ -181,6 +182,7 @@ class ApiTestCaseUpdate(BaseModel):
     post_script: Optional[str] = None
     param_source: Optional[str] = None
     param_data: Optional[List[Dict[str, Any]]] = None
+    data_pool_id: Optional[int] = None
 
 
 class ApiTestCaseResponse(BaseModel):
@@ -320,6 +322,7 @@ class ApiScenarioBase(BaseModel):
     description: Optional[str] = ""
     environment_id: Optional[int] = None
     config: Optional[Dict[str, Any]] = {}
+    data_pool_id: Optional[int] = None
     pre_script: Optional[str] = ""
     post_script: Optional[str] = ""
 
@@ -335,6 +338,7 @@ class ApiScenarioUpdate(BaseModel):
     description: Optional[str] = None
     environment_id: Optional[int] = None
     config: Optional[Dict[str, Any]] = None
+    data_pool_id: Optional[int] = None
     pre_script: Optional[str] = None
     post_script: Optional[str] = None
 

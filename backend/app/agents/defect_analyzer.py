@@ -44,8 +44,8 @@ class DefectAnalyzerAgent(BaseAgent):
 
     agent_type = "defect_analyzer"
 
-    def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None):
-        super().__init__(db_session, llm_config_id, task_id)
+    def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None, project_id: Optional[int] = None):
+        super().__init__(db_session, llm_config_id, task_id, project_id=project_id)
 
     def run(self, **kwargs) -> Dict[str, Any]:
         """执行缺陷分析"""
@@ -93,8 +93,18 @@ class DefectAnalyzerAgent(BaseAgent):
         except (json.JSONDecodeError, TypeError):
             context["execution_log"] = execution_log[:2000]
 
+        # P2-9: RAG 知识库增强 - 检索类似缺陷或项目知识
+        rag_context = self.build_rag_context(
+            f"缺陷分析 {error_message[:200]} {target_url}",
+            top_k=3,
+        )
+
+        system_content = DEFECT_ANALYSIS_PROMPT
+        if rag_context:
+            system_content += f"\n\n{rag_context}"
+
         messages = [
-            SystemMessage(content=DEFECT_ANALYSIS_PROMPT),
+            SystemMessage(content=system_content),
             HumanMessage(content=f"分析上下文：\n{json.dumps(context, ensure_ascii=False, indent=2)}"),
         ]
 

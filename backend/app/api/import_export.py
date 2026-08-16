@@ -256,3 +256,360 @@ def download_template(project_id: int, current_user: User = Depends(get_current_
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=test_case_template.xlsx"}
     )
+
+
+# ==================== P2-12: API 测试数据导出/导入 ====================
+
+
+def _serialize_model(obj, exclude_fields=None):
+    """序列化 SQLAlchemy 模型为字典"""
+    exclude_fields = exclude_fields or set()
+    data = {}
+    for col in obj.__table__.columns:
+        if col.name in exclude_fields:
+            continue
+        val = getattr(obj, col.name)
+        if hasattr(val, "isoformat"):
+            data[col.name] = val.isoformat()
+        else:
+            data[col.name] = val
+    return data
+
+
+@project_router.get("/api-definitions/export")
+def export_api_definitions(
+    project_id: int,
+    request: Request,
+    module_id: int = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """导出 API 接口定义为 JSON"""
+    from app.models.api_test import ApiDefinition, ApiModule
+
+    query = db.query(ApiDefinition).filter(
+        ApiDefinition.project_id == project_id,
+        ApiDefinition.is_deleted == False,
+    )
+    if module_id:
+        query = query.filter(ApiDefinition.module_id == module_id)
+
+    definitions = query.order_by(ApiDefinition.method, ApiDefinition.path).all()
+    modules = db.query(ApiModule).filter(
+        ApiModule.project_id == project_id,
+        ApiModule.is_deleted == False,
+    ).all()
+
+    data = {
+        "export_type": "api_definitions",
+        "version": "1.0",
+        "project_id": project_id,
+        "exported_at": china_now_naive().isoformat(),
+        "modules": [_serialize_model(m, {"is_deleted", "deleted_at"}) for m in modules],
+        "definitions": [_serialize_model(d, {"is_deleted", "deleted_at"}) for d in definitions],
+    }
+
+    log_audit(
+        db, action="export", resource_type="api_definition",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "count": len(definitions), "format": "json"},
+    )
+    db.commit()
+
+    filename = f"api_definitions_{project_id}_{china_now_naive().strftime('%Y%m%d_%H%M%S')}.json"
+    return StreamingResponse(
+        BytesIO(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@project_router.post("/api-definitions/import")
+async def import_api_definitions(
+    project_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从 JSON 导入 API 接口定义"""
+    from app.models.api_test import ApiDefinition, ApiModule
+
+    content = await file.read()
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"JSON 解析失败: {str(e)}")
+
+    if data.get("export_type") != "api_definitions":
+        raise HTTPException(status_code=400, detail="文件类型不匹配，期望 api_definitions")
+
+    imported_modules = 0
+    imported_defs = 0
+    module_id_map = {}
+
+    for mod_data in data.get("modules", []):
+        old_id = mod_data.pop("id", None)
+        mod = ApiModule(
+            **mod_data,
+            project_id=project_id,
+        )
+        db.add(mod)
+        db.flush()
+        if old_id:
+            module_id_map[old_id] = mod.id
+        imported_modules += 1
+
+    for def_data in data.get("definitions", []):
+        old_module_id = def_data.pop("module_id", None)
+        if old_module_id and old_module_id in module_id_map:
+            def_data["module_id"] = module_id_map[old_module_id]
+        def_data.pop("id", None)
+        def_data["project_id"] = project_id
+        def_obj = ApiDefinition(**def_data)
+        db.add(def_obj)
+        imported_defs += 1
+
+    log_audit(
+        db, action="import", resource_type="api_definition",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "modules": imported_modules, "definitions": imported_defs},
+    )
+    db.commit()
+
+    return {
+        "detail": "导入完成",
+        "imported_modules": imported_modules,
+        "imported_definitions": imported_defs,
+    }
+
+
+@project_router.get("/api-cases/export")
+def export_api_cases(
+    project_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """导出接口测试用例（含断言）为 JSON"""
+    from app.models.api_test import ApiTestCase, ApiCaseAssertion
+
+    cases = db.query(ApiTestCase).filter(
+        ApiTestCase.project_id == project_id,
+        ApiTestCase.is_deleted == False,
+    ).order_by(ApiTestCase.created_at.desc()).all()
+
+    case_data_list = []
+    for case in cases:
+        case_dict = _serialize_model(case, {"is_deleted", "deleted_at"})
+        assertions = db.query(ApiCaseAssertion).filter(
+            ApiCaseAssertion.case_id == case.id,
+            ApiCaseAssertion.is_deleted == False,
+        ).all()
+        case_dict["assertions"] = [_serialize_model(a, {"is_deleted", "deleted_at", "case_id"}) for a in assertions]
+        case_data_list.append(case_dict)
+
+    data = {
+        "export_type": "api_cases",
+        "version": "1.0",
+        "project_id": project_id,
+        "exported_at": china_now_naive().isoformat(),
+        "cases": case_data_list,
+    }
+
+    log_audit(
+        db, action="export", resource_type="api_case",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "count": len(cases), "format": "json"},
+    )
+    db.commit()
+
+    filename = f"api_cases_{project_id}_{china_now_naive().strftime('%Y%m%d_%H%M%S')}.json"
+    return StreamingResponse(
+        BytesIO(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@project_router.post("/api-cases/import")
+async def import_api_cases(
+    project_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从 JSON 导入接口测试用例"""
+    from app.models.api_test import ApiTestCase, ApiCaseAssertion
+
+    content = await file.read()
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"JSON 解析失败: {str(e)}")
+
+    if data.get("export_type") != "api_cases":
+        raise HTTPException(status_code=400, detail="文件类型不匹配，期望 api_cases")
+
+    imported_cases = 0
+    imported_assertions = 0
+
+    for case_data in data.get("cases", []):
+        assertions = case_data.pop("assertions", [])
+        case_data.pop("id", None)
+        case_data["project_id"] = project_id
+        case_obj = ApiTestCase(**case_data)
+        db.add(case_obj)
+        db.flush()
+
+        for assert_data in assertions:
+            assert_data.pop("id", None)
+            assert_data["case_id"] = case_obj.id
+            assert_obj = ApiCaseAssertion(**assert_data)
+            db.add(assert_obj)
+            imported_assertions += 1
+
+        imported_cases += 1
+
+    log_audit(
+        db, action="import", resource_type="api_case",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "cases": imported_cases, "assertions": imported_assertions},
+    )
+    db.commit()
+
+    return {
+        "detail": "导入完成",
+        "imported_cases": imported_cases,
+        "imported_assertions": imported_assertions,
+    }
+
+
+@project_router.get("/api-scenarios/export")
+def export_api_scenarios(
+    project_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """导出接口测试场景（含步骤和变量）为 JSON"""
+    from app.models.api_test import ApiScenario, ApiScenarioStep, ApiScenarioVariable
+
+    scenarios = db.query(ApiScenario).filter(
+        ApiScenario.project_id == project_id,
+        ApiScenario.is_deleted == False,
+    ).order_by(ApiScenario.created_at.desc()).all()
+
+    scenario_list = []
+    for sc in scenarios:
+        sc_dict = _serialize_model(sc, {"is_deleted", "deleted_at"})
+        steps = db.query(ApiScenarioStep).filter(
+            ApiScenarioStep.scenario_id == sc.id,
+            ApiScenarioStep.is_deleted == False,
+        ).order_by(ApiScenarioStep.sort_order).all()
+        sc_dict["steps"] = [_serialize_model(s, {"is_deleted", "deleted_at", "scenario_id"}) for s in steps]
+        variables = db.query(ApiScenarioVariable).filter(
+            ApiScenarioVariable.scenario_id == sc.id,
+            ApiScenarioVariable.is_deleted == False,
+        ).all()
+        sc_dict["variables"] = [_serialize_model(v, {"is_deleted", "deleted_at", "scenario_id"}) for v in variables]
+        scenario_list.append(sc_dict)
+
+    data = {
+        "export_type": "api_scenarios",
+        "version": "1.0",
+        "project_id": project_id,
+        "exported_at": china_now_naive().isoformat(),
+        "scenarios": scenario_list,
+    }
+
+    log_audit(
+        db, action="export", resource_type="api_scenario",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "count": len(scenarios), "format": "json"},
+    )
+    db.commit()
+
+    filename = f"api_scenarios_{project_id}_{china_now_naive().strftime('%Y%m%d_%H%M%S')}.json"
+    return StreamingResponse(
+        BytesIO(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@project_router.post("/api-scenarios/import")
+async def import_api_scenarios(
+    project_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从 JSON 导入接口测试场景"""
+    from app.models.api_test import ApiScenario, ApiScenarioStep, ApiScenarioVariable
+
+    content = await file.read()
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"JSON 解析失败: {str(e)}")
+
+    if data.get("export_type") != "api_scenarios":
+        raise HTTPException(status_code=400, detail="文件类型不匹配，期望 api_scenarios")
+
+    imported_scenarios = 0
+    imported_steps = 0
+    imported_variables = 0
+
+    for sc_data in data.get("scenarios", []):
+        steps = sc_data.pop("steps", [])
+        variables = sc_data.pop("variables", [])
+        sc_data.pop("id", None)
+        sc_data["project_id"] = project_id
+        sc_obj = ApiScenario(**sc_data)
+        db.add(sc_obj)
+        db.flush()
+
+        for step_data in steps:
+            step_data.pop("id", None)
+            step_data["scenario_id"] = sc_obj.id
+            step_obj = ApiScenarioStep(**step_data)
+            db.add(step_obj)
+            imported_steps += 1
+
+        for var_data in variables:
+            var_data.pop("id", None)
+            var_data["scenario_id"] = sc_obj.id
+            var_obj = ApiScenarioVariable(**var_data)
+            db.add(var_obj)
+            imported_variables += 1
+
+        imported_scenarios += 1
+
+    log_audit(
+        db, action="import", resource_type="api_scenario",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "scenarios": imported_scenarios, "steps": imported_steps, "variables": imported_variables},
+    )
+    db.commit()
+
+    return {
+        "detail": "导入完成",
+        "imported_scenarios": imported_scenarios,
+        "imported_steps": imported_steps,
+        "imported_variables": imported_variables,
+    }

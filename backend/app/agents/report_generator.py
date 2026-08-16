@@ -15,7 +15,7 @@ from app.agents.base_agent import BaseAgent
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.models.defect import Defect
-from app.models.test_plan import TestPlan, TestPlanCase, TestPlanItem, TestPlanExecution
+from app.models.test_plan import TestPlan, TestPlanItem, TestPlanExecution
 from app.models.requirement import TestRequirement
 from app.models.project_version import ProjectVersion
 from app.models.api_test import ApiExecution
@@ -45,8 +45,8 @@ class ReportGeneratorAgent(BaseAgent):
 
     agent_type = "report_generator"
 
-    def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None):
-        super().__init__(db_session, llm_config_id, task_id)
+    def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None, project_id: Optional[int] = None):
+        super().__init__(db_session, llm_config_id, task_id, project_id=project_id)
 
     def run(self, **kwargs) -> Dict[str, Any]:
         """执行报告生成"""
@@ -78,6 +78,7 @@ class ReportGeneratorAgent(BaseAgent):
         """
         import time
         self.start_time = time.time()
+        self.project_id = project_id
         self._log_step("report_start", {"project_id": project_id, "version_id": version_id}, "running")
 
         # 收集统计数据（按版本过滤）
@@ -90,9 +91,19 @@ class ReportGeneratorAgent(BaseAgent):
             version = self.db.query(ProjectVersion).filter(ProjectVersion.id == version_id).first()
             version_name = version.name if version else ""
 
+        # P2-9: RAG 知识库增强 - 检索项目质量标准和历史报告
+        rag_context = self.build_rag_context(
+            f"测试报告 质量分析 {version_name} 通过率 缺陷",
+            top_k=3,
+        )
+
+        system_content = REPORT_PROMPT
+        if rag_context:
+            system_content += f"\n\n{rag_context}"
+
         # 生成报告内容
         messages = [
-            SystemMessage(content=REPORT_PROMPT),
+            SystemMessage(content=system_content),
             HumanMessage(content=(
                 f"项目ID: {project_id}\n"
                 f"版本: {version_name}\n"
@@ -153,7 +164,7 @@ class ReportGeneratorAgent(BaseAgent):
     def _collect_stats(self, project_id: int, version_id: Optional[int] = None) -> Dict[str, Any]:
         """收集项目统计数据（可按版本过滤）"""
 
-        # 构建版本关联的用例子查询（通过 TestPlan → TestPlanCase → TestRun）
+        # 构建版本关联的用例子查询（统一基于 TestPlanItem）
         if version_id is not None:
             # 版本关联的测试计划 ID 列表
             plan_ids = [
@@ -162,15 +173,17 @@ class ReportGeneratorAgent(BaseAgent):
                     TestPlan.version_id == version_id,
                 ).all()
             ]
-            # 版本关联的用例 ID 列表（通过 TestPlanCase，旧版兼容）
+            # 版本关联的功能用例 ID 列表（通过 TestPlanItem ui_case）
             case_ids = []
             if plan_ids:
                 case_ids = [
-                    c[0] for c in self.db.query(TestPlanCase.case_id).filter(
-                        TestPlanCase.plan_id.in_(plan_ids),
+                    c[0] for c in self.db.query(TestPlanItem.ref_id).filter(
+                        TestPlanItem.plan_id.in_(plan_ids),
+                        TestPlanItem.item_type == "ui_case",
+                        TestPlanItem.is_deleted == False,
                     ).distinct().all()
                 ]
-            # 版本关联的接口用例 ID 列表（通过 TestPlanItem，新版）
+            # 版本关联的接口用例 ID 列表（通过 TestPlanItem case）
             api_case_ids = []
             if plan_ids:
                 api_case_ids = [

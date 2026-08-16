@@ -147,6 +147,36 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '质量看板', icon: 'DashboardOutlined' }
       },
       {
+        path: 'projects/:id/performance-tests',
+        name: 'PerformanceTests',
+        component: () => import('@/views/performance/PerformanceTests.vue'),
+        meta: { title: '性能测试', icon: 'ThunderboltOutlined' }
+      },
+      {
+        path: 'projects/:id/performance-tests/:testId',
+        name: 'PerformanceTestEdit',
+        component: () => import('@/views/performance/PerformanceTestEdit.vue'),
+        meta: { title: '性能测试编辑', hideInMenu: true }
+      },
+      {
+        path: 'projects/:id/performance-tests/:testId/runs',
+        name: 'PerformanceTestRuns',
+        component: () => import('@/views/performance/PerformanceTestRunDetail.vue'),
+        meta: { title: '执行结果', hideInMenu: true }
+      },
+      {
+        path: 'projects/:id/data-pools',
+        name: 'DataPools',
+        component: () => import('@/views/data/DataPools.vue'),
+        meta: { title: '数据池', icon: 'DatabaseOutlined' }
+      },
+      {
+        path: 'projects/:id/data-pools/:poolId',
+        name: 'DataPoolEdit',
+        component: () => import('@/views/data/DataPoolEdit.vue'),
+        meta: { title: '数据池编辑', hideInMenu: true }
+      },
+      {
         path: 'projects/:id/import-export',
         name: 'ImportExport',
         component: () => import('@/views/ImportExport.vue'),

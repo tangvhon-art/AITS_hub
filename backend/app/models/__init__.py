@@ -31,6 +31,9 @@ from app.models.api_test import (
     ApiMockExpectation,
     ApiDebugHistory,
 )
+from app.models.performance_test import PerformanceTest, PerformanceTestRun
+from app.models.test_coverage import CoverageConfig, CoverageSnapshot
+from app.models.test_data_pool import TestDataPool, EnvironmentVariableOverride
 
 __all__ = [
     "User",
@@ -67,4 +70,10 @@ __all__ = [
     "ApiExecutionResult",
     "ApiMockExpectation",
     "ApiDebugHistory",
+    "PerformanceTest",
+    "PerformanceTestRun",
+    "CoverageConfig",
+    "CoverageSnapshot",
+    "TestDataPool",
+    "EnvironmentVariableOverride",
 ]

@@ -404,6 +404,82 @@ async def tool_list_reports(args, db, project_id):
     reports = query.order_by(TestReport.created_at.desc()).limit(limit).all()
     return {"total": query.count(), "reports": [{"id": r.id, "title": r.title, "report_type": r.report_type, "status": r.status, "pass_rate": r.pass_rate} for r in reports]}
 
+
+async def tool_list_api_definitions(args, db, project_id):
+    """查询 API 接口定义列表"""
+    from app.models.api_test import ApiDefinition
+    if not project_id:
+        return {"error": "未指定项目"}
+    limit = min(args.get("limit", 10), 50)
+    query = db.query(ApiDefinition).filter(ApiDefinition.project_id == project_id, ApiDefinition.is_deleted == False)
+    method = args.get("method")
+    if method:
+        query = query.filter(ApiDefinition.method == method.upper())
+    defs = query.order_by(ApiDefinition.path).limit(limit).all()
+    return {"total": query.count(), "definitions": [{"id": d.id, "name": d.name, "method": d.method, "path": d.path, "module_id": d.module_id} for d in defs]}
+
+
+async def tool_list_api_scenarios(args, db, project_id):
+    """查询接口测试场景列表"""
+    from app.models.api_test import ApiScenario
+    if not project_id:
+        return {"error": "未指定项目"}
+    limit = min(args.get("limit", 10), 50)
+    query = db.query(ApiScenario).filter(ApiScenario.project_id == project_id, ApiScenario.is_deleted == False)
+    scenarios = query.order_by(ApiScenario.created_at.desc()).limit(limit).all()
+    return {"total": query.count(), "scenarios": [{"id": s.id, "name": s.name, "description": s.description, "status": s.status} for s in scenarios]}
+
+
+async def tool_list_api_executions(args, db, project_id):
+    """查询接口测试执行记录"""
+    from app.models.api_test import ApiExecution
+    if not project_id:
+        return {"error": "未指定项目"}
+    limit = min(args.get("limit", 10), 50)
+    status = args.get("status")
+    query = db.query(ApiExecution).filter(ApiExecution.project_id == project_id, ApiExecution.is_deleted == False)
+    if status:
+        query = query.filter(ApiExecution.status == status)
+    execs = query.order_by(ApiExecution.created_at.desc()).limit(limit).all()
+    return {"total": query.count(), "executions": [{"id": e.id, "status": e.status, "pass_rate": e.pass_rate, "total_duration": e.total_duration, "created_at": str(e.created_at) if e.created_at else None} for e in execs]}
+
+
+async def tool_query_quality_metrics(args, db, project_id):
+    """查询项目质量指标"""
+    from app.models.test_case import TestCase
+    from app.models.test_run import TestRun
+    from app.models.defect import Defect
+    from app.models.api_test import ApiExecution
+    if not project_id:
+        return {"error": "未指定项目"}
+
+    ui_runs = db.query(TestRun).filter(TestRun.project_id == project_id, TestRun.is_deleted == False).all()
+    api_execs = db.query(ApiExecution).filter(ApiExecution.project_id == project_id, ApiExecution.is_deleted == False).all()
+
+    total_ui = len(ui_runs)
+    passed_ui = sum(1 for r in ui_runs if r.status == "passed")
+    total_api = len(api_execs)
+    passed_api = sum(1 for e in api_execs if e.status == "passed")
+
+    total_runs = total_ui + total_api
+    total_passed = passed_ui + passed_api
+    pass_rate = round(total_passed / total_runs * 100, 2) if total_runs > 0 else 0
+
+    open_defects = db.query(Defect).filter(
+        Defect.project_id == project_id,
+        Defect.status.in_(["open", "confirmed", "reopened"]),
+        Defect.is_deleted == False,
+    ).count()
+
+    return {
+        "total_runs": total_runs,
+        "passed_runs": total_passed,
+        "pass_rate": f"{pass_rate}%",
+        "ui_test_runs": total_ui,
+        "api_test_runs": total_api,
+        "open_defects": open_defects,
+    }
+
 mcp_registry.register(MCPTool(
     name="query_project_stats",
     description="查询项目的统计数据，包括用例数量、缺陷数量、执行记录、测试计划等概览信息",
@@ -502,6 +578,15 @@ for _tool_def in [
      {"limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
     ("list_reports", "查询测试报告列表，返回报告标题、类型、状态和通过率", tool_list_reports,
      {"limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+    ("list_api_definitions", "查询API接口定义列表，支持按请求方法筛选，返回接口名称、方法、路径和模块", tool_list_api_definitions,
+     {"method": {"type": "string", "description": "请求方法筛选: GET/POST/PUT/DELETE/PATCH"},
+      "limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+    ("list_api_scenarios", "查询接口测试场景列表，返回场景名称、描述和状态", tool_list_api_scenarios,
+     {"limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+    ("list_api_executions", "查询接口测试执行记录，支持按状态筛选，返回执行状态、通过率和耗时", tool_list_api_executions,
+     {"status": {"type": "string", "description": "执行状态筛选: passed/failed/error/running"},
+      "limit": {"type": "integer", "description": "返回数量，默认10，最大50"}}),
+    ("query_quality_metrics", "查询项目质量指标，合并UI和接口测试执行数据，返回通过率、执行次数和未解决缺陷数", tool_query_quality_metrics, {}),
 ]:
     _name, _desc, _fn, _props = _tool_def
     mcp_registry.register(MCPTool(

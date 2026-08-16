@@ -31,6 +31,12 @@ from app.api.api_executions import router as api_executions_router
 from app.api.api_mock import router as api_mock_router
 from app.api.api_import import router as api_import_router
 from app.api.mock_data import router as mock_data_router
+from app.api.performance_tests import router as performance_tests_router
+from app.api.performance_tests import run_router as performance_run_router
+from app.api.coverage import router as coverage_router
+from app.api.data_pools import router as data_pools_router
+from app.api.env_variables import router as env_variables_router
+from app.api.env_variables import compare_router as env_compare_router
 
 __all__ = [
     "auth_router",
@@ -66,4 +72,10 @@ __all__ = [
     "api_mock_router",
     "api_import_router",
     "mock_data_router",
+    "performance_tests_router",
+    "performance_run_router",
+    "coverage_router",
+    "data_pools_router",
+    "env_variables_router",
+    "env_compare_router",
 ]

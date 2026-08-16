@@ -171,16 +171,81 @@ class SupervisorEngine:
             for case_data in saved_cases[:3]:  # 最多执行3条演示
                 try:
                     from app.agents.execution_agent import ExecutionAgent
-                    exec_agent = ExecutionAgent()
+                    from app.models.test_run import TestRun
+                    import asyncio
+
+                    exec_agent = ExecutionAgent(self.db, project_id=project_id, llm_config_id=llm_config_id)
                     instruction = self._case_to_instruction(case_data)
-                    # 执行 Agent 是异步生成器，这里简化处理
-                    exec_result = {"case_id": case_data.get("id"), "status": "skipped", "note": "执行需在前端手动触发"}
+
+                    # 桥接 sync → async：消费 ExecutionAgent.execute() 异步生成器
+                    async def _run_execution():
+                        step_logs = []
+                        final_status = "passed"
+                        error_message = ""
+                        async for step in exec_agent.execute(instruction, target_url=target_url, headless=True):
+                            step_logs.append(step)
+                            if step.get("type") == "error":
+                                final_status = "failed"
+                                error_message = step.get("error", "")
+                            elif step.get("type") == "complete":
+                                final_status = step.get("status", "passed")
+                        return final_status, error_message, step_logs
+
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor() as pool:
+                                final_status, error_msg, step_logs = pool.submit(
+                                    asyncio.run, _run_execution()
+                                ).result()
+                        else:
+                            final_status, error_msg, step_logs = loop.run_until_complete(_run_execution())
+                    except RuntimeError:
+                        final_status, error_msg, step_logs = asyncio.run(_run_execution())
+
+                    # 创建 TestRun 记录
+                    run = TestRun(
+                        project_id=project_id,
+                        case_id=case_data.get("id"),
+                        status=final_status,
+                        duration=sum(s.get("duration", 0) for s in step_logs if isinstance(s.get("duration"), (int, float))),
+                        execution_log=json.dumps(step_logs, ensure_ascii=False, default=str),
+                        error_message=error_msg,
+                        target_url=target_url,
+                        created_by=created_by,
+                    )
+                    self.db.add(run)
+                    self.db.flush()
+
+                    exec_result = {
+                        "case_id": case_data.get("id"),
+                        "run_id": run.id,
+                        "status": final_status,
+                        "error_message": error_msg,
+                        "execution_log": json.dumps(step_logs, ensure_ascii=False, default=str),
+                        "step_count": len(step_logs),
+                    }
                     execution_results.append(exec_result)
+                    logger.info(f"Supervisor: 用例 {case_data.get('id')} 执行完成，状态: {final_status}")
+
                 except Exception as e:
-                    execution_results.append({"case_id": case_data.get("id"), "status": "error", "error": str(e)})
+                    logger.error(f"Supervisor: 用例执行失败: {e}")
+                    execution_results.append({
+                        "case_id": case_data.get("id"),
+                        "status": "error",
+                        "error": str(e),
+                    })
 
             results["execution_results"] = execution_results
-            results["steps"].append({"step": "execution", "status": "partial", "count": len(execution_results)})
+            passed_count = sum(1 for r in execution_results if r.get("status") == "passed")
+            results["steps"].append({
+                "step": "execution",
+                "status": "success" if passed_count == len(execution_results) else "partial",
+                "count": len(execution_results),
+                "passed": passed_count,
+                "failed": len(execution_results) - passed_count,
+            })
 
         # Step 4: 缺陷分析（如果有失败执行）
         failed_runs = [r for r in results.get("execution_results", []) if r.get("status") == "failed"]

@@ -61,16 +61,28 @@
       <a-col :span="18">
         <a-card title="基本信息" size="small" style="margin-bottom: 16px">
           <a-row :gutter="16">
-            <a-col :span="12">
+            <a-col :span="8">
               <a-form-item label="场景名称" style="margin-bottom: 0">
                 <a-input v-model:value="form.name" />
               </a-form-item>
             </a-col>
-            <a-col :span="12">
+            <a-col :span="8">
               <a-form-item label="环境" style="margin-bottom: 0">
                 <a-select v-model:value="form.environment_id" allow-clear placeholder="选择环境">
                   <a-select-option v-for="env in environments" :key="env.id" :value="env.id">{{ env.name }}</a-select-option>
                 </a-select>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="测试数据池" style="margin-bottom: 0">
+                <a-select
+                  v-model:value="form.data_pool_id"
+                  show-search
+                  allow-clear
+                  placeholder="选择数据池（可选）"
+                  :filter-option="(input: string, option: any) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())"
+                  :options="poolOptions"
+                />
               </a-form-item>
             </a-col>
           </a-row>
@@ -316,6 +328,7 @@ import {
 } from '@ant-design/icons-vue'
 import { apiScenariosApi, apiDefinitionsApi, apiCasesApi, type ApiScenarioStep } from '@/api/apiTest'
 import { environmentsApi } from '@/api/environments'
+import { dataPoolsApi } from '@/api/dataPools'
 import { chat } from '@/api/chat'
 import MockDataInserter from './MockDataInserter.vue'
 
@@ -332,12 +345,21 @@ const selectedStepIndex = ref(-1)
 const environments = ref<any[]>([])
 const apiList = ref<any[]>([])
 const caseList = ref<any[]>([])
+const poolOptions = ref<{ label: string; value: number }[]>([])
+
+async function loadPoolOptions() {
+  try {
+    const res = await dataPoolsApi.list(projectId, { page: 1, page_size: 100 })
+    poolOptions.value = res.items.map((p: any) => ({ label: `${p.name} (${p.data_type})`, value: p.id }))
+  } catch { poolOptions.value = [] }
+}
 
 const form = ref<any>({
   name: '',
   description: '',
   environment_id: null,
   config: {},
+  data_pool_id: null as number | null,
   pre_script: '',
   post_script: '',
 })
@@ -617,7 +639,10 @@ const handleRun = async () => {
   }
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  loadData()
+  loadPoolOptions()
+})
 </script>
 
 <style scoped>

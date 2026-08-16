@@ -17,8 +17,11 @@ celery_app = Celery(
         "app.tasks.script_tasks",
         "app.tasks.api_case_tasks",
         "app.tasks.test_plan_tasks",
+        "app.tasks.performance_tasks",
     ],
 )
+
+celery_app.autodiscover_tasks(["app.tasks"])
 
 # Celery 配置
 celery_app.conf.update(

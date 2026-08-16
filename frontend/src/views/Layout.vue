@@ -105,7 +105,9 @@ import {
   FileSearchOutlined,
   TagOutlined,
   MonitorOutlined,
-  ApiOutlined
+  ApiOutlined,
+  ThunderboltOutlined,
+  DatabaseOutlined
 } from '@ant-design/icons-vue'
 
 // 图标名 → 组件映射，供路由派生菜单动态渲染
@@ -114,7 +116,7 @@ const iconMap: Record<string, any> = {
   PlayCircleOutlined, CodeOutlined, AppstoreOutlined, SettingOutlined,
   BookOutlined, RobotOutlined, ScheduleOutlined, DashboardOutlined,
   ImportOutlined, FileSearchOutlined, TagOutlined, MonitorOutlined,
-  ApiOutlined,
+  ApiOutlined, ThunderboltOutlined, DatabaseOutlined,
 }
 
 interface TabItem {

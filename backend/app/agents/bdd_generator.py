@@ -39,8 +39,8 @@ class BDDGeneratorAgent(BaseAgent):
 
     agent_type = "bdd_generator"
 
-    def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None):
-        super().__init__(db_session, llm_config_id, task_id)
+    def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None, project_id: Optional[int] = None):
+        super().__init__(db_session, llm_config_id, task_id, project_id=project_id)
 
     def run(self, **kwargs) -> Dict[str, Any]:
         """执行 BDD 生成"""
@@ -79,8 +79,18 @@ class BDDGeneratorAgent(BaseAgent):
         if test_cases:
             input_data["test_cases"] = test_cases
 
+        # P2-9: RAG 知识库增强 - 检索项目功能文档和 BDD 规范
+        rag_context = self.build_rag_context(
+            f"BDD 用例生成 {requirement[:200]} {feature_name}",
+            top_k=3,
+        )
+
+        system_content = BDD_GENERATION_PROMPT
+        if rag_context:
+            system_content += f"\n\n{rag_context}"
+
         messages = [
-            SystemMessage(content=BDD_GENERATION_PROMPT),
+            SystemMessage(content=system_content),
             HumanMessage(content=json.dumps(input_data, ensure_ascii=False, indent=2)),
         ]
 

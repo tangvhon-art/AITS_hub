@@ -77,3 +77,4 @@ dist-ssr/
 /fix_mysql_metadata_locks.sh
 /dump.rdb
 /docs/项目优化规划.md
+/docs/新功能模块规划文档.md

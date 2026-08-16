@@ -205,8 +205,15 @@ def create_plan(project_id: int, data: TestPlanCreate, request: Request, db: Ses
         for idx, case_id in enumerate(data.case_ids):
             case = db.query(TestCase).filter(TestCase.id == case_id, TestCase.project_id == project_id).first()
             if case:
-                plan_case = TestPlanCase(plan_id=plan.id, case_id=case_id, sort_order=idx)
-                db.add(plan_case)
+                item = TestPlanItem(
+                    plan_id=plan.id,
+                    item_type="ui_case",
+                    ref_id=case_id,
+                    item_name=case.title,
+                    sort_order=idx,
+                    enabled=True,
+                )
+                db.add(item)
 
     log_audit(
         db, action="create", resource_type="plan",
@@ -238,14 +245,22 @@ def update_plan(project_id: int, plan_id: int, data: TestPlanUpdate, request: Re
     case_ids_changed = False
     if "case_ids" in update_data:
         case_ids = update_data.pop("case_ids") or []
-        db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).update(
-        {"is_deleted": True, "deleted_at": china_now_naive()}
-    )
+        db.query(TestPlanItem).filter(
+            TestPlanItem.plan_id == plan_id,
+            TestPlanItem.item_type == "ui_case",
+        ).update({"is_deleted": True, "deleted_at": china_now_naive()})
         for idx, case_id in enumerate(case_ids):
             case = db.query(TestCase).filter(TestCase.id == case_id, TestCase.project_id == project_id).first()
             if case:
-                plan_case = TestPlanCase(plan_id=plan_id, case_id=case_id, sort_order=idx)
-                db.add(plan_case)
+                item = TestPlanItem(
+                    plan_id=plan_id,
+                    item_type="ui_case",
+                    ref_id=case_id,
+                    item_name=case.title,
+                    sort_order=idx,
+                    enabled=True,
+                )
+                db.add(item)
         plan.total_cases = len(case_ids)
         case_ids_changed = True
 
@@ -296,7 +311,7 @@ def delete_plan(project_id: int, plan_id: int, request: Request, db: Session = D
 
 @project_router.get("/plans/{plan_id}/cases", response_model=list[TestPlanCaseResponse])
 def get_plan_cases(project_id: int, plan_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """获取计划关联的用例列表（兼容旧版）"""
+    """获取计划关联的用例列表（统一基于 TestPlanItem）"""
     plan = db.query(TestPlan).filter(
         TestPlan.id == plan_id,
         TestPlan.project_id == project_id
@@ -304,21 +319,23 @@ def get_plan_cases(project_id: int, plan_id: int, db: Session = Depends(get_db),
     if not plan:
         raise HTTPException(status_code=404, detail="测试计划不存在")
 
-    plan_cases = db.query(TestPlanCase).filter(
-        TestPlanCase.plan_id == plan_id
-    ).order_by(TestPlanCase.sort_order).all()
+    items = db.query(TestPlanItem).filter(
+        TestPlanItem.plan_id == plan_id,
+        TestPlanItem.item_type == "ui_case",
+        TestPlanItem.is_deleted == False,
+    ).order_by(TestPlanItem.sort_order).all()
 
     result = []
-    for pc in plan_cases:
-        case = db.query(TestCase).filter(TestCase.id == pc.case_id).first()
+    for item in items:
+        case = db.query(TestCase).filter(TestCase.id == item.ref_id).first()
         result.append(TestPlanCaseResponse(
-            id=pc.id,
-            plan_id=pc.plan_id,
-            case_id=pc.case_id,
-            sort_order=pc.sort_order,
-            status=pc.status,
-            run_id=pc.run_id,
-            case_title=case.title if case else None,
+            id=item.id,
+            plan_id=item.plan_id,
+            case_id=item.ref_id,
+            sort_order=item.sort_order,
+            status="active" if item.enabled else "disabled",
+            run_id=None,
+            case_title=case.title if case else item.item_name,
             case_priority=case.priority if case else None
         ))
     return result
@@ -326,7 +343,7 @@ def get_plan_cases(project_id: int, plan_id: int, db: Session = Depends(get_db),
 
 @project_router.post("/plans/{plan_id}/cases", response_model=TestPlanResponse)
 def update_plan_cases(project_id: int, plan_id: int, data: TestPlanCaseUpdate, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """更新计划关联的用例（兼容旧版）"""
+    """更新计划关联的用例（统一基于 TestPlanItem）"""
     plan = db.query(TestPlan).filter(
         TestPlan.id == plan_id,
         TestPlan.project_id == project_id
@@ -334,15 +351,23 @@ def update_plan_cases(project_id: int, plan_id: int, data: TestPlanCaseUpdate, r
     if not plan:
         raise HTTPException(status_code=404, detail="测试计划不存在")
 
-    db.query(TestPlanCase).filter(TestPlanCase.plan_id == plan_id).update(
-        {"is_deleted": True, "deleted_at": china_now_naive()}
-    )
+    db.query(TestPlanItem).filter(
+        TestPlanItem.plan_id == plan_id,
+        TestPlanItem.item_type == "ui_case",
+    ).update({"is_deleted": True, "deleted_at": china_now_naive()})
 
     for idx, case_id in enumerate(data.case_ids):
         case = db.query(TestCase).filter(TestCase.id == case_id, TestCase.project_id == project_id).first()
         if case:
-            plan_case = TestPlanCase(plan_id=plan_id, case_id=case_id, sort_order=idx)
-            db.add(plan_case)
+            item = TestPlanItem(
+                plan_id=plan_id,
+                item_type="ui_case",
+                ref_id=case_id,
+                item_name=case.title,
+                sort_order=idx,
+                enabled=True,
+            )
+            db.add(item)
 
     plan.total_cases = len(data.case_ids)
     plan.updated_at = china_now_naive()

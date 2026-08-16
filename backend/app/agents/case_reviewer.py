@@ -47,8 +47,8 @@ class CaseReviewerAgent(BaseAgent):
 
     agent_type = "case_reviewer"
 
-    def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None):
-        super().__init__(db_session, llm_config_id, task_id)
+    def __init__(self, db_session, llm_config_id: Optional[int] = None, task_id: Optional[int] = None, project_id: Optional[int] = None):
+        super().__init__(db_session, llm_config_id, task_id, project_id=project_id)
 
     def run(self, **kwargs) -> Dict[str, Any]:
         """执行评审"""
@@ -84,8 +84,18 @@ class CaseReviewerAgent(BaseAgent):
                 "expected_result": case.get("expected_result", ""),
             })
 
+        # P2-9: RAG 知识库增强 - 检索项目测试规范和历史评审
+        rag_context = self.build_rag_context(
+            f"用例评审 {requirement[:200]}",
+            top_k=3,
+        )
+
+        system_content = REVIEW_SYSTEM_PROMPT
+        if rag_context:
+            system_content += f"\n\n{rag_context}"
+
         messages = [
-            SystemMessage(content=REVIEW_SYSTEM_PROMPT),
+            SystemMessage(content=system_content),
             HumanMessage(content=f"需求描述：{requirement}\n\n待评审用例：\n{json.dumps(cases_summary, ensure_ascii=False, indent=2)}"),
         ]
 

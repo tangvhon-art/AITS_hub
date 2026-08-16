@@ -115,6 +115,14 @@ class CaseGeneratorAgent(BaseAgent):
             preferred_config_id=self.llm_config_id,
         )
 
+        # P2-2: 合并 token 统计到 BaseAgent
+        if token_usage:
+            self.token_usage["prompt_tokens"] += token_usage.get("prompt_tokens", 0)
+            self.token_usage["completion_tokens"] += token_usage.get("completion_tokens", 0)
+            self.token_usage["total_tokens"] += token_usage.get("total_tokens", 0)
+        self.llm_config_id = config_id or used_config_id
+        self._log_step("llm_call", {"requirement_len": len(requirement_content), "count": count}, "success")
+
         # 解析输出
         try:
             result = parser.parse(response.content)
@@ -127,8 +135,8 @@ class CaseGeneratorAgent(BaseAgent):
 
         return {
             "cases": cases,
-            "token_usage": token_usage,
-            "llm_config_id": config_id or used_config_id,
+            "token_usage": self.get_token_usage(),
+            "llm_config_id": self.llm_config_id,
         }
 
     def _fallback_parse(self, content: str) -> List[Dict[str, Any]]:

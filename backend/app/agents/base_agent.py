@@ -29,10 +29,14 @@ class BaseAgent(ABC):
         db_session: Session,
         llm_config_id: Optional[int] = None,
         task_id: Optional[int] = None,
+        agent_name: Optional[str] = None,
+        project_id: Optional[int] = None,
     ):
         self.db = db_session
         self.llm_config_id = llm_config_id
         self.task_id = task_id
+        self.agent_name = agent_name or self.agent_type
+        self.project_id = project_id
         self.execution_log: List[Dict[str, Any]] = []
         self.token_usage: Dict[str, int] = {
             "prompt_tokens": 0,
@@ -52,11 +56,15 @@ class BaseAgent(ABC):
         })
 
     def _call_llm(self, messages: List[Any], **kwargs) -> Any:
-        """调用 LLM，带降级和 Token 统计"""
-        llm, config_id = llm_factory.get_llm_with_fallback(
-            self.db, preferred_config_id=self.llm_config_id
-        )
-        response = llm.invoke(messages, **kwargs)
+        """调用 LLM，通过 ModelRouter 路由模型，带降级和 Token 统计"""
+        if not hasattr(self, '_llm_initialized'):
+            self._init_routed_llm(
+                agent_type=self.agent_name,
+                preferred_config_id=self.llm_config_id,
+            )
+            self._llm_initialized = True
+
+        response = self.llm.invoke(messages, **kwargs)
 
         # 统计 Token
         usage = getattr(response, "usage_metadata", None)
@@ -124,7 +132,7 @@ class BaseAgent(ABC):
             return []
         try:
             results = knowledge_base_service.search(pid, query, top_k=top_k)
-            self._log(f"knowledge_search", {"query": query[:100], "results": len(results)})
+            self._log_step("knowledge_search", {"query": query[:100], "results": len(results)}, "success")
             return results
         except Exception as e:
             logger.warning(f"知识库检索失败（不影响主流程）: {e}")

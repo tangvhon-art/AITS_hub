@@ -173,6 +173,7 @@ class ScriptGenerator(BaseAgent):
         script_name: str = "AI生成脚本",
         llm_config_id: Optional[int] = None,
         db_session=None,
+        project_id: Optional[int] = None,
     ) -> str:
         """
         基于自然语言描述，调用 AI 生成 Playwright 脚本
@@ -183,11 +184,31 @@ class ScriptGenerator(BaseAgent):
             script_name: 脚本名称
             llm_config_id: 指定的 LLM 配置ID
             db_session: 数据库会话
+            project_id: 项目ID（用于 RAG 知识库检索）
 
         Returns:
             生成的 Python 脚本内容
         """
         from app.agents.llm_factory import llm_factory
+
+        # P2-9: RAG 知识库增强 - 检索项目页面结构和 UI 模式
+        rag_context = ""
+        if project_id:
+            try:
+                from app.services.knowledge_base import knowledge_base_service
+                docs = knowledge_base_service.search(project_id, f"脚本生成 {description[:200]}", top_k=3)
+                if docs:
+                    parts = ["以下是从项目知识库中检索到的相关内容，请参考："]
+                    for i, doc in enumerate(docs, 1):
+                        content = doc.get("content", "") if isinstance(doc, dict) else str(doc)
+                        parts.append(f"[{i}] {content}")
+                    rag_context = "\n".join(parts)
+            except Exception:
+                pass
+
+        system_content = SCRIPT_GENERATE_SYSTEM_PROMPT
+        if rag_context:
+            system_content += f"\n\n{rag_context}"
 
         user_prompt = f"""请根据以下测试需求生成 Playwright 自动化测试脚本：
 
@@ -199,7 +220,7 @@ class ScriptGenerator(BaseAgent):
 请生成完整的 Python 脚本。"""
 
         messages = [
-            SystemMessage(content=SCRIPT_GENERATE_SYSTEM_PROMPT),
+            SystemMessage(content=system_content),
             HumanMessage(content=user_prompt),
         ]
 

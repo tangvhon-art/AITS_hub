@@ -50,6 +50,20 @@
         <a-form-item label="用例描述">
           <a-textarea v-model:value="form.description" :rows="2" placeholder="请输入用例描述" />
         </a-form-item>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="测试数据池">
+              <a-select
+                v-model:value="form.data_pool_id"
+                show-search
+                allow-clear
+                placeholder="选择数据池进行参数化（可选）"
+                :filter-option="(input: string, option: any) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())"
+                :options="poolOptions"
+              />
+            </a-form-item>
+          </a-col>
+        </a-row>
       </a-card>
 
       <a-card title="请求配置" style="margin-top: 16px">
@@ -235,6 +249,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiCasesApi, apiDefinitionsApi } from '@/api/apiTest'
+import { dataPoolsApi } from '@/api/dataPools'
 import MockDataInserter from './MockDataInserter.vue'
 
 const route = useRoute()
@@ -248,6 +263,14 @@ const activeTab = ref('headers')
 const apiList = ref<any[]>([])
 const assertions = ref<any[]>([])
 const aiGenerating = reactive({ pre: false, post: false })
+const poolOptions = ref<{ label: string; value: number }[]>([])
+
+async function loadPoolOptions() {
+  try {
+    const res = await dataPoolsApi.list(projectId, { page: 1, page_size: 100 })
+    poolOptions.value = res.items.map((p: any) => ({ label: `${p.name} (${p.data_type})`, value: p.id }))
+  } catch { poolOptions.value = [] }
+}
 
 const form = ref<any>({
   name: '',
@@ -264,6 +287,7 @@ const form = ref<any>({
   post_script: '',
   param_source: 'none',
   param_data: null,
+  data_pool_id: null as number | null,
 })
 
 const bodyParams = computed({
@@ -415,6 +439,7 @@ const handleSave = async () => {
 onMounted(() => {
   loadApis()
   loadData()
+  loadPoolOptions()
 })
 </script>
 
