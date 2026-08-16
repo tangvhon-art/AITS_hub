@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "AITS 智能测试管理平台"
     APP_ENV: str = "development"
     DEBUG: bool = True
+    LOG_LEVEL: str = "INFO"
     SECRET_KEY: str = "dev-secret-key-change-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     ALGORITHM: str = "HS256"

@@ -24,7 +24,7 @@ class EnvironmentManager:
             {
                 "id": v.id,
                 "key": v.key,
-                "value": v.value,
+                "value": self._mask_value(v.value) if v.is_sensitive else v.value,
                 "description": v.description,
                 "is_sensitive": v.is_sensitive,
             }
@@ -82,6 +82,15 @@ class EnvironmentManager:
             return True
         return False
 
+    @staticmethod
+    def _mask_value(value: str) -> str:
+        """脱敏处理：保留前2后2字符，中间用****替代"""
+        if not value:
+            return value
+        if len(value) <= 8:
+            return "****"
+        return f"{value[:2]}****{value[-2:]}"
+
     def compare_environments(self, project_id: int, env_ids: List[int]) -> dict:
         """对比多个环境的变量差异"""
         from app.models.test_data_pool import EnvironmentVariableOverride
@@ -94,20 +103,27 @@ class EnvironmentManager:
         }
 
         env_vars = {}
+        sensitive_keys = set()
         for env_id in env_ids:
             vars = self.db.query(EnvironmentVariableOverride).filter(
                 EnvironmentVariableOverride.project_id == project_id,
                 EnvironmentVariableOverride.environment_id == env_id,
             ).all()
             env_vars[env_id] = {v.key: v.value for v in vars}
+            for v in vars:
+                if v.is_sensitive:
+                    sensitive_keys.add(v.key)
             result["all_keys"].update(v.key for v in vars)
 
         for key in sorted(result["all_keys"]):
-            row = {"key": key}
+            row = {"key": key, "is_sensitive": key in sensitive_keys}
             values = []
             for env_id in env_ids:
                 val = env_vars[env_id].get(key)
-                row[f"env_{env_id}"] = val
+                if key in sensitive_keys:
+                    row[f"env_{env_id}"] = self._mask_value(val) if val else val
+                else:
+                    row[f"env_{env_id}"] = val
                 values.append(val)
             result["matrix"][key] = row
 

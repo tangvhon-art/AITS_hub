@@ -196,7 +196,6 @@ import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiDefinitionsApi, apiModulesApi, type ApiDefinition, type ApiModule } from '@/api/apiTest'
 import { getLLMConfigs } from '@/api/llm'
-import { chat } from '@/api/chat'
 
 const route = useRoute()
 const router = useRouter()
@@ -283,34 +282,43 @@ const loadLlmConfigs = async () => {
 }
 
 const handleAiGenerateDoc = async () => {
+  if (!isEdit.value) {
+    message.warning('请先保存接口定义后再生成文档')
+    return
+  }
   aiGenerating.value = true
+  aiDocResult.value = ''
   try {
-    const prompt = `请为以下接口生成清晰完整的接口文档：
+    const res = await apiDefinitionsApi.aiGenerateDoc(
+      projectId,
+      Number(apiId),
+      aiDocConfig.value.llm_config_id || undefined,
+    )
+    const taskId = res.task_id
+    message.info('AI 文档生成中...')
 
-接口名称：${form.value.name || '（未填写）'}
-请求方法：${form.value.method}
-接口路径：${form.value.path}
-接口描述：${form.value.description || '（未填写）'}
-
-请生成包含以下内容的接口文档：
-1. 接口概述（功能说明）
-2. 请求参数说明（Headers、Query、Body 各字段的含义和示例）
-3. 响应参数说明（可能的返回字段）
-4. 错误码说明
-5. 调用示例
-
-请用 Markdown 格式输出，内容要清晰、专业、便于开发人员参考。`
-    const res = await chat({
-      message: prompt,
-      project_id: projectId,
-      llm_config_id: aiDocConfig.value.llm_config_id || undefined,
-    })
-    aiDocResult.value = res.content || JSON.stringify(res, null, 2)
-    message.success('文档生成成功')
+    const poll = setInterval(async () => {
+      try {
+        const status = await apiDefinitionsApi.aiGenerateDocStatus(projectId, Number(apiId), taskId)
+        if (status.status === 'success') {
+          clearInterval(poll)
+          aiDocResult.value = status.documentation
+          aiGenerating.value = false
+          message.success('文档生成成功')
+        } else if (status.status === 'failed') {
+          clearInterval(poll)
+          aiGenerating.value = false
+          message.error('文档生成失败：' + (status.error || '未知错误'))
+        }
+      } catch {
+        clearInterval(poll)
+        aiGenerating.value = false
+        message.error('查询生成状态失败')
+      }
+    }, 2000)
   } catch (e: any) {
-    message.error('文档生成失败：' + (e.message || '未知错误'))
-  } finally {
     aiGenerating.value = false
+    message.error('启动文档生成失败：' + (e.message || '未知错误'))
   }
 }
 

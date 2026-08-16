@@ -15,6 +15,11 @@ dayjs.locale('zh-cn')
 
 const app = createApp(App)
 
+// 全局错误处理
+app.config.errorHandler = (err, _instance, info) => {
+  console.error('全局错误:', err, '\n组件信息:', info)
+}
+
 // 注册全局时间格式化方法
 app.config.globalProperties.$formatDateTime = formatDateTime
 app.config.globalProperties.$formatDate = formatDate

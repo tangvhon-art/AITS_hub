@@ -28,6 +28,7 @@ instance.interceptors.response.use(
 
     if (status === 401) {
       localStorage.removeItem('token')
+      import('@/stores/user').then(({ useUserStore }) => useUserStore().logout())
       message.error('登录已过期，请重新登录')
       router.push('/login')
     } else if (status === 403) {

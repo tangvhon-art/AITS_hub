@@ -108,7 +108,7 @@ class TestPlanExecutionResult(SoftDeleteMixin, Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
     execution_id = Column(Integer, ForeignKey("test_plan_executions.id"), nullable=False, index=True, comment="关联执行记录ID")
-    item_id = Column(Integer, nullable=True, comment="关联计划节点ID")
+    item_id = Column(Integer, nullable=True, index=True, comment="关联计划节点ID")
     item_type = Column(String(20), default="", comment="节点类型：case/scenario")
     ref_id = Column(Integer, nullable=True, comment="关联用例/场景ID")
     item_name = Column(String(200), default="", comment="节点名称（快照）")

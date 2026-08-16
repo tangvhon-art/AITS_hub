@@ -130,7 +130,6 @@ class PerformanceTestUser(HttpUser):
                 "-r", str(spawn_rate),
                 "-t", f"{duration}s",
                 "--host", host,
-                "--only-summary",
                 "--csv", f"/tmp/locust_result_{run_id}",
             ]
 
@@ -247,7 +246,39 @@ class PerformanceTestUser(HttpUser):
             except Exception:
                 pass
 
+        stats["stats_history"] = self._parse_stats_history(run_id)
+
         return stats
+
+    def _parse_stats_history(self, run_id: int) -> list:
+        """解析 Locust stats_history CSV，提取每秒的 Aggregated 数据"""
+        import csv
+
+        history_path = f"/tmp/locust_result_{run_id}_stats_history.csv"
+        if not os.path.exists(history_path):
+            return []
+
+        history = []
+        try:
+            with open(history_path, "r") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get("Name") != "Aggregated":
+                        continue
+                    history.append({
+                        "timestamp": row.get("Timestamp", ""),
+                        "users": int(float(row.get("User Count", 0))),
+                        "rps": float(row.get("Requests/s", 0) or 0),
+                        "failures_per_s": float(row.get("Failures/s", 0) or 0),
+                        "p50": float(row.get("50%", 0) or 0),
+                        "p95": float(row.get("95%", 0) or 0),
+                        "p99": float(row.get("99%", 0) or 0),
+                        "avg": float(row.get("Average Response Time", 0) or 0),
+                    })
+        except Exception as e:
+            logger.warning(f"解析 stats_history CSV 失败: {e}")
+
+        return history
 
     def _cleanup_csv_files(self, run_id: int):
         """清理 Locust CSV 临时文件"""

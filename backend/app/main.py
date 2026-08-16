@@ -2,15 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import settings
 from app.database import engine, Base
-from app.core.exceptions import (
-    http_exception_handler,
-    validation_exception_handler,
-    general_exception_handler,
-)
+from app.core.error_handlers import register_exception_handlers
 from app.api import (
     auth_router,
     projects_router,
@@ -54,9 +48,13 @@ from app.api import (
 )
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+# 生产环境关闭 SQLAlchemy SQL 日志
+if settings.APP_ENV == "production":
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -125,9 +123,7 @@ app.add_middleware(
 )
 
 # 注册全局异常处理器
-app.add_exception_handler(StarletteHTTPException, http_exception_handler)
-app.add_exception_handler(RequestValidationError, validation_exception_handler)
-app.add_exception_handler(Exception, general_exception_handler)
+register_exception_handlers(app)
 
 # 注册路由
 app.include_router(auth_router)

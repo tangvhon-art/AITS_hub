@@ -1,52 +1,76 @@
 """
-全局异常处理模块
-统一异常响应格式，确保前端能正确解析错误信息
+统一异常定义
+
+业务异常基类 BizException 及常见子类，统一错误响应格式 {code, message, detail}。
+后续接口逐步从 raise HTTPException 迁移到 raise BizException 子类。
 """
-import logging
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
-
-logger = logging.getLogger(__name__)
+from typing import Any, Optional
 
 
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    """处理 HTTP 异常"""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "detail": exc.detail,
-            "status_code": exc.status_code,
-        },
-    )
+class BizException(Exception):
+    """业务异常基类
+
+    统一错误响应格式::
+
+        {"code": <code>, "message": <message>, "detail": <detail>}
+
+    - code: 业务错误码（0 表示成功，非 0 表示业务错误）
+    - message: 面向用户的简短错误描述
+    - detail: 额外详情（字符串、字典或列表）
+    - status_code: HTTP 状态码（默认 400）
+    """
+
+    def __init__(
+        self,
+        message: str = "业务处理失败",
+        code: int = 1000,
+        detail: Any = None,
+        status_code: int = 400,
+    ):
+        self.code = code
+        self.message = message
+        self.detail = detail
+        self.status_code = status_code
+        super().__init__(message)
+
+    def to_dict(self) -> dict:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "detail": self.detail,
+        }
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """处理请求参数校验异常"""
-    errors = []
-    for err in exc.errors():
-        errors.append({
-            "field": ".".join(str(x) for x in err.get("loc", [])),
-            "message": err.get("msg", ""),
-            "type": err.get("type", ""),
-        })
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": "请求参数校验失败",
-            "errors": errors,
-        },
-    )
+class NotFoundException(BizException):
+    """资源不存在"""
+
+    def __init__(self, message: str = "资源不存在", detail: Any = None):
+        super().__init__(message=message, code=1404, detail=detail, status_code=404)
 
 
-async def general_exception_handler(request: Request, exc: Exception):
-    """处理通用异常（兜底）"""
-    logger.exception(f"未处理的异常: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={
-            "detail": f"服务器内部错误: {str(exc)}",
-            "type": type(exc).__name__,
-        },
-    )
+class PermissionDeniedException(BizException):
+    """权限不足"""
+
+    def __init__(self, message: str = "权限不足", detail: Any = None):
+        super().__init__(message=message, code=1403, detail=detail, status_code=403)
+
+
+class ValidationException(BizException):
+    """业务校验失败"""
+
+    def __init__(self, message: str = "参数校验失败", detail: Any = None):
+        super().__init__(message=message, code=1400, detail=detail, status_code=400)
+
+
+class UnauthorizedException(BizException):
+    """未认证 / 登录失效"""
+
+    def __init__(self, message: str = "未登录或登录已过期", detail: Any = None):
+        super().__init__(message=message, code=1401, detail=detail, status_code=401)
+
+
+class ConflictException(BizException):
+    """资源冲突"""
+
+    def __init__(self, message: str = "资源冲突", detail: Any = None):
+        super().__init__(message=message, code=1409, detail=detail, status_code=409)

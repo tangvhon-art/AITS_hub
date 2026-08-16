@@ -396,7 +396,8 @@ def list_plan_items(project_id: int, plan_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="测试计划不存在")
 
     items = db.query(TestPlanItem).filter(
-        TestPlanItem.plan_id == plan_id
+        TestPlanItem.plan_id == plan_id,
+        TestPlanItem.is_deleted == False,
     ).order_by(TestPlanItem.sort_order).all()
     return items
 
@@ -439,8 +440,11 @@ def add_plan_item(project_id: int, plan_id: int, data: TestPlanItemCreate, reque
     else:
         raise HTTPException(status_code=400, detail="不支持的节点类型")
 
-    # 计算排序
-    max_order = db.query(TestPlanItem).filter(TestPlanItem.plan_id == plan_id).count()
+    # 计算排序（仅统计未删除节点）
+    max_order = db.query(TestPlanItem).filter(
+        TestPlanItem.plan_id == plan_id,
+        TestPlanItem.is_deleted == False,
+    ).count()
 
     item = TestPlanItem(
         plan_id=plan_id,

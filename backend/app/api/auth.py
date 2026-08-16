@@ -49,6 +49,8 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
 @router.post("/login", response_model=Token)
 def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """用户登录（OAuth2 格式）"""
+    from app.core.rate_limiter import rate_limit
+    rate_limit(request, key_prefix="login", limit=10, window=60)
     user = db.query(User).filter(User.username == form_data.username).first()
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")

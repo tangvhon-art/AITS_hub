@@ -1,5 +1,5 @@
 """
-接口测试用例 AI 生成 Celery 任务
+接口文档 AI 生成 Celery 任务
 """
 import asyncio
 import logging
@@ -10,13 +10,12 @@ from app.database import SessionLocal
 from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
 from app.models.api_test import ApiDefinition
-from app.services.api_case_generator import ApiCaseGenerator
+from app.services.api_doc_generator import ApiDocGenerator
 
 logger = logging.getLogger(__name__)
 
 
 def _api_definition_to_dict(api: ApiDefinition) -> dict:
-    """将 ApiDefinition ORM 对象转为字典，供 LLM prompt 使用"""
     return {
         "id": api.id,
         "name": api.name,
@@ -34,9 +33,9 @@ def _api_definition_to_dict(api: ApiDefinition) -> dict:
     }
 
 
-@celery_app.task(bind=True, name="generate_api_cases", max_retries=2)
-def generate_api_cases_task(self, task_id: int):
-    """AI 生成接口测试用例任务"""
+@celery_app.task(bind=True, name="generate_api_doc", max_retries=2)
+def generate_api_doc_task(self, task_id: int):
+    """AI 生成接口文档任务"""
     db = SessionLocal()
     try:
         task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
@@ -49,10 +48,6 @@ def generate_api_cases_task(self, task_id: int):
 
         input_params = task.input_params or {}
         api_id = input_params.get("api_id")
-        strategy = input_params.get("strategy", "comprehensive")
-        case_count = input_params.get("case_count", 5)
-        coverage_scenarios = input_params.get("coverage_scenarios", [])
-        assertion_depth = input_params.get("assertion_depth", "standard")
 
         api_def = db.query(ApiDefinition).filter(ApiDefinition.id == api_id).first() if api_id else None
         if not api_def:
@@ -63,7 +58,7 @@ def generate_api_cases_task(self, task_id: int):
             return
 
         api_dict = _api_definition_to_dict(api_def)
-        generator = ApiCaseGenerator(db, llm_config_id=task.llm_config_id)
+        generator = ApiDocGenerator(db, llm_config_id=task.llm_config_id)
 
         result_container = {}
 
@@ -72,13 +67,7 @@ def generate_api_cases_task(self, task_id: int):
             asyncio.set_event_loop(new_loop)
             try:
                 result_container["result"] = new_loop.run_until_complete(
-                    generator.generate(
-                        api_dict,
-                        strategy=strategy,
-                        case_count=case_count,
-                        coverage_scenarios=coverage_scenarios,
-                        assertion_depth=assertion_depth,
-                    )
+                    generator.generate(api_dict)
                 )
             except Exception as e:
                 result_container["error"] = str(e)
@@ -92,28 +81,18 @@ def generate_api_cases_task(self, task_id: int):
         if "error" in result_container:
             raise Exception(result_container["error"])
 
-        generated_cases, token_usage, used_config_id = result_container.get("result", ([], {}, None))
-
-        cases_data = []
-        for case in generated_cases:
-            cases_data.append({
-                "name": case.get("name", ""),
-                "priority": case.get("priority", "P2"),
-                "description": case.get("description", ""),
-                "request": case.get("request", {}),
-                "assertions": case.get("assertions", []),
-            })
+        markdown_content, token_usage, used_config_id = result_container.get("result", ("", {}, None))
 
         task.status = "success"
-        task.output_result = {"cases": cases_data, "count": len(cases_data)}
+        task.output_result = {"documentation": markdown_content}
         task.token_usage = token_usage
         task.completed_at = china_now_naive()
         db.commit()
 
-        logger.info(f"AI生成用例任务完成: task_id={task_id}, count={len(cases_data)}")
+        logger.info(f"AI生成接口文档任务完成: task_id={task_id}")
 
     except Exception as e:
-        logger.error(f"AI生成用例任务失败: task_id={task_id}, error={e}", exc_info=True)
+        logger.error(f"AI生成接口文档任务失败: task_id={task_id}, error={e}", exc_info=True)
         try:
             task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
             if task:

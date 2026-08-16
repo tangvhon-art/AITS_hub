@@ -57,7 +57,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import * as echarts from 'echarts'
@@ -74,6 +74,7 @@ const runs = ref<PerformanceTestRun[]>([])
 const runPagination = ref({ current: 1, pageSize: 10, total: 0 })
 const responseChartRef = ref<HTMLElement>()
 let chartInstance: echarts.ECharts | null = null
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const runColumns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -114,8 +115,38 @@ async function loadData() {
     }
     runs.value = runsRes.items
     runPagination.value.total = runsRes.total
+    startPollingIfNeeded()
   } catch { } finally {
     loading.value = false
+  }
+}
+
+function startPollingIfNeeded() {
+  stopPolling()
+  const status = run.value.status
+  if (status === 'pending' || status === 'running') {
+    pollTimer = setInterval(async () => {
+      try {
+        if (run.value.id) {
+          const detail = await performanceTestsApi.getRun(run.value.id)
+          run.value = detail
+          errorData.value = Object.entries(detail.error_summary || {}).map(([error, count]) => ({ error, count }))
+          await nextTick()
+          renderChart()
+          if (detail.status !== 'pending' && detail.status !== 'running') {
+            stopPolling()
+            loadData()
+          }
+        }
+      } catch { }
+    }, 3000)
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
   }
 }
 
@@ -146,22 +177,31 @@ function renderChart() {
   const p50Data = history.map((h: any) => h.p50 || 0)
   const p95Data = history.map((h: any) => h.p95 || 0)
   const p99Data = history.map((h: any) => h.p99 || 0)
+  const rpsData = history.map((h: any) => h.rps || 0)
 
   chartInstance.setOption({
     tooltip: { trigger: 'axis' },
-    legend: { data: ['P50', 'P95', 'P99'] },
+    legend: { data: ['P50', 'P95', 'P99', 'RPS'] },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: { type: 'category', data: categories },
-    yAxis: { type: 'value', name: 'ms' },
+    yAxis: [
+      { type: 'value', name: 'ms', position: 'left' },
+      { type: 'value', name: 'RPS', position: 'right' },
+    ],
     series: [
       { name: 'P50', type: 'line', data: p50Data, smooth: true },
       { name: 'P95', type: 'line', data: p95Data, smooth: true },
       { name: 'P99', type: 'line', data: p99Data, smooth: true },
+      { name: 'RPS', type: 'line', data: rpsData, smooth: true, yAxisIndex: 1, lineStyle: { type: 'dashed' } },
     ],
   })
 }
 
 onMounted(() => loadData())
+onUnmounted(() => {
+  stopPolling()
+  chartInstance?.dispose()
+})
 </script>
 
 <style scoped>

@@ -4,6 +4,7 @@ AI 接口测试用例生成器
 """
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -36,14 +37,33 @@ def build_generate_prompt(api_definition: Dict[str, Any], strategy: str = "compr
         "deep": "状态码 + 全字段 + 业务规则校验",
     }
 
+    # 请求头
+    headers_lines = []
+    for h in api_definition.get("headers", []) or []:
+        if isinstance(h, dict) and h.get("key"):
+            headers_lines.append(f"  - {h['key']}: {h.get('value', '')} ({'启用' if h.get('enabled', True) else '禁用'})")
+
+    # 请求参数
     parameters = []
     for p in api_definition.get("query_params", []) or []:
-        parameters.append(f"  - Query: {p.get('key')} ({p.get('type', 'string')}) - {p.get('description', '')}")
+        if isinstance(p, dict) and p.get("key"):
+            parameters.append(f"  - Query: {p['key']} ({p.get('type', 'string')}) - {p.get('description', '')} [必填: {p.get('required', False)}]")
     for p in api_definition.get("path_params", []) or []:
-        parameters.append(f"  - Path: {p.get('key')} ({p.get('type', 'string')}) - {p.get('description', '')}")
+        if isinstance(p, dict) and p.get("key"):
+            parameters.append(f"  - Path: {p['key']} ({p.get('type', 'string')}) - {p.get('description', '')} [必填: {p.get('required', True)}]")
 
+    # 请求体
+    body_type = api_definition.get("body_type", "none")
     request_body = api_definition.get("body_content", {})
-    response_example = (api_definition.get("response_examples") or [{}])[0] if api_definition.get("response_examples") else {}
+
+    # 响应示例（全部）
+    response_examples = api_definition.get("response_examples", []) or []
+    response_section = ""
+    if response_examples:
+        for i, ex in enumerate(response_examples):
+            response_section += f"\n  示例 {i + 1}:\n{json.dumps(ex, ensure_ascii=False, indent=4)}"
+    else:
+        response_section = "  无"
 
     prompt = f"""你是一个专业的接口测试工程师。请根据以下接口定义，生成 {case_count} 个接口测试用例。
 
@@ -52,22 +72,30 @@ def build_generate_prompt(api_definition: Dict[str, Any], strategy: str = "compr
 - 方法：{api_definition.get('method', 'GET')}
 - 路径：{api_definition.get('path', '')}
 - 描述：{api_definition.get('description', '')}
+- 标签：{api_definition.get('tags', '')}
+
+请求头：
+{chr(10).join(headers_lines) if headers_lines else '  无'}
 
 请求参数：
 {chr(10).join(parameters) if parameters else '  无'}
 
-请求体：
+请求体类型：{body_type}
+请求体内容：
 {json.dumps(request_body, ensure_ascii=False, indent=2) if request_body else '  无'}
 
 响应示例：
-{json.dumps(response_example, ensure_ascii=False, indent=2) if response_example else '  无'}
+{response_section}
 
 生成要求：
 1. 生成策略：{strategy} - {strategy_desc.get(strategy, strategy_desc['comprehensive'])}
 2. 覆盖场景：{', '.join(coverage)}
 3. 断言深度：{assertion_depth} - {assertion_desc.get(assertion_depth, assertion_desc['standard'])}
 4. 每个用例包含：name, priority, description, request(headers/params/body), assertions
-5. 用例名称使用{language}中文
+5. request.headers 为字典格式，request.params 为字典格式，request.body 为具体请求体
+6. assertions 中 type 可选：status_code / response_json / response_time / header / json_path
+7. 用例名称使用{language}中文
+8. 请基于请求参数和请求体的字段设计测试数据，包括正常值、缺失必填字段、非法类型等
 
 请严格按照以下 JSON 格式返回，不要输出其他内容：
 {{"cases": [{{"name": "用例名称", "priority": "P1", "description": "用例描述", "request": {{"headers": {{}}, "params": {{}}, "body": {{}}}}, "assertions": [{{"type": "status_code", "operator": "equals", "expected": 200, "target": ""}}]}}]}}
@@ -168,6 +196,3 @@ class ApiCaseGenerator:
         cases = validate_cases(cases)
 
         return cases, token_usage, used_config_id
-
-
-import re  # 放在文件末尾避免影响顶部导入

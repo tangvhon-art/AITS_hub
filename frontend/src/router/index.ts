@@ -147,6 +147,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '质量看板', icon: 'DashboardOutlined' }
       },
       {
+        path: 'projects/:id/coverage',
+        name: 'CoverageDashboard',
+        component: () => import('@/views/coverage/CoverageDashboard.vue'),
+        meta: { title: '覆盖率分析', icon: 'SafetyCertificateOutlined' }
+      },
+      {
         path: 'projects/:id/performance-tests',
         name: 'PerformanceTests',
         component: () => import('@/views/performance/PerformanceTests.vue'),

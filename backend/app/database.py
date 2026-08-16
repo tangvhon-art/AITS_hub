@@ -10,6 +10,14 @@ engine = create_engine(
     echo=settings.DEBUG,
 )
 
+redis_client = None
+try:
+    import redis as redis_lib
+    redis_client = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+    redis_client.ping()
+except Exception:
+    redis_client = None
+
 
 @event.listens_for(engine, "connect")
 def set_mysql_timezone(dbapi_connection, connection_record):

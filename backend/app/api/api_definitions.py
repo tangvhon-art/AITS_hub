@@ -178,3 +178,83 @@ def delete_definition(
         detail={"project_id": project_id, "api_name": api.name, "type": "api_definition"},
     )
     db.commit()
+
+
+@router.post("/{definition_id}/ai-generate-doc")
+def ai_generate_doc(
+    project_id: int,
+    definition_id: int,
+    request: Request,
+    llm_config_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """AI 生成接口文档（异步）"""
+    from app.core.rate_limiter import rate_limit
+    rate_limit(request, key_prefix="ai_doc", limit=20, window=60)
+
+    get_project(project_id, db, current_user)
+    api = db.query(ApiDefinition).filter(
+        ApiDefinition.id == definition_id, ApiDefinition.project_id == project_id
+    ).first()
+    if not api:
+        raise HTTPException(status_code=404, detail="接口不存在")
+
+    from app.models.agent_task import AgentTask
+
+    task = AgentTask(
+        project_id=project_id,
+        agent_type="api_doc_generator",
+        status="pending",
+        input_params={"api_id": definition_id},
+        llm_config_id=llm_config_id,
+        created_by=current_user.id,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    try:
+        from app.tasks.api_doc_tasks import generate_api_doc_task
+        generate_api_doc_task.delay(task.id)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("Celery 不可用，使用后台线程回退")
+        import threading
+
+        def _run():
+            from app.tasks.api_doc_tasks import generate_api_doc_task
+            generate_api_doc_task(task.id)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    return {"task_id": task.id, "status": "pending"}
+
+
+@router.get("/{definition_id}/ai-generate-doc/{task_id}")
+def ai_generate_doc_status(
+    project_id: int,
+    definition_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """查询 AI 文档生成状态"""
+    get_project(project_id, db, current_user)
+    from app.models.agent_task import AgentTask
+
+    task = db.query(AgentTask).filter(
+        AgentTask.id == task_id, AgentTask.project_id == project_id
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    result = {
+        "status": task.status,
+        "documentation": "",
+        "error": task.error_message or "",
+    }
+    if task.status == "success" and task.output_result:
+        result["documentation"] = task.output_result.get("documentation", "")
+
+    return result
