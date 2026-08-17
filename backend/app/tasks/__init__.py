@@ -14,3 +14,4 @@ from app.tasks.requirement_tasks import *  # noqa: F401,F403
 from app.tasks.knowledge_tasks import *  # noqa: F401,F403
 from app.tasks.report_tasks import *  # noqa: F401,F403
 from app.tasks.review_tasks import *  # noqa: F401,F403
+from app.tasks.execution_tasks import *  # noqa: F401,F403

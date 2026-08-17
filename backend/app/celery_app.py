@@ -31,6 +31,7 @@ celery_app = Celery(
         "app.tasks.knowledge_tasks",
         "app.tasks.report_tasks",
         "app.tasks.review_tasks",
+        "app.tasks.execution_tasks",
     ],
 )
 

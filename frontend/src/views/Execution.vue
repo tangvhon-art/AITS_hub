@@ -170,11 +170,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, nextTick, onMounted } from 'vue'
+import { ref, reactive, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlayCircleOutlined } from '@ant-design/icons-vue'
-import { streamExecution, getExecutionRuns, getExecutionRun } from '@/api/execution'
+import { runExecution, getExecutionRunStatus, getExecutionRuns, getExecutionRun } from '@/api/execution'
 import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
@@ -221,7 +221,9 @@ const runColumns = [
   { title: '操作', key: 'action', width: 100 },
 ]
 
-let evtSource: any = null
+// 轮询控制
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let currentRunId: number | null = null
 
 // 历史日志查看
 const showLogModal = ref(false)
@@ -252,6 +254,15 @@ function runStatusLabel(status: string) {
   return map[status] || status
 }
 
+function normalizeStatus(status: string): string {
+  if (['success', 'ok', 'pass', 'passed', 'complete', 'completed'].includes(status?.toLowerCase())) {
+    return 'passed'
+  } else if (['fail', 'failed', 'error'].includes(status?.toLowerCase())) {
+    return 'failed'
+  }
+  return status
+}
+
 async function startExecution() {
   if (!instruction.value.trim()) {
     message.warning('请输入测试指令')
@@ -264,68 +275,88 @@ async function startExecution() {
   finalResult.value = ''
   screenshotBase64.value = ''
 
-  evtSource = streamExecution(
-    projectId,
-    {
+  try {
+    const res = await runExecution(projectId, {
       instruction: instruction.value,
       target_url: targetUrl.value,
       headless: headless.value,
       llm_config_id: selectedLLMConfig.value || undefined,
-      case_id: currentCaseId.value || undefined
-    },
-    (event: any) => {
-      if (event.type === 'step') {
-        executionLog.value.push(event)
-      } else if (event.type === 'finish') {
-        // 状态归一化
-        let status = event.status
-        if (['success', 'ok', 'pass', 'passed', 'complete', 'completed'].includes(status?.toLowerCase())) {
-          status = 'passed'
-        } else if (['fail', 'failed', 'error'].includes(status?.toLowerCase())) {
-          status = 'failed'
-        }
-        lastStatus.value = status
-        finalResult.value = event.result
-        executionLog.value.push({
-          step: executionLog.value.length,
-          action: '完成',
-          detail: event.result,
-          status: status
-        })
-      } else if (event.type === 'complete') {
-        duration.value = event.duration
-        totalSteps.value = event.steps
-        screenshotBase64.value = event.screenshot_base64 || ''
-      } else if (event.type === 'error') {
-        executionLog.value.push({
-          step: executionLog.value.length,
-          action: '错误',
-          detail: event.message,
-          status: 'error'
-        })
-      } else if (event.type === 'done') {
-        running.value = false
-        fetchRuns()
-      }
+      case_id: currentCaseId.value || undefined,
+    })
+    currentRunId = res.run_id
+    message.success('执行已提交，正在运行...')
+    startPolling()
+  } catch (e: any) {
+    running.value = false
+    message.error('提交执行失败')
+  }
+}
+
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = setInterval(pollExecutionStatus, 2000)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function pollExecutionStatus() {
+  if (!currentRunId) return
+
+  try {
+    const data = await getExecutionRunStatus(projectId, currentRunId)
+
+    // 更新执行日志（增量替换）
+    if (data.execution_log && data.execution_log.length > 0) {
+      executionLog.value = data.execution_log
       nextTick(() => {
         if (logContainer.value) {
           logContainer.value.scrollTop = logContainer.value.scrollHeight
         }
       })
-    },
-    (error: any) => {
-      running.value = false
-      message.error('执行连接中断')
     }
-  )
+
+    if (data.completed) {
+      stopPolling()
+      currentRunId = null
+      running.value = false
+
+      const status = normalizeStatus(data.status)
+      lastStatus.value = status
+      finalResult.value = data.actual_result
+      duration.value = data.duration || 0
+      totalSteps.value = data.execution_log?.length || 0
+      screenshotBase64.value = data.screenshot_url || ''
+
+      executionLog.value.push({
+        step: executionLog.value.length + 1,
+        action: status === 'passed' ? '完成' : '失败',
+        detail: data.actual_result || data.error_message || '',
+        status: status,
+      })
+
+      nextTick(() => {
+        if (logContainer.value) {
+          logContainer.value.scrollTop = logContainer.value.scrollHeight
+        }
+      })
+
+      fetchRuns()
+    }
+  } catch (e: any) {
+    // 单次轮询失败不中断
+  }
 }
 
 function stopExecution() {
-  if (evtSource) {
-    evtSource.close()
-    running.value = false
-    message.info('已停止执行')
-  }
+  stopPolling()
+  currentRunId = null
+  running.value = false
+  message.info('已停止轮询（后端任务仍在运行，可在历史记录中查看结果）')
 }
 
 async function fetchRuns() {
@@ -377,6 +408,10 @@ onMounted(() => {
   }
   getLLMConfigs().then(data => { llmConfigs.value = data })
   fetchRuns()
+})
+
+onUnmounted(() => {
+  stopPolling()
 })
 </script>
 
