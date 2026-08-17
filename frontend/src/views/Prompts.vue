@@ -11,9 +11,32 @@
       </div>
     </div>
 
+    <a-form layout="inline" style="margin-bottom: 16px">
+      <a-form-item label="分类">
+        <a-select v-model:value="filterCategory" allow-clear placeholder="全部分类" style="width: 150px">
+          <a-select-option value="case_generation">用例生成</a-select-option>
+          <a-select-option value="case_review">用例评审</a-select-option>
+          <a-select-option value="api_test">API 测试</a-select-option>
+          <a-select-option value="requirement_generation">需求生成</a-select-option>
+          <a-select-option value="report_generation">报告生成</a-select-option>
+          <a-select-option value="script_generation">脚本生成</a-select-option>
+          <a-select-option value="other">其他</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="关键词">
+        <a-input v-model:value="searchKeyword" placeholder="搜索名称/描述" allow-clear style="width: 200px" @keyup.enter="handleSearch" />
+      </a-form-item>
+      <a-form-item>
+        <a-space>
+          <a-button type="primary" @click="handleSearch">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
+      </a-form-item>
+    </a-form>
+
     <a-table
       :columns="columns"
-      :data-source="dataSource"
+      :data-source="filteredPrompts"
       :loading="loading"
       row-key="id"
       :pagination="{ pageSize: 20, showSizeChanger: true }"
@@ -88,13 +111,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { promptsApi, type Prompt, type PromptCreate } from '@/api/prompts'
+
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const dataSource = ref<Prompt[]>([])
+const filterCategory = ref<string>()
+const searchKeyword = ref('')
 const showModal = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
@@ -127,6 +155,31 @@ const categoryText = (c: string) => ({
   script_generation: '脚本生成',
   other: '其他',
 })[c] || c
+
+const filteredPrompts = computed(() => {
+  let result = dataSource.value
+  if (filterCategory.value) {
+    result = result.filter(p => p.category === filterCategory.value)
+  }
+  if (searchKeyword.value) {
+    const kw = searchKeyword.value.toLowerCase()
+    result = result.filter(p =>
+      p.name?.toLowerCase().includes(kw) ||
+      p.description?.toLowerCase().includes(kw)
+    )
+  }
+  return result
+})
+
+function handleSearch() {
+  syncToUrl({ category: filterCategory.value, keyword: searchKeyword.value })
+}
+
+function handleReset() {
+  filterCategory.value = undefined
+  searchKeyword.value = ''
+  syncToUrl({ category: filterCategory.value, keyword: searchKeyword.value })
+}
 
 async function loadData() {
   loading.value = true
@@ -217,7 +270,12 @@ async function handleSeedDefaults() {
   }
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  const params = loadFromUrl({ category: undefined, keyword: '' })
+  filterCategory.value = params.category
+  searchKeyword.value = params.keyword
+  loadData()
+})
 </script>
 
 <style scoped>

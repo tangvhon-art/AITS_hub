@@ -30,7 +30,7 @@ DEFECT_ANALYSIS_PROMPT = """你是一位资深缺陷分析专家，拥有丰富�
 
 你必须且只能输出一个合法的 JSON 对象，包含以下结构：
 
-{{"title": "缺陷标题（简洁明了）", "description": "缺陷详细描述", "severity": "blocker/critical/major/minor/trivial", "priority": "P0/P1/P2/P3", "root_cause": "根因分析", "root_cause_category": "frontend/backend/data/environment/requirement/other", "reproduce_steps": "步骤1\\n步骤2\\n步骤3", "expected_result": "预期结果", "actual_result": "实际结果"}}
+{"title": "缺陷标题（简洁明了）", "description": "缺陷详细描述", "severity": "blocker/critical/major/minor/trivial", "priority": "P0/P1/P2/P3", "root_cause": "根因分析", "root_cause_category": "frontend/backend/data/environment/requirement/other", "reproduce_steps": "步骤1\\n步骤2\\n步骤3", "expected_result": "预期结果", "actual_result": "实际结果"}
 
 ### 绝对禁止
 1. 禁止使用 ```json ``` 等 Markdown 代码块包裹输出
@@ -122,11 +122,10 @@ class DefectAnalyzerAgent(BaseAgent):
             response = self._call_llm(messages)
             self._log_step("llm_call", {}, "success")
 
-            defect = self._parse_defect(response.content)
-            self._log_step("analysis_complete", {"severity": defect.get("severity")}, "success")
+            logger.info(f"缺陷分析完成，原始输出长度: {len(response.content)}")
 
             return {
-                **defect,
+                "raw_content": response.content,
                 "token_usage": self.get_token_usage(),
                 "llm_config_id": self.llm_config_id,
             }
@@ -134,36 +133,9 @@ class DefectAnalyzerAgent(BaseAgent):
         except Exception as e:
             logger.error(f"缺陷分析失败: {e}")
             self._log_step("analysis_error", {"error": str(e)}, "failed")
-            # 降级返回基础缺陷
             return {
-                "title": f"执行失败: {error_message[:50]}" if error_message else "执行失败",
-                "description": f"自动分析失败，请人工检查。错误信息: {error_message}",
-                "severity": "major",
-                "priority": "P2",
-                "root_cause": "待分析",
-                "root_cause_category": "other",
-                "reproduce_steps": "",
-                "expected_result": "",
-                "actual_result": error_message,
-                "error": str(e),
+                "raw_content": "",
                 "token_usage": self.get_token_usage(),
+                "llm_config_id": self.llm_config_id,
+                "error": str(e),
             }
-
-    def _parse_defect(self, content: str) -> Dict[str, Any]:
-        """解析缺陷分析结果"""
-        from app.agents.utils import extract_json
-        parsed = extract_json(content)
-        if parsed:
-            return parsed
-
-        return {
-            "title": "执行失败（解析失败）",
-            "description": content[:500],
-            "severity": "major",
-            "priority": "P2",
-            "root_cause": "待分析",
-            "root_cause_category": "other",
-            "reproduce_steps": "",
-            "expected_result": "",
-            "actual_result": "",
-        }

@@ -1,7 +1,7 @@
 """
 Prompt 管理 API（全局公用，不绑定项目）
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
@@ -15,9 +15,9 @@ from app.schemas.prompt import PromptCreate, PromptUpdate, PromptResponse
 router = APIRouter(prefix="/api/prompts", tags=["Prompt 管理"])
 
 
-@router.get("", response_model=List[PromptResponse])
+@router.post("/search", response_model=List[PromptResponse])
 def list_prompts(
-    category: Optional[str] = Query(None),
+    category: Optional[str] = Body(default=None, embed=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

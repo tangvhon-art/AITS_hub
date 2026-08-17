@@ -2,7 +2,7 @@
 审计日志 API
 """
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.deps import get_current_user
@@ -13,14 +13,14 @@ from app.schemas.test_plan import AuditLogResponse, AuditLogListResponse
 router = APIRouter(prefix="/api/audit-logs")
 
 
-@router.get("", response_model=AuditLogListResponse)
+@router.post("/search", response_model=AuditLogListResponse)
 def list_audit_logs(
-    user_id: Optional[int] = None,
-    action: Optional[str] = None,
-    resource_type: Optional[str] = None,
-    status: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    user_id: Optional[int] = Body(None),
+    action: Optional[str] = Body(None),
+    resource_type: Optional[str] = Body(None),
+    status: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

@@ -17,12 +17,16 @@
     <a-card>
       <div class="filter-bar">
         <a-input-search v-model:value="keyword" placeholder="搜索用例名称" style="width: 250px" @search="loadData" />
-        <a-select v-model:value="priorityFilter" placeholder="优先级" style="width: 100px" allow-clear @change="loadData">
+        <a-select v-model:value="priorityFilter" placeholder="优先级" style="width: 100px" allow-clear>
           <a-select-option value="P0">P0</a-select-option>
           <a-select-option value="P1">P1</a-select-option>
           <a-select-option value="P2">P2</a-select-option>
           <a-select-option value="P3">P3</a-select-option>
         </a-select>
+        <a-space>
+          <a-button type="primary" @click="loadData">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
       </div>
 
       <a-table
@@ -75,10 +79,12 @@ import { message } from 'ant-design-vue'
 import { PlusOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiCasesApi, type ApiTestCase } from '@/api/apiTest'
 import AiGenerateCasesModal from './AiGenerateCasesModal.vue'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const keyword = ref('')
@@ -113,6 +119,7 @@ const getPriorityColor = (priority: string) => {
 }
 
 const loadData = async () => {
+  syncToUrl({ keyword: keyword.value, priority: priorityFilter.value })
   loading.value = true
   try {
     const res = await apiCasesApi.list(projectId, {
@@ -131,6 +138,13 @@ const loadData = async () => {
 const handleTableChange = (pag: any) => {
   pagination.value.current = pag.current
   pagination.value.pageSize = pag.pageSize
+  loadData()
+}
+
+function handleReset() {
+  keyword.value = ''
+  priorityFilter.value = ''
+  pagination.value.current = 1
   loadData()
 }
 
@@ -166,7 +180,12 @@ const handleDelete = async (record: ApiTestCase) => {
   loadData()
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  const params = loadFromUrl({ keyword: '', priority: '' })
+  keyword.value = params.keyword
+  priorityFilter.value = params.priority
+  loadData()
+})
 </script>
 
 <style scoped>

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -33,13 +33,13 @@ router = APIRouter(prefix="/api/agent-tasks", tags=["Agent任务"])
 # 项目级操作路由
 project_router = APIRouter(prefix="/api/projects/{project_id}", tags=["Agent任务"])
 
-@router.get("", response_model=AgentTaskListResponse)
+@router.post("/search", response_model=AgentTaskListResponse)
 def list_agent_tasks(
-    project_id: Optional[int] = None,
-    agent_type: Optional[str] = None,
-    status: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    project_id: Optional[int] = Body(None),
+    agent_type: Optional[str] = Body(None),
+    status: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -178,7 +178,15 @@ def review_cases(
 
     try:
         reviewer = CaseReviewerAgent(db, llm_config_id=req.llm_config_id, task_id=task.id, project_id=project_id)
-        result = reviewer.review(req.cases, requirement=req.requirement, system_prompt=system_prompt)
+        agent_result = reviewer.review(req.cases, requirement=req.requirement, system_prompt=system_prompt)
+
+        from app.services.content_extractor import ContentExtractor
+        extracted = ContentExtractor.extract_review(agent_result["raw_content"])
+        result = {
+            **extracted,
+            "token_usage": agent_result.get("token_usage", {}),
+            "llm_config_id": agent_result.get("llm_config_id"),
+        }
 
         task.status = "success"
         task.output_result = result
@@ -197,11 +205,11 @@ def review_cases(
         raise HTTPException(status_code=500, detail=f"评审失败: {str(e)}")
 
 
-@project_router.get("/case-reviews")
+@project_router.post("/case-reviews/search")
 def list_case_reviews(
     project_id: int,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

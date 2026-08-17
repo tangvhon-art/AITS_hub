@@ -42,7 +42,7 @@ export interface KnowledgeStats {
 }
 
 export function getKnowledgeDocs(projectId: number, params?: { page?: number; page_size?: number }) {
-  return request.get<KnowledgeDocListResponse>(`/projects/${projectId}/knowledge`, { params })
+  return request.post<KnowledgeDocListResponse>(`/projects/${projectId}/knowledge/search`, params)
 }
 
 export function getKnowledgeDoc(projectId: number, docId: number) {

@@ -3,7 +3,7 @@
     <div class="page-header">
       <h2>Agent 任务监控</h2>
       <a-space>
-        <a-select v-model:value="filterAgentType" placeholder="Agent类型" allow-clear style="width: 160px" @change="loadTasks">
+        <a-select v-model:value="filterAgentType" placeholder="Agent类型" allow-clear style="width: 160px">
           <a-select-option value="case_generator">用例生成</a-select-option>
           <a-select-option value="case_reviewer">用例评审</a-select-option>
           <a-select-option value="ui_execution">UI执行</a-select-option>
@@ -13,12 +13,14 @@
           <a-select-option value="supervisor">Supervisor</a-select-option>
           <a-select-option value="notification">通知</a-select-option>
         </a-select>
-        <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px" @change="loadTasks">
+        <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
           <a-select-option value="running">运行中</a-select-option>
           <a-select-option value="success">成功</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
           <a-select-option value="pending">等待中</a-select-option>
         </a-select>
+        <a-button type="primary" @click="loadTasks">查询</a-button>
+        <a-button @click="handleReset">重置</a-button>
         <a-button @click="loadTasks">
           <template #icon><ReloadOutlined /></template>
           刷新
@@ -115,11 +117,13 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import { getAgentTasks, getTokenUsage, type AgentTask, type TokenUsageStats } from '@/api/agentTasks'
 
 const route = useRoute()
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = computed(() => {
   const p = route.params.id ?? route.params.projectId
   const n = Number(p)
@@ -149,6 +153,7 @@ const columns = [
 ]
 
 async function loadTasks() {
+  syncToUrl({ agent_type: filterAgentType.value, status: filterStatus.value })
   loading.value = true
   try {
     const params: any = {
@@ -183,6 +188,12 @@ function handleTableChange(pag: any) {
   loadTasks()
 }
 
+function handleReset() {
+  filterAgentType.value = undefined
+  filterStatus.value = undefined
+  loadTasks()
+}
+
 function viewTask(record: AgentTask) {
   currentTask.value = record
   detailVisible.value = true
@@ -212,6 +223,9 @@ function statusText(s: string) {
 }
 
 onMounted(() => {
+  const params = loadFromUrl({ agent_type: undefined, status: undefined })
+  filterAgentType.value = params.agent_type
+  filterStatus.value = params.status
   if (projectId.value) loadTasks()
 })
 

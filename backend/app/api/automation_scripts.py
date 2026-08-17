@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.deps import get_current_user, get_project
@@ -31,12 +31,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/scripts", tags=["自动化脚本"])
 
-@router.get("", response_model=List[AutomationScriptResponse])
+@router.post("/search", response_model=List[AutomationScriptResponse])
 def list_scripts(
     project_id: int,
-    status: Optional[str] = None,
-    case_id: Optional[int] = None,
-    keyword: Optional[str] = None,
+    status: Optional[str] = Body(None),
+    case_id: Optional[int] = Body(None),
+    keyword: Optional[str] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

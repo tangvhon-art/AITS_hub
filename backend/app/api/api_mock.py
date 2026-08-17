@@ -4,7 +4,7 @@ Mock期望CRUD + Mock服务入口
 """
 import asyncio
 import json
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status, Query, Response
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
 from app.database import get_db
@@ -20,13 +20,13 @@ from app.schemas.api_test import (
 
 router = APIRouter(tags=["接口测试-Mock服务"])
 
-@router.get("/api/projects/{project_id}/api-mock/expectations", response_model=PaginatedResponse)
+@router.post("/api/projects/{project_id}/api-mock/expectations/search", response_model=PaginatedResponse)
 def list_mock_expectations(
     project_id: int,
-    keyword: Optional[str] = Query(None),
-    method: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    keyword: Optional[str] = Body(None),
+    method: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

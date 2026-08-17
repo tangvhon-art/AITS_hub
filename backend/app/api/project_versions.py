@@ -4,7 +4,7 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -22,12 +22,12 @@ from app.schemas.project_version import (
 
 router = APIRouter(prefix="/api/projects/{project_id}/versions", tags=["版本管理"])
 
-@router.get("", response_model=VersionListResponse)
+@router.post("/search", response_model=VersionListResponse)
 def list_versions(
     project_id: int,
-    status: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    status: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(50),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

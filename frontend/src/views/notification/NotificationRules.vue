@@ -12,12 +12,13 @@
             placeholder="按事件类型筛选"
             style="width: 200px; margin-right: 12px"
             allow-clear
-            @change="loadRules"
           >
             <a-select-option v-for="e in eventTypes" :key="e.code" :value="e.code">
               {{ e.name }}
             </a-select-option>
           </a-select>
+          <a-button style="margin-right: 8px" type="primary" @click="handleSearch">查询</a-button>
+          <a-button style="margin-right: 8px" @click="handleReset">重置</a-button>
           <a-button type="primary" @click="openCreateModal">
             <template #icon><plus-outlined /></template>
             新建规则
@@ -161,6 +162,9 @@ import {
   type NotificationChannel,
   type EventTypeInfo,
 } from '@/api/notifications'
+import { useUrlSearch } from '@/composables/useUrlSearch'
+
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -235,6 +239,7 @@ function conditionsSummary(conditions: any): string {
 }
 
 async function loadRules() {
+  syncToUrl({ event: filterEvent.value })
   loading.value = true
   try {
     const params: any = {
@@ -271,6 +276,17 @@ async function loadEvents() {
 function handleTableChange(pag: any) {
   pagination.current = pag.current
   pagination.pageSize = pag.pageSize
+  loadRules()
+}
+
+function handleSearch() {
+  pagination.current = 1
+  loadRules()
+}
+
+function handleReset() {
+  filterEvent.value = undefined
+  pagination.current = 1
   loadRules()
 }
 
@@ -389,6 +405,8 @@ async function handleDelete(record: NotificationRule) {
 }
 
 onMounted(() => {
+  const params = loadFromUrl({ event: undefined })
+  filterEvent.value = params.event
   loadEvents()
   loadChannels()
   loadRules()

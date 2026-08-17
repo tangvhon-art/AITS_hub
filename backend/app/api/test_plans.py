@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.deps import get_current_user
@@ -142,14 +142,15 @@ def delete_environment(project_id: int, env_id: int, request: Request, db: Sessi
 
 # ==================== 测试计划管理 ====================
 
-@project_router.get("/plans", response_model=TestPlanListResponse)
+@project_router.post("/plans/search", response_model=TestPlanListResponse)
 def list_plans(
     project_id: int,
-    status: Optional[str] = None,
-    version_id: Optional[int] = None,
-    keyword: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Body(None),
+    version_id: Optional[int] = Body(None),
+    keyword: Optional[str] = Body(None),
+    priority: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -161,6 +162,8 @@ def list_plans(
         query = query.filter(TestPlan.version_id == version_id)
     if keyword:
         query = query.filter(TestPlan.name.like(f"%{keyword}%"))
+    if priority:
+        query = query.filter(TestPlan.priority == priority)
 
     total = query.count()
     plans = query.order_by(TestPlan.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()

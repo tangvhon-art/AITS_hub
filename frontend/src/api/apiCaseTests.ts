@@ -41,7 +41,7 @@ export interface ApiCaseAssertion {
 
 export const apiCasesApi = {
   list: (projectId: number, params?: any) =>
-    request.get<PaginatedResponse<ApiTestCase>>(`/projects/${projectId}/api-cases`, { params }),
+    request.post<PaginatedResponse<ApiTestCase>>(`/projects/${projectId}/api-cases/search`, params),
   get: (projectId: number, id: number) =>
     request.get<ApiTestCase>(`/projects/${projectId}/api-cases/${id}`),
   create: (projectId: number, data: any) =>

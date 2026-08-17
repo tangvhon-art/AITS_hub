@@ -49,7 +49,7 @@ export interface PerformanceTestRun {
 
 export const performanceTestsApi = {
   list: (projectId: number, params?: any) =>
-    request.get<PaginatedResponse<PerformanceTest>>(`/projects/${projectId}/performance-tests`, { params }),
+    request.post<PaginatedResponse<PerformanceTest>>(`/projects/${projectId}/performance-tests/search`, params),
   get: (projectId: number, id: number) =>
     request.get<PerformanceTest>(`/projects/${projectId}/performance-tests/${id}`),
   create: (projectId: number, data: any) =>

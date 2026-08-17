@@ -11,11 +11,61 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 
+def _repair_json_newlines(candidate: str) -> str:
+    """
+    修复 JSON 字符串值中的未转义换行符。
+
+    LLM 输出的 JSON 中，字符串值（如含 Markdown 的 content 字段）
+    常包含未转义的换行符，导致 json.loads 失败。
+    本函数遍历字符，在字符串内部将裸换行符替换为 \\n 转义序列。
+    """
+    repaired = []
+    in_string = False
+    escape = False
+    for ch in candidate:
+        if escape:
+            escape = False
+            repaired.append(ch)
+            continue
+        if ch == '\\':
+            escape = True
+            repaired.append(ch)
+            continue
+        if ch == '"':
+            in_string = not in_string
+            repaired.append(ch)
+            continue
+        if in_string:
+            if ch == '\n':
+                repaired.append('\\n')
+                continue
+            if ch == '\r':
+                continue
+            if ch == '\t':
+                repaired.append('\\t')
+                continue
+        repaired.append(ch)
+    return ''.join(repaired)
+
+
+def _safe_json_loads(candidate: str) -> Optional[Dict[str, Any]]:
+    """尝试解析 JSON，失败时修复未转义换行符后重试"""
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return json.loads(_repair_json_newlines(candidate))
+    except json.JSONDecodeError:
+        return None
+
+
 def extract_json(content: str) -> Optional[Dict[str, Any]]:
     """
     从 LLM 输出文本中提取 JSON 对象。
 
     优先使用平衡括号匹配（支持嵌套对象），回退到贪婪正则。
+    自动修复 JSON 字符串值中的未转义换行符。
 
     Args:
         content: LLM 返回的原始文本，可能包含 markdown 代码块、前后缀说明文字等。
@@ -58,19 +108,18 @@ def extract_json(content: str) -> Optional[Dict[str, Any]]:
                 depth -= 1
                 if depth == 0:
                     candidate = text[start:i + 1]
-                    try:
-                        return json.loads(candidate)
-                    except json.JSONDecodeError:
-                        break  # 回退到正则
+                    result = _safe_json_loads(candidate)
+                    if result is not None:
+                        return result
+                    break  # 回退到正则
 
     # 3) 回退：贪婪正则（兼容旧实现）
     json_match = re.search(r'\{[\s\S]*\}', text)
     if json_match:
-        try:
-            return json.loads(json_match.group(0))
-        except json.JSONDecodeError:
-            logger.warning("extract_json: 正则提取后 JSON 解析失败")
-            return None
+        result = _safe_json_loads(json_match.group(0))
+        if result is not None:
+            return result
+        logger.warning("extract_json: 正则提取后 JSON 解析失败")
 
     return None
 
@@ -118,16 +167,15 @@ def extract_json_list(content: str) -> Optional[list]:
                 depth -= 1
                 if depth == 0:
                     candidate = text[start:i + 1]
-                    try:
-                        return json.loads(candidate)
-                    except json.JSONDecodeError:
-                        break
+                    result = _safe_json_loads(candidate)
+                    if result is not None:
+                        return result
+                    break
 
     json_match = re.search(r'\[[\s\S]*\]', text)
     if json_match:
-        try:
-            return json.loads(json_match.group(0))
-        except json.JSONDecodeError:
-            return None
+        result = _safe_json_loads(json_match.group(0))
+        if result is not None:
+            return result
 
     return None

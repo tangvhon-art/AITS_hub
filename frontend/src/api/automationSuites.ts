@@ -78,7 +78,7 @@ export interface SuiteRunResult {
 
 // 套件管理
 export function getSuites(projectId: number, params?: { status?: string; plan_id?: number }) {
-  return request.get<AutomationSuite[]>(`/projects/${projectId}/suites`, { params })
+  return request.post<AutomationSuite[]>(`/projects/${projectId}/suites/search`, params)
 }
 
 export function getSuite(projectId: number, suiteId: number) {
@@ -128,5 +128,5 @@ export function getSuiteRunResults(projectId: number, runId: number) {
 }
 
 export function getAllSuiteRuns(projectId: number, params?: { status?: string }) {
-  return request.get<SuiteRun[]>(`/projects/${projectId}/suite-runs`, { params })
+  return request.post<SuiteRun[]>(`/projects/${projectId}/suite-runs/search`, params)
 }

@@ -5,7 +5,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/knowledge", tags=["知识库管理"])
 
-@router.get("", response_model=KnowledgeDocListResponse)
+@router.post("/search", response_model=KnowledgeDocListResponse)
 def list_knowledge_docs(
     project_id: int,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

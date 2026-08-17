@@ -45,7 +45,7 @@ export function getAgentTasks(params?: {
   page?: number
   page_size?: number
 }) {
-  return request.get<AgentTaskListResponse>('/agent-tasks', { params })
+  return request.post<AgentTaskListResponse>('/agent-tasks/search', params)
 }
 
 export function getAgentTask(taskId: number) {

@@ -3,15 +3,6 @@
     <div class="page-header">
       <h2>测试计划管理</h2>
       <div>
-        <a-select
-          v-model:value="filterVersionId"
-          placeholder="全部版本"
-          allow-clear
-          style="width: 150px; margin-right: 8px"
-          @change="loadPlans"
-        >
-          <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
-        </a-select>
         <a-button @click="showEnvModal = true" style="margin-right: 8px">
           <EnvironmentOutlined /> 环境管理
         </a-button>
@@ -19,6 +10,29 @@
           <PlusOutlined /> 新建计划
         </a-button>
       </div>
+    </div>
+
+    <div class="filter-bar">
+      <a-input v-model:value="filterName" placeholder="计划名称" allow-clear style="width: 180px" />
+      <a-select v-model:value="filterVersionId" placeholder="所属版本" allow-clear style="width: 150px">
+        <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
+        <a-select-option value="draft">草稿</a-select-option>
+        <a-select-option value="scheduled">已排期</a-select-option>
+        <a-select-option value="running">执行中</a-select-option>
+        <a-select-option value="completed">已完成</a-select-option>
+        <a-select-option value="failed">已失败</a-select-option>
+        <a-select-option value="archived">已归档</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterPriority" placeholder="优先级" allow-clear style="width: 120px">
+        <a-select-option value="P0">P0</a-select-option>
+        <a-select-option value="P1">P1</a-select-option>
+        <a-select-option value="P2">P2</a-select-option>
+        <a-select-option value="P3">P3</a-select-option>
+      </a-select>
+      <a-button type="primary" @click="loadPlans">查询</a-button>
+      <a-button @click="handleReset">重置</a-button>
     </div>
 
     <a-card>
@@ -166,6 +180,7 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined, EnvironmentOutlined
@@ -180,11 +195,15 @@ import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const plans = ref<TestPlan[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 const versions = ref<ProjectVersion[]>([])
+const filterName = ref('')
+const filterStatus = ref<string | undefined>(undefined)
+const filterPriority = ref<string | undefined>(undefined)
 const filterVersionId = ref<number | undefined>(undefined)
 
 const showCreateModal = ref(false)
@@ -266,11 +285,15 @@ function getPriorityColor(priority?: string) {
 }
 
 async function loadPlans() {
+  syncToUrl({ keyword: filterName.value, status: filterStatus.value, priority: filterPriority.value, version_id: filterVersionId.value })
   loading.value = true
   try {
     const res = await testPlansApi.list(projectId, {
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
+      keyword: filterName.value || undefined,
+      status: filterStatus.value,
+      priority: filterPriority.value,
       version_id: filterVersionId.value
     })
     plans.value = res.items
@@ -280,6 +303,14 @@ async function loadPlans() {
   } finally {
     loading.value = false
   }
+}
+
+function handleReset() {
+  filterName.value = ''
+  filterStatus.value = undefined
+  filterPriority.value = undefined
+  filterVersionId.value = undefined
+  loadPlans()
 }
 
 async function loadEnvironments() {
@@ -422,6 +453,11 @@ async function loadVersions() {
 }
 
 onMounted(() => {
+  const params = loadFromUrl({ keyword: '', status: undefined, priority: undefined, version_id: undefined as number | undefined })
+  filterName.value = params.keyword || ''
+  filterStatus.value = params.status
+  filterPriority.value = params.priority
+  filterVersionId.value = params.version_id ? Number(params.version_id) : undefined
   loadPlans()
   loadEnvironments()
   loadVersions()
@@ -431,5 +467,6 @@ onMounted(() => {
 <style scoped>
 .plans-page { padding: 20px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { margin: 0; font-size: 20px; }
+.page-header h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 </style>

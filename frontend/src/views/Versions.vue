@@ -10,12 +10,16 @@
 
     <a-card>
       <div style="margin-bottom: 12px">
-        <a-select v-model:value="filterStatus" placeholder="状态筛选" allow-clear style="width: 140px" @change="loadVersions">
-          <a-select-option value="draft">草稿</a-select-option>
-          <a-select-option value="active">进行中</a-select-option>
-          <a-select-option value="released">已发布</a-select-option>
-          <a-select-option value="archived">已归档</a-select-option>
-        </a-select>
+        <a-space>
+          <a-select v-model:value="filterStatus" placeholder="状态筛选" allow-clear style="width: 140px">
+            <a-select-option value="draft">草稿</a-select-option>
+            <a-select-option value="active">进行中</a-select-option>
+            <a-select-option value="released">已发布</a-select-option>
+            <a-select-option value="archived">已归档</a-select-option>
+          </a-select>
+          <a-button type="primary" @click="loadVersions">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
       </div>
 
       <a-table
@@ -99,6 +103,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { formatDateTime, formatDate } from '@/utils/date'
@@ -109,6 +114,7 @@ import {
 
 const route = useRoute()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -141,6 +147,7 @@ function statusText(s?: string) {
 }
 
 async function loadVersions() {
+  syncToUrl({ status: filterStatus.value })
   loading.value = true
   try {
     const res = await getVersions(projectId, {
@@ -155,6 +162,11 @@ async function loadVersions() {
   } finally {
     loading.value = false
   }
+}
+
+function handleReset() {
+  filterStatus.value = undefined
+  loadVersions()
 }
 
 function handleTableChange(pag: any) {
@@ -209,7 +221,11 @@ async function handleDelete(id: number) {
 }
 
 onMounted(() => {
-  if (projectId) loadVersions()
+  if (projectId) {
+    const params = loadFromUrl({ status: undefined })
+    filterStatus.value = params.status
+    loadVersions()
+  }
 })
 </script>
 

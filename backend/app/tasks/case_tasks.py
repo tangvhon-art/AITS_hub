@@ -12,6 +12,8 @@ from app.models.test_case import TestCase
 from app.models.project import Project
 from app.models.requirement import TestRequirement
 from app.agents.case_generator import CaseGeneratorAgent
+from app.services.content_extractor import ContentExtractor
+from app.services.ai_creation_service import AICreationService
 from app.services.notification_service import notify_event, notify_ai_task_failed
 
 logger = logging.getLogger(__name__)
@@ -81,45 +83,27 @@ def generate_cases_task(self, task_id: int):
             system_prompt=system_prompt,
         )
 
-        # 保存用例
-        cases_saved = 0
-        save_errors = []
-        for case_data in result.get("cases", []):
-            try:
-                case = TestCase(
-                    project_id=project_id,
-                    req_id=req_id,
-                    title=case_data.get("title", ""),
-                    module=case_data.get("module", "默认模块"),
-                    priority=case_data.get("priority", "P1"),
-                    case_type=case_data.get("case_type", "functional"),
-                    preconditions=case_data.get("preconditions", ""),
-                    steps=json.dumps(case_data.get("steps", []), ensure_ascii=False) if isinstance(case_data.get("steps"), list) else case_data.get("steps", "[]"),
-                    expected_result=case_data.get("expected_result", ""),
-                    bdd_content=case_data.get("bdd_content", ""),
-                    created_by=task.created_by,
-                )
-                db.add(case)
-                cases_saved += 1
-            except Exception as e:
-                logger.warning(f"保存用例失败: {e}, case_data: {case_data.get('title', '未知')}")
-                save_errors.append({"title": case_data.get("title", ""), "error": str(e)})
-                continue
-
-        db.commit()
+        # 提取并创建用例（多策略提取，不做降级）
+        cases = ContentExtractor.extract_test_cases(result["raw_content"])
+        created_cases = AICreationService.create_test_cases(
+            db,
+            project_id=project_id,
+            cases=cases,
+            requirement_id=req_id,
+            created_by=task.created_by,
+        )
 
         task.status = "success"
         task.output_result = {
-            "case_count": len(result.get("cases", [])),
-            "cases_saved": cases_saved,
-            "save_errors": save_errors,
+            "case_count": len(cases),
+            "cases_saved": len(created_cases),
         }
         task.llm_config_id = result.get("llm_config_id")
         task.token_usage = result.get("token_usage", {})
         task.completed_at = china_now_naive()
         db.commit()
 
-        logger.info(f"用例生成任务完成: task_id={task_id}, saved={cases_saved}")
+        logger.info(f"用例生成任务完成: task_id={task_id}, saved={len(created_cases)}")
 
         # 发送AI用例生成完成通知
         try:
@@ -133,8 +117,8 @@ def generate_cases_task(self, task_id: int):
                 {
                     "source_name": source_name,
                     "strategy": input_params.get("strategy", "comprehensive"),
-                    "success_count": cases_saved,
-                    "failed_count": len(save_errors),
+                    "success_count": len(created_cases),
+                    "failed_count": len(cases) - len(created_cases),
                     "duration": duration,
                 },
                 triggered_by=task.created_by,

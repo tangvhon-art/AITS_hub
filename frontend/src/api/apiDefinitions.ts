@@ -27,7 +27,7 @@ export interface ApiDefinition {
 
 export const apiDefinitionsApi = {
   list: (projectId: number, params?: any) =>
-    request.get<PaginatedResponse<ApiDefinition>>(`/projects/${projectId}/api-definitions`, { params }),
+    request.post<PaginatedResponse<ApiDefinition>>(`/projects/${projectId}/api-definitions/search`, params),
   get: (projectId: number, id: number) =>
     request.get<ApiDefinition>(`/projects/${projectId}/api-definitions/${id}`),
   create: (projectId: number, data: Partial<ApiDefinition>) =>

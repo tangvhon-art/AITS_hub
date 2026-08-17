@@ -1,6 +1,6 @@
 import json
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
@@ -18,16 +18,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/cases", tags=["用例管理"])
 
-@router.get("", response_model=List[TestCaseResponse])
+@router.post("/search", response_model=List[TestCaseResponse])
 def list_cases(
     project_id: int,
-    module: Optional[str] = None,
-    priority: Optional[str] = None,
-    status: Optional[str] = None,
+    module: Optional[str] = Body(None),
+    priority: Optional[str] = Body(None),
+    status: Optional[str] = Body(None),
+    title: Optional[str] = Body(None),
+    case_type: Optional[str] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取用例列表，支持按模块/优先级/状态筛选"""
+    """获取用例列表，支持按模块/优先级/状态/标题/类型筛选"""
     get_project(project_id, db, current_user)
     query = db.query(TestCase).filter(TestCase.project_id == project_id)
     if module:
@@ -36,6 +38,10 @@ def list_cases(
         query = query.filter(TestCase.priority == priority)
     if status:
         query = query.filter(TestCase.status == status)
+    if title:
+        query = query.filter(TestCase.title.ilike(f"%{title}%"))
+    if case_type:
+        query = query.filter(TestCase.case_type == case_type)
     return query.order_by(TestCase.created_at.desc()).all()
 
 @router.post("", response_model=TestCaseResponse, status_code=status.HTTP_201_CREATED)

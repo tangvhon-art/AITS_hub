@@ -8,33 +8,42 @@
       </a-button>
     </div>
 
-    <a-card class="filter-card">
-      <a-row :gutter="16">
-        <a-col :span="6">
-          <a-select v-model:value="filterVersionId" placeholder="全部版本" allow-clear @change="loadDefects">
-            <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
-          </a-select>
-        </a-col>
-        <a-col :span="6">
-          <a-select v-model:value="filterStatus" placeholder="状态" allow-clear @change="loadDefects">
-            <a-select-option value="open">新建</a-select-option>
-            <a-select-option value="confirmed">已确认</a-select-option>
-            <a-select-option value="resolved">已解决</a-select-option>
-            <a-select-option value="closed">已关闭</a-select-option>
-            <a-select-option value="reopened">重新打开</a-select-option>
-          </a-select>
-        </a-col>
-        <a-col :span="6">
-          <a-select v-model:value="filterSeverity" placeholder="严重程度" allow-clear @change="loadDefects">
-            <a-select-option value="blocker">致命</a-select-option>
-            <a-select-option value="critical">严重</a-select-option>
-            <a-select-option value="major">主要</a-select-option>
-            <a-select-option value="minor">次要</a-select-option>
-            <a-select-option value="trivial">轻微</a-select-option>
-          </a-select>
-        </a-col>
-      </a-row>
-    </a-card>
+    <div class="filter-bar">
+      <a-input v-model:value="filterTitle" placeholder="标题" allow-clear style="width: 180px" />
+      <a-select v-model:value="filterVersionId" placeholder="所属版本" allow-clear style="width: 150px">
+        <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterSeverity" placeholder="严重程度" allow-clear style="width: 120px">
+        <a-select-option value="blocker">致命</a-select-option>
+        <a-select-option value="critical">严重</a-select-option>
+        <a-select-option value="major">主要</a-select-option>
+        <a-select-option value="minor">次要</a-select-option>
+        <a-select-option value="trivial">轻微</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterPriority" placeholder="优先级" allow-clear style="width: 120px">
+        <a-select-option value="P0">P0</a-select-option>
+        <a-select-option value="P1">P1</a-select-option>
+        <a-select-option value="P2">P2</a-select-option>
+        <a-select-option value="P3">P3</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
+        <a-select-option value="open">新建</a-select-option>
+        <a-select-option value="confirmed">已确认</a-select-option>
+        <a-select-option value="resolved">已解决</a-select-option>
+        <a-select-option value="closed">已关闭</a-select-option>
+        <a-select-option value="reopened">重新打开</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterRootCauseCategory" placeholder="根因分类" allow-clear style="width: 120px">
+        <a-select-option value="frontend">前端</a-select-option>
+        <a-select-option value="backend">后端</a-select-option>
+        <a-select-option value="data">数据</a-select-option>
+        <a-select-option value="environment">环境</a-select-option>
+        <a-select-option value="requirement">需求</a-select-option>
+        <a-select-option value="other">其他</a-select-option>
+      </a-select>
+      <a-button type="primary" @click="loadDefects">查询</a-button>
+      <a-button @click="handleReset">重置</a-button>
+    </div>
 
     <a-card>
       <a-table
@@ -193,6 +202,7 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { getDefects, createDefect, updateDefect, deleteDefect as deleteDefectApi, type Defect } from '@/api/defects'
@@ -200,11 +210,15 @@ import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const defects = ref<Defect[]>([])
+const filterTitle = ref('')
 const filterStatus = ref<string>()
 const filterSeverity = ref<string>()
+const filterPriority = ref<string>()
+const filterRootCauseCategory = ref<string>()
 const filterVersionId = ref<number | undefined>(undefined)
 const versions = ref<ProjectVersion[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
@@ -246,6 +260,7 @@ function getVersionName(versionId?: number | null) {
 }
 
 async function loadDefects() {
+  syncToUrl({ title: filterTitle.value, status: filterStatus.value, severity: filterSeverity.value, priority: filterPriority.value, root_cause_category: filterRootCauseCategory.value, version_id: filterVersionId.value })
   loading.value = true
   if (!projectId) {
     loading.value = false
@@ -254,8 +269,11 @@ async function loadDefects() {
   }
   try {
     const res = await getDefects(projectId, {
+      title: filterTitle.value || undefined,
       status: filterStatus.value,
       severity: filterSeverity.value,
+      priority: filterPriority.value,
+      root_cause_category: filterRootCauseCategory.value,
       version_id: filterVersionId.value,
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
@@ -267,6 +285,16 @@ async function loadDefects() {
   } finally {
     loading.value = false
   }
+}
+
+function handleReset() {
+  filterTitle.value = ''
+  filterStatus.value = undefined
+  filterSeverity.value = undefined
+  filterPriority.value = undefined
+  filterRootCauseCategory.value = undefined
+  filterVersionId.value = undefined
+  loadDefects()
 }
 
 function handleTableChange(pag: any) {
@@ -364,6 +392,13 @@ async function loadVersions() {
 
 onMounted(() => {
   if (projectId) {
+    const params = loadFromUrl({ title: '', status: undefined, severity: undefined, priority: undefined, root_cause_category: undefined, version_id: undefined as number | undefined })
+    filterTitle.value = params.title || ''
+    filterStatus.value = params.status
+    filterSeverity.value = params.severity
+    filterPriority.value = params.priority
+    filterRootCauseCategory.value = params.root_cause_category
+    filterVersionId.value = params.version_id ? Number(params.version_id) : undefined
     loadDefects()
     loadVersions()
   }
@@ -374,5 +409,5 @@ onMounted(() => {
 .defects-page { padding: 20px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .page-header h2 { margin: 0; font-size: 20px; font-weight: 600; }
-.filter-card { margin-bottom: 16px; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 </style>

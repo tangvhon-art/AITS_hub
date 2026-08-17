@@ -12,13 +12,17 @@
     <a-card>
       <div class="filter-bar">
         <a-input-search v-model:value="keyword" placeholder="搜索测试名称" allow-clear style="width: 250px" @search="loadData" />
-        <a-select v-model:value="statusFilter" allow-clear placeholder="状态筛选" style="width: 150px" @change="loadData">
+        <a-select v-model:value="statusFilter" allow-clear placeholder="状态筛选" style="width: 150px">
           <a-select-option value="draft">草稿</a-select-option>
           <a-select-option value="running">运行中</a-select-option>
           <a-select-option value="completed">已执行</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
           <a-select-option value="stopped">已停止</a-select-option>
         </a-select>
+        <a-space>
+          <a-button type="primary" @click="loadData">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
       </div>
       <a-table :columns="columns" :data-source="dataSource" :loading="loading" :pagination="pagination" row-key="id" @change="handleTableChange">
         <template #bodyCell="{ column, record }">
@@ -50,10 +54,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { performanceTestsApi, type PerformanceTest } from '@/api/performanceTests'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const keyword = ref('')
@@ -77,6 +83,7 @@ const statusText = (s: string) => ({ draft: '草稿', running: '运行中', comp
 const targetTypeText = (t: string) => ({ api_definition: '接口定义', api_case: '接口用例', api_scenario: '接口场景' })[t] || t
 
 async function loadData() {
+  syncToUrl({ keyword: keyword.value, status: statusFilter.value })
   loading.value = true
   try {
     const res = await performanceTestsApi.list(projectId, {
@@ -128,6 +135,13 @@ function handleTableChange(p: any) {
   loadData()
 }
 
+function handleReset() {
+  keyword.value = ''
+  statusFilter.value = undefined
+  pagination.value.current = 1
+  loadData()
+}
+
 function handleCreate() {
   router.push(`/projects/${projectId}/performance-tests/new`)
 }
@@ -156,7 +170,12 @@ async function handleDelete(record: PerformanceTest) {
   } catch { }
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  const params = loadFromUrl({ keyword: '', status: undefined })
+  keyword.value = params.keyword
+  statusFilter.value = params.status
+  loadData()
+})
 onUnmounted(() => stopPolling())
 </script>
 

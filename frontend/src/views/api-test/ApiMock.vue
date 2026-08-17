@@ -17,6 +17,17 @@
     />
 
     <a-card>
+      <div class="filter-bar">
+        <a-input-search v-model:value="keyword" placeholder="搜索 Mock 名称或路径" style="width: 250px" @search="loadData" />
+        <a-select v-model:value="enabledFilter" placeholder="启用状态" style="width: 120px" allow-clear>
+          <a-select-option :value="true">已启用</a-select-option>
+          <a-select-option :value="false">已禁用</a-select-option>
+        </a-select>
+        <a-space>
+          <a-button type="primary" @click="loadData">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
+      </div>
       <a-table
         :columns="columns"
         :data-source="dataSource"
@@ -106,14 +117,18 @@ import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { apiMockApi, type ApiMockExpectation } from '@/api/apiTest'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const mockServiceUrl = computed(() => `${window.location.origin}/mock/${projectId}/{path}`)
 
 const loading = ref(false)
 const saving = ref(false)
+const keyword = ref('')
+const enabledFilter = ref<boolean | undefined>(undefined)
 const dataSource = ref<ApiMockExpectation[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 const showModal = ref(false)
@@ -153,11 +168,14 @@ const getMethodColor = (method: string) => {
 }
 
 const loadData = async () => {
+  syncToUrl({ keyword: keyword.value, enabled: enabledFilter.value })
   loading.value = true
   try {
     const res = await apiMockApi.list(projectId, {
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
+      keyword: keyword.value,
+      enabled: enabledFilter.value,
     })
     dataSource.value = res.items
     pagination.value.total = res.total
@@ -169,6 +187,13 @@ const loadData = async () => {
 const handleTableChange = (pag: any) => {
   pagination.value.current = pag.current
   pagination.value.pageSize = pag.pageSize
+  loadData()
+}
+
+function handleReset() {
+  keyword.value = ''
+  enabledFilter.value = undefined
+  pagination.value.current = 1
   loadData()
 }
 
@@ -221,7 +246,13 @@ const handleToggle = async (record: ApiMockExpectation, checked: boolean) => {
   record.enabled = checked
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  const params = loadFromUrl({ keyword: '', enabled: undefined as any })
+  keyword.value = params.keyword
+  if (params.enabled === 'true') enabledFilter.value = true
+  else if (params.enabled === 'false') enabledFilter.value = false
+  loadData()
+})
 </script>
 
 <style scoped>
@@ -233,5 +264,10 @@ onMounted(() => loadData())
 }
 .page-header h2 {
   margin: 0;
+}
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 </style>

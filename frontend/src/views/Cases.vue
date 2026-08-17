@@ -20,22 +20,13 @@
 
     <!-- 筛选栏 -->
     <div class="filter-bar">
-      <a-select
-        v-model:value="filterPriority"
-        placeholder="优先级"
-        allow-clear
-        style="width: 120px"
-        @change="fetchCases"
-        :options="priorityOptions"
-      />
-      <a-input
-        v-model:value="filterModule"
-        placeholder="模块"
-        allow-clear
-        style="width: 150px"
-        @change="fetchCases"
-      />
+      <a-input v-model:value="filterTitle" placeholder="用例名称" allow-clear style="width: 180px" />
+      <a-select v-model:value="filterCaseType" placeholder="类型" allow-clear style="width: 120px" :options="caseTypeOptions" />
+      <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px" :options="statusOptions" />
+      <a-select v-model:value="filterPriority" placeholder="优先级" allow-clear style="width: 120px" :options="priorityOptions" />
+      <a-input v-model:value="filterModule" placeholder="模块" allow-clear style="width: 150px" />
       <a-button type="primary" @click="fetchCases">查询</a-button>
+      <a-button @click="handleReset">重置</a-button>
     </div>
 
     <a-spin :spinning="loading">
@@ -193,6 +184,7 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, reactive, onMounted, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements } from '@/api/cases'
@@ -202,6 +194,7 @@ import { promptsApi, type Prompt } from '@/api/prompts'
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -211,6 +204,9 @@ const llmConfigs = ref<any[]>([])
 
 const filterPriority = ref<string | undefined>(undefined)
 const filterModule = ref('')
+const filterTitle = ref('')
+const filterCaseType = ref<string | undefined>(undefined)
+const filterStatus = ref<string | undefined>(undefined)
 
 const showCaseModal = ref(false)
 const editingCase = ref<any>(null)
@@ -285,15 +281,28 @@ function caseTypeLabel(t: string) {
 }
 
 async function fetchCases() {
+  syncToUrl({ priority: filterPriority.value, module: filterModule.value, title: filterTitle.value, case_type: filterCaseType.value, status: filterStatus.value })
   loading.value = true
   try {
     const params: any = {}
     if (filterPriority.value) params.priority = filterPriority.value
     if (filterModule.value) params.module = filterModule.value
+    if (filterTitle.value) params.title = filterTitle.value
+    if (filterCaseType.value) params.case_type = filterCaseType.value
+    if (filterStatus.value) params.status = filterStatus.value
     cases.value = await getCases(projectId, params)
   } finally {
     loading.value = false
   }
+}
+
+function handleReset() {
+  filterPriority.value = undefined
+  filterModule.value = ''
+  filterTitle.value = ''
+  filterCaseType.value = undefined
+  filterStatus.value = undefined
+  fetchCases()
 }
 
 function openCreateDialog() {
@@ -406,39 +415,26 @@ async function doGenerate() {
       llm_config_id: selectedLLMConfig.value || undefined,
       prompt_id: selectedPromptId.value || undefined
     })
-    message.info(result.message)
-
-    const taskId = result.task_id
-    const poll = setInterval(async () => {
-      try {
-        const status = await generateCasesStatus(projectId, taskId)
-        if (status.status === 'success') {
-          clearInterval(poll)
-          generating.value = false
-          message.success(`成功生成并保存 ${status.cases_saved} 条用例`)
-          showGenerateModal.value = false
-          generateContent.value = ''
-          selectedReqId.value = null
-          selectedPromptId.value = null
-          fetchCases()
-        } else if (status.status === 'failed') {
-          clearInterval(poll)
-          generating.value = false
-          message.error('用例生成失败：' + (status.error || '未知错误'))
-        }
-      } catch {
-        clearInterval(poll)
-        generating.value = false
-        message.error('查询生成状态失败')
-      }
-    }, 2000)
+    message.success(`用例生成任务已提交（任务ID: ${result.task_id}），可在Agent任务中查看进度`)
+    showGenerateModal.value = false
+    generateContent.value = ''
+    selectedReqId.value = null
+    selectedPromptId.value = null
+    setTimeout(() => fetchCases(), 3000)
   } catch (e: any) {
-    generating.value = false
     message.error('提交生成任务失败：' + (e.message || '未知错误'))
+  } finally {
+    generating.value = false
   }
 }
 
 onMounted(() => {
+  const params = loadFromUrl({ priority: undefined, module: '', title: '', case_type: undefined, status: undefined })
+  filterPriority.value = params.priority
+  filterModule.value = params.module || ''
+  filterTitle.value = params.title || ''
+  filterCaseType.value = params.case_type
+  filterStatus.value = params.status
   fetchCases()
   getRequirements(projectId).then(data => { requirements.value = data })
   getLLMConfigs().then(data => { llmConfigs.value = data })
@@ -454,7 +450,8 @@ onMounted(() => {
 
 .filter-bar {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 16px;
   align-items: center;
 }

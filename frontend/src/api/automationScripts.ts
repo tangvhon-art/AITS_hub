@@ -40,7 +40,7 @@ export interface ScriptRunResult {
 }
 
 export function getScripts(projectId: number, params?: { status?: string; case_id?: number; keyword?: string }) {
-  return request.get<AutomationScript[]>(`/projects/${projectId}/scripts`, { params })
+  return request.post<AutomationScript[]>(`/projects/${projectId}/scripts/search`, params)
 }
 
 export function getScript(projectId: number, scriptId: number) {

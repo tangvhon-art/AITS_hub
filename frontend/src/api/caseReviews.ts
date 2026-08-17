@@ -21,7 +21,7 @@ export interface CaseReviewListResponse {
 }
 
 export function listCaseReviews(projectId: number, params?: { page?: number; page_size?: number }) {
-  return request.get<CaseReviewListResponse>(`/projects/${projectId}/case-reviews`, { params })
+  return request.post<CaseReviewListResponse>(`/projects/${projectId}/case-reviews/search`, params)
 }
 
 export function getCaseReviewDetail(projectId: number, taskId: number) {

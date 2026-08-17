@@ -22,7 +22,7 @@ export interface ApiMockExpectation {
 
 export const apiMockApi = {
   list: (projectId: number, params?: any) =>
-    request.get<PaginatedResponse<ApiMockExpectation>>(`/projects/${projectId}/api-mock/expectations`, { params }),
+    request.post<PaginatedResponse<ApiMockExpectation>>(`/projects/${projectId}/api-mock/expectations/search`, params),
   create: (projectId: number, data: any) =>
     request.post<ApiMockExpectation>(`/projects/${projectId}/api-mock/expectations`, data),
   update: (projectId: number, id: number, data: any) =>

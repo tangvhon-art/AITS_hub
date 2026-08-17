@@ -31,8 +31,8 @@ export interface DefectListResponse {
   items: Defect[]
 }
 
-export function getDefects(projectId: number, params?: { status?: string; severity?: string; version_id?: number; page?: number; page_size?: number }) {
-  return request.get<DefectListResponse>(`/projects/${projectId}/defects`, { params })
+export function getDefects(projectId: number, params?: { status?: string; severity?: string; version_id?: number; title?: string; priority?: string; root_cause_category?: string; page?: number; page_size?: number }) {
+  return request.post<DefectListResponse>(`/projects/${projectId}/defects/search`, params)
 }
 
 export function getDefect(projectId: number, defectId: number) {

@@ -53,7 +53,7 @@ export interface ApiExecutionResult {
 
 export const apiExecutionsApi = {
   list: (projectId: number, params?: any) =>
-    request.get<PaginatedResponse<ApiExecution>>(`/projects/${projectId}/api-executions`, { params }),
+    request.post<PaginatedResponse<ApiExecution>>(`/projects/${projectId}/api-executions/search`, params),
   get: (projectId: number, id: number) =>
     request.get<ApiExecution>(`/projects/${projectId}/api-executions/${id}`),
   getResults: (projectId: number, id: number) =>

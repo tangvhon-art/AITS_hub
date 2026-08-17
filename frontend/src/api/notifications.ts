@@ -127,7 +127,7 @@ export const notificationApi = {
 
   /** 获取渠道列表 */
   getChannels(params?: { keyword?: string; channel_type?: string; enabled?: boolean }) {
-    return request.get<NotificationChannel[]>('/notifications/channels', { params })
+    return request.post<NotificationChannel[]>('/notifications/channels/search', params)
   },
 
   /** 创建渠道 */
@@ -161,7 +161,7 @@ export const notificationApi = {
     page?: number
     page_size?: number
   }) {
-    return request.get<PaginatedResponse<NotificationRule>>('/notifications/rules', { params })
+    return request.post<PaginatedResponse<NotificationRule>>('/notifications/rules/search', params)
   },
 
   /** 创建规则 */
@@ -192,7 +192,7 @@ export const notificationApi = {
     page?: number
     page_size?: number
   }) {
-    return request.get<PaginatedResponse<NotificationRecord>>('/notifications/records', { params })
+    return request.post<PaginatedResponse<NotificationRecord>>('/notifications/records/search', params)
   },
 
   /** 获取通知记录详情 */

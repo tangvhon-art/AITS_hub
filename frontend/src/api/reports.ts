@@ -30,8 +30,11 @@ export interface ReportListResponse {
   items: TestReport[]
 }
 
-export function getReports(projectId: number, params?: { version_id?: number; page?: number; page_size?: number }) {
-  return request.get<ReportListResponse>(`/projects/${projectId}/reports`, { params })
+export function getReports(
+  projectId: number,
+  params?: { version_id?: number; title?: string; report_type?: string; status?: string; page?: number; page_size?: number }
+) {
+  return request.post<ReportListResponse>(`/projects/${projectId}/reports/search`, params)
 }
 
 export function getReport(projectId: number, reportId: number) {

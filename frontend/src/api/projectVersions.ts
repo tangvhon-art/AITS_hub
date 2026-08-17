@@ -22,7 +22,7 @@ export interface VersionListResponse {
 }
 
 export function getVersions(projectId: number, params?: { status?: string; page?: number; page_size?: number }) {
-  return request.get<VersionListResponse>(`/projects/${projectId}/versions`, { params })
+  return request.post<VersionListResponse>(`/projects/${projectId}/versions/search`, params)
 }
 
 export function createVersion(projectId: number, data: ProjectVersion) {

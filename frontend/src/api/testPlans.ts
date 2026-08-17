@@ -140,8 +140,8 @@ export function getItemTypeDetailLabel(type: string): string {
 // ==================== 测试计划 API ====================
 
 export const testPlansApi = {
-  list: (projectId: number, params?: { status?: string; version_id?: number; keyword?: string; page?: number; page_size?: number }) =>
-    request.get<{ total: number; page: number; page_size: number; items: TestPlan[] }>(`/projects/${projectId}/plans`, { params }),
+  list: (projectId: number, params?: { status?: string; version_id?: number; keyword?: string; priority?: string; page?: number; page_size?: number }) =>
+    request.post<{ total: number; page: number; page_size: number; items: TestPlan[] }>(`/projects/${projectId}/plans/search`, params),
 
   get: (projectId: number, planId: number) =>
     request.get<TestPlan>(`/projects/${projectId}/plans/${planId}`),

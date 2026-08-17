@@ -3,15 +3,6 @@
     <div class="page-header">
       <h2>需求管理</h2>
       <div class="header-actions">
-        <a-select
-          v-model:value="filterVersionId"
-          placeholder="全部版本"
-          allow-clear
-          style="width: 150px; margin-right: 8px"
-          @change="fetchRequirements"
-        >
-          <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
-        </a-select>
         <a-button @click="showUploadModal = true" style="margin-right: 8px">
           <template #icon>
             <UploadOutlined />
@@ -31,6 +22,25 @@
           新建需求
         </a-button>
       </div>
+    </div>
+
+    <div class="filter-bar">
+      <a-input v-model:value="filterTitle" placeholder="需求标题" allow-clear style="width: 180px" />
+      <a-select v-model:value="filterSource" placeholder="来源" allow-clear style="width: 120px">
+        <a-select-option value="manual">手动</a-select-option>
+        <a-select-option value="upload">上传</a-select-option>
+        <a-select-option value="ai">AI生成</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
+        <a-select-option value="pending">待生成</a-select-option>
+        <a-select-option value="generated">已生成</a-select-option>
+        <a-select-option value="reviewed">已评审</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterVersionId" placeholder="全部版本" allow-clear style="width: 150px">
+        <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+      </a-select>
+      <a-button type="primary" @click="fetchRequirements">查询</a-button>
+      <a-button @click="handleReset">重置</a-button>
     </div>
 
     <a-spin :spinning="loading">
@@ -226,6 +236,9 @@ const casePrompts = ref<Prompt[]>([])
 const requirementPrompts = ref<Prompt[]>([])
 const versions = ref<ProjectVersion[]>([])
 const filterVersionId = ref<number | undefined>(undefined)
+const filterTitle = ref('')
+const filterSource = ref<string | undefined>(undefined)
+const filterStatus = ref<string | undefined>(undefined)
 const editingId = ref<number | null>(null)
 
 const aiGenForm = reactive({
@@ -296,10 +309,23 @@ function sourceLabel(source: string) {
 async function fetchRequirements() {
   loading.value = true
   try {
-    requirements.value = await getRequirements(projectId, { version_id: filterVersionId.value })
+    const params: any = {}
+    if (filterVersionId.value) params.version_id = filterVersionId.value
+    if (filterTitle.value) params.title = filterTitle.value
+    if (filterSource.value) params.source = filterSource.value
+    if (filterStatus.value) params.status = filterStatus.value
+    requirements.value = await getRequirements(projectId, params)
   } finally {
     loading.value = false
   }
+}
+
+function handleReset() {
+  filterVersionId.value = undefined
+  filterTitle.value = ''
+  filterSource.value = undefined
+  filterStatus.value = undefined
+  fetchRequirements()
 }
 
 async function saveRequirement() {
@@ -447,4 +473,5 @@ onMounted(() => {
   display: flex;
   align-items: center;
 }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 </style>

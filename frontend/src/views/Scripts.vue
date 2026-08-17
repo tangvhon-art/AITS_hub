@@ -29,6 +29,10 @@
             <a-select-option value="draft">草稿</a-select-option>
             <a-select-option value="deprecated">已废弃</a-select-option>
           </a-select>
+          <a-space style="width: 100%; margin-bottom: 12px">
+            <a-button type="primary" @click="handleSearch">查询</a-button>
+            <a-button @click="handleReset">重置</a-button>
+          </a-space>
 
           <div class="script-items">
             <div
@@ -354,6 +358,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined, SearchOutlined, PlayCircleOutlined, ReloadOutlined, EditOutlined, HistoryOutlined
@@ -368,6 +373,7 @@ import { promptsApi, type Prompt } from '@/api/prompts'
 import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = Number(route.params.id)
 
 const loading = ref(false)
@@ -442,6 +448,16 @@ const filteredScripts = computed(() => {
   }
   return result
 })
+
+function handleSearch() {
+  syncToUrl({ keyword: searchKeyword.value, status: filterStatus.value })
+}
+
+function handleReset() {
+  searchKeyword.value = ''
+  filterStatus.value = undefined
+  syncToUrl({ keyword: searchKeyword.value, status: filterStatus.value })
+}
 
 async function loadScripts() {
   loading.value = true
@@ -755,6 +771,9 @@ function getStatusText(status?: string) {
 }
 
 onMounted(() => {
+  const params = loadFromUrl({ keyword: '', status: undefined })
+  searchKeyword.value = params.keyword
+  filterStatus.value = params.status
   loadScripts()
   promptsApi.list('script_generation').then(data => { scriptPrompts.value = data }).catch(() => {})
   getLLMConfigs().then(data => { llmConfigs.value = data }).catch(() => {})

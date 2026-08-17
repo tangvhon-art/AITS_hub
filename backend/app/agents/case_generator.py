@@ -7,8 +7,7 @@
 import json
 import logging
 from typing import List, Dict, Any, Optional
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 from app.agents.llm_factory import llm_factory
 from app.agents.base_agent import BaseAgent
@@ -73,9 +72,6 @@ CASE_GENERATOR_PROMPT = """请根据以下需求描述，生成全面、专业�
 6. 预期结果明确可验证
 7. 生成 {count} 条用例，确保覆盖全面且不重复
 8. 根据已有用例数避免生成重复场景
-
-## 输出格式
-{format_instructions}
 """
 
 DEFAULT_SYSTEM_PROMPT = """你是一名资深软件测试工程师，拥有丰富的测试用例设计经验。你的任务是根据需求描述生成全面、专业、可执行的测试用例。
@@ -114,7 +110,7 @@ class CaseGeneratorAgent(BaseAgent):
         requirement_content = kwargs.get("requirement_content", "")
         count = kwargs.get("count", 10)
         result = self.generate(requirement_content, count)
-        return {"cases": result}
+        return result
 
     def generate(
         self,
@@ -139,26 +135,22 @@ class CaseGeneratorAgent(BaseAgent):
         Returns:
             dict: 包含 cases 列表和 token_usage
         """
-        parser = PydanticOutputParser(pydantic_object=TestCaseList)
-
         effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else DEFAULT_SYSTEM_PROMPT
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", effective_system_prompt),
-            ("user", CASE_GENERATOR_PROMPT),
-        ])
+        # 直接构造消息，system prompt 不经过 .format() 解析，避免其中的 JSON 花括号被当作模板变量
+        messages = [
+            SystemMessage(content=effective_system_prompt),
+            HumanMessage(content=CASE_GENERATOR_PROMPT.format(
+                requirement_content=requirement_content,
+                count=count,
+                requirement_title=requirement_title or "未指定",
+                project_name=project_name or "未指定",
+                existing_count=existing_count,
+            )),
+        ]
 
-        llm, used_config_id = llm_factory.get_llm_with_fallback(
+        _, used_config_id = llm_factory.get_llm_with_fallback(
             self.db, preferred_config_id=self.llm_config_id
-        )
-
-        messages = prompt.format_messages(
-            requirement_content=requirement_content,
-            count=count,
-            requirement_title=requirement_title or "未指定",
-            project_name=project_name or "未指定",
-            existing_count=existing_count,
-            format_instructions=parser.get_format_instructions(),
         )
 
         logger.info(f"开始生成用例，需求标题: {requirement_title}, 需求长度: {len(requirement_content)}, 期望数量: {count}")
@@ -176,42 +168,10 @@ class CaseGeneratorAgent(BaseAgent):
         self.llm_config_id = config_id or used_config_id
         self._log_step("llm_call", {"requirement_len": len(requirement_content), "count": count}, "success")
 
-        try:
-            result = parser.parse(response.content)
-            cases = [case.model_dump() for case in result.cases]
-        except Exception as e:
-            logger.warning(f"Pydantic 解析失败，尝试 JSON 解析: {e}")
-            cases = self._fallback_parse(response.content)
-
-        logger.info(f"用例生成完成，实际数量: {len(cases)}")
+        logger.info(f"用例生成完成，原始输出长度: {len(response.content)}")
 
         return {
-            "cases": cases,
+            "raw_content": response.content,
             "token_usage": self.get_token_usage(),
             "llm_config_id": self.llm_config_id,
         }
-
-    def _fallback_parse(self, content: str) -> List[Dict[str, Any]]:
-        """当 Pydantic 解析失败时的降级解析"""
-        from app.agents.utils import extract_json, extract_json_list
-
-        parsed = extract_json(content)
-        if parsed and isinstance(parsed, dict) and "cases" in parsed:
-            cases = parsed["cases"]
-            if isinstance(cases, list):
-                return cases
-
-        parsed_list = extract_json_list(content)
-        if parsed_list:
-            return parsed_list
-
-        return [{
-            "title": "AI 生成用例（格式解析降级）",
-            "module": "",
-            "priority": "P1",
-            "case_type": "functional",
-            "preconditions": "",
-            "steps": [{"action": "查看 AI 输出", "expected": "输出可解析"}],
-            "expected_result": content[:500],
-            "bdd_content": "",
-        }]

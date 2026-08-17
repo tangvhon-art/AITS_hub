@@ -10,6 +10,8 @@ from app.models.agent_task import AgentTask
 from app.models.requirement import TestRequirement
 from app.models.project import Project
 from app.agents.requirement_generator import RequirementGeneratorAgent
+from app.services.content_extractor import ContentExtractor
+from app.services.ai_creation_service import AICreationService
 from app.services.notification_service import notify_event, notify_ai_task_failed
 
 logger = logging.getLogger(__name__)
@@ -57,19 +59,16 @@ def generate_requirement_task(self, task_id: int):
             system_prompt=system_prompt,
         )
 
-        # 保存需求
-        requirement = TestRequirement(
+        # 提取内容并创建需求（多策略提取，不做降级）
+        extracted = ContentExtractor.extract_requirement(result["raw_content"])
+        requirement = AICreationService.create_requirement(
+            db,
             project_id=project_id,
-            title=result.get("title", "AI 生成需求"),
-            content=result.get("content", ""),
-            source="ai",
+            title=extracted["title"],
+            content=extracted["content"],
             version_id=version_id,
-            status="generated",
             created_by=task.created_by,
         )
-        db.add(requirement)
-        db.commit()
-        db.refresh(requirement)
 
         task.status = "success"
         task.output_result = {

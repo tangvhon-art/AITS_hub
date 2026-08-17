@@ -10,9 +10,21 @@
       </a-button>
     </div>
 
+    <a-form layout="inline" style="margin-bottom: 16px">
+      <a-form-item label="关键词">
+        <a-input v-model:value="searchKeyword" placeholder="搜索项目名称/描述" allow-clear style="width: 200px" @keyup.enter="handleSearch" />
+      </a-form-item>
+      <a-form-item>
+        <a-space>
+          <a-button type="primary" @click="handleSearch">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
+      </a-form-item>
+    </a-form>
+
     <a-spin :spinning="loading">
       <a-row :gutter="[24, 24]">
-        <a-col :xs="24" :sm="12" :lg="8" :xl="6" v-for="project in projects" :key="project.id">
+        <a-col :xs="24" :sm="12" :lg="8" :xl="6" v-for="project in filteredProjects" :key="project.id">
           <a-card class="project-card" hoverable>
             <div class="project-icon" @click="enterProject(project)">
               <FolderOutlined :style="{ fontSize: '32px', color: '#1677ff' }" />
@@ -44,7 +56,7 @@
           </a-card>
         </a-col>
 
-        <a-col :span="24" v-if="projects.length === 0 && !loading">
+        <a-col :span="24" v-if="filteredProjects.length === 0 && !loading">
           <a-empty description="暂无项目，点击右上角创建" />
         </a-col>
       </a-row>
@@ -74,17 +86,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, FolderOutlined, CalendarOutlined, FileTextOutlined, UnorderedListOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
 import { getProjects, createProject, updateProject, deleteProject as deleteProjectApi, Project } from '@/api/projects'
 import { formatDate } from '@/utils/date'
 
 const router = useRouter()
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 const loading = ref(false)
 const saving = ref(false)
 const projects = ref<Project[]>([])
+const searchKeyword = ref('')
 const showCreateModal = ref(false)
 const editingProject = ref<Project | null>(null)
 
@@ -92,6 +107,24 @@ const projectForm = reactive({
   name: '',
   description: ''
 })
+
+const filteredProjects = computed(() => {
+  if (!searchKeyword.value) return projects.value
+  const kw = searchKeyword.value.toLowerCase()
+  return projects.value.filter(p =>
+    p.name?.toLowerCase().includes(kw) ||
+    p.description?.toLowerCase().includes(kw)
+  )
+})
+
+function handleSearch() {
+  syncToUrl({ keyword: searchKeyword.value })
+}
+
+function handleReset() {
+  searchKeyword.value = ''
+  syncToUrl({ keyword: searchKeyword.value })
+}
 
 async function fetchProjects() {
   loading.value = true
@@ -158,7 +191,11 @@ function deleteProject(project: Project) {
   })
 }
 
-onMounted(fetchProjects)
+onMounted(() => {
+  const params = loadFromUrl({ keyword: '' })
+  searchKeyword.value = params.keyword
+  fetchProjects()
+})
 </script>
 
 <style scoped>

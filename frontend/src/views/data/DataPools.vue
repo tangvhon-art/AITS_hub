@@ -7,11 +7,15 @@
     <a-card>
       <div class="filter-bar">
         <a-input-search v-model:value="keyword" placeholder="搜索名称" allow-clear style="width: 250px" @search="loadData" />
-        <a-select v-model:value="typeFilter" allow-clear placeholder="数据类型" style="width: 150px" @change="loadData">
+        <a-select v-model:value="typeFilter" allow-clear placeholder="数据类型" style="width: 150px">
           <a-select-option value="static">静态数据</a-select-option>
           <a-select-option value="dynamic">动态生成</a-select-option>
           <a-select-option value="generated">自动生成</a-select-option>
         </a-select>
+        <a-space>
+          <a-button type="primary" @click="loadData">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
       </div>
       <a-table :columns="columns" :data-source="dataSource" :loading="loading" :pagination="pagination" row-key="id" @change="handleTableChange">
         <template #bodyCell="{ column, record }">
@@ -43,10 +47,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { dataPoolsApi, type TestDataPool } from '@/api/dataPools'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const keyword = ref('')
@@ -72,6 +78,7 @@ const typeColor = (t: string) => ({ static: 'blue', dynamic: 'green', generated:
 const typeText = (t: string) => ({ static: '静态数据', dynamic: '动态生成', generated: '自动生成' })[t] || t
 
 async function loadData() {
+  syncToUrl({ keyword: keyword.value, type: typeFilter.value })
   loading.value = true
   try {
     const res = await dataPoolsApi.list(projectId, {
@@ -90,6 +97,13 @@ async function loadData() {
 function handleTableChange(p: any) {
   pagination.value.current = p.current
   pagination.value.pageSize = p.pageSize
+  loadData()
+}
+
+function handleReset() {
+  keyword.value = ''
+  typeFilter.value = undefined
+  pagination.value.current = 1
   loadData()
 }
 
@@ -120,7 +134,12 @@ async function handleDelete(record: TestDataPool) {
   } catch { }
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  const params = loadFromUrl({ keyword: '', type: undefined })
+  keyword.value = params.keyword
+  typeFilter.value = params.type
+  loadData()
+})
 </script>
 
 <style scoped>

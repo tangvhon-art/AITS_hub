@@ -149,12 +149,12 @@ class ReportGeneratorAgent(BaseAgent):
             response = self._call_llm(messages)
             self._log_step("llm_call", {}, "success")
 
-            report_content = response.content
             report_title = title or f"测试报告 - {china_now_naive().strftime('%Y-%m-%d')}"
+            logger.info(f"报告生成完成，原始输出长度: {len(response.content)}")
 
             result = {
                 "title": report_title,
-                "content": report_content,
+                "raw_content": response.content,
                 "summary": stats,
                 "report_type": report_type,
                 "total_cases": stats.get("total_cases", 0),
@@ -175,24 +175,7 @@ class ReportGeneratorAgent(BaseAgent):
         except Exception as e:
             logger.error(f"报告生成失败: {e}")
             self._log_step("report_error", {"error": str(e)}, "failed")
-            # 降级返回基础报告
-            basic_content = self._generate_basic_report(stats)
-            return {
-                "title": title or f"测试报告 - {china_now_naive().strftime('%Y-%m-%d')}",
-                "content": basic_content,
-                "summary": stats,
-                "report_type": report_type,
-                "total_cases": stats.get("total_cases", 0),
-                "passed_cases": stats.get("passed_cases", 0),
-                "failed_cases": stats.get("failed_cases", 0),
-                "pass_rate": stats.get("pass_rate", 0.0),
-                "total_defects": stats.get("total_defects", 0),
-                "open_defects": stats.get("open_defects", 0),
-                "total_runs": stats.get("total_runs", 0),
-                "avg_duration": stats.get("avg_duration", 0.0),
-                "error": str(e),
-                "token_usage": self.get_token_usage(),
-            }
+            raise
 
     def _collect_stats(self, project_id: int, version_id: Optional[int] = None) -> Dict[str, Any]:
         """收集项目统计数据（可按版本过滤）"""
@@ -372,20 +355,3 @@ class ReportGeneratorAgent(BaseAgent):
             "plan_exec_passed": plan_exec_passed,
             "plan_exec_failed": plan_exec_failed,
         }
-
-    def _generate_basic_report(self, stats: Dict[str, Any]) -> str:
-        """生成基础报告（降级用）"""
-        return f"""# 测试报告
-
-## 测试概览
-- 用例总数：{stats.get('total_cases', 0)}
-- 执行次数：{stats.get('total_runs', 0)}
-- 通过：{stats.get('passed_cases', 0)}
-- 失败：{stats.get('failed_cases', 0)}
-- 通过率：{stats.get('pass_rate', 0)}%
-- 缺陷总数：{stats.get('total_defects', 0)}
-- 未解决缺陷：{stats.get('open_defects', 0)}
-
-## 说明
-本报告为自动生成的基础版本，详细分析请使用 AI 生成模式。
-"""

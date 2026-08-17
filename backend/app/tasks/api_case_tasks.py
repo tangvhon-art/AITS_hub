@@ -104,25 +104,21 @@ def generate_api_cases_task(self, task_id: int):
         if "error" in result_container:
             raise Exception(result_container["error"])
 
-        generated_cases, token_usage, used_config_id = result_container.get("result", ([], {}, None))
+        from app.services.content_extractor import ContentExtractor
 
-        cases_data = []
-        for case in generated_cases:
-            cases_data.append({
-                "name": case.get("name", ""),
-                "priority": case.get("priority", "P2"),
-                "description": case.get("description", ""),
-                "request": case.get("request", {}),
-                "assertions": case.get("assertions", []),
-            })
+        gen_result = result_container.get("result", {"raw_content": "", "token_usage": {}, "llm_config_id": None})
+
+        # 提取接口用例（多策略提取，不做降级；创建由"保存"端点处理）
+        cases = ContentExtractor.extract_api_cases(gen_result["raw_content"])
 
         task.status = "success"
-        task.output_result = {"cases": cases_data, "count": len(cases_data)}
-        task.token_usage = token_usage
+        task.output_result = {"cases": cases, "count": len(cases)}
+        task.token_usage = gen_result.get("token_usage", {})
+        task.llm_config_id = gen_result.get("llm_config_id")
         task.completed_at = china_now_naive()
         db.commit()
 
-        logger.info(f"AI生成用例任务完成: task_id={task_id}, count={len(cases_data)}")
+        logger.info(f"AI生成用例任务完成: task_id={task_id}, count={len(cases)}")
 
         # 发送AI接口用例生成完成通知
         try:
@@ -135,7 +131,7 @@ def generate_api_cases_task(self, task_id: int):
                 {
                     "source_name": api_def.name if api_def else "接口",
                     "strategy": strategy,
-                    "success_count": len(cases_data),
+                    "success_count": len(cases),
                     "failed_count": 0,
                     "duration": duration,
                 },

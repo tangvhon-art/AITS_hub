@@ -58,12 +58,16 @@
           style="width: 280px"
           @search="loadData"
         />
-        <a-select v-model:value="methodFilter" placeholder="请求方法" style="width: 120px" allow-clear @change="loadData">
+        <a-select v-model:value="methodFilter" placeholder="请求方法" style="width: 120px" allow-clear>
           <a-select-option value="GET">GET</a-select-option>
           <a-select-option value="POST">POST</a-select-option>
           <a-select-option value="PUT">PUT</a-select-option>
           <a-select-option value="DELETE">DELETE</a-select-option>
         </a-select>
+        <a-space>
+          <a-button type="primary" @click="loadData">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
       </div>
 
       <a-table
@@ -140,10 +144,12 @@ import {
   EditOutlined, DeleteOutlined, MoreOutlined,
 } from '@ant-design/icons-vue'
 import { apiDefinitionsApi, apiModulesApi, apiImportApi, type ApiDefinition, type ApiModule } from '@/api/apiTest'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 // ====== 接口列表 ======
 const loading = ref(false)
@@ -207,6 +213,7 @@ const getMethodColor = (method: string) => {
 
 // ====== 数据加载 ======
 const loadData = async () => {
+  syncToUrl({ keyword: keyword.value, method: methodFilter.value })
   loading.value = true
   try {
     const res = await apiDefinitionsApi.list(projectId, {
@@ -234,6 +241,13 @@ const loadModules = async () => {
 const handleTableChange = (pag: any) => {
   pagination.value.current = pag.current
   pagination.value.pageSize = pag.pageSize
+  loadData()
+}
+
+function handleReset() {
+  keyword.value = ''
+  methodFilter.value = ''
+  pagination.value.current = 1
   loadData()
 }
 
@@ -453,6 +467,9 @@ const ModuleTreeNode = defineComponent({
 })
 
 onMounted(() => {
+  const params = loadFromUrl({ keyword: '', method: '' })
+  keyword.value = params.keyword
+  methodFilter.value = params.method
   loadModules()
   loadData()
 })

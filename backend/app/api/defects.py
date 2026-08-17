@@ -4,7 +4,7 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -33,14 +33,17 @@ def _get_username(db: Session, user_id: Optional[int]) -> str:
         return getattr(user, "username", None) or getattr(user, "name", None) or str(user_id)
     return str(user_id)
 
-@router.get("", response_model=DefectListResponse)
+@router.post("/search", response_model=DefectListResponse)
 def list_defects(
     project_id: int,
-    status: Optional[str] = None,
-    severity: Optional[str] = None,
-    version_id: Optional[int] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Body(None),
+    severity: Optional[str] = Body(None),
+    version_id: Optional[int] = Body(None),
+    title: Optional[str] = Body(None),
+    priority: Optional[str] = Body(None),
+    root_cause_category: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -54,6 +57,12 @@ def list_defects(
         query = query.filter(Defect.severity == severity)
     if version_id is not None:
         query = query.filter(Defect.version_id == version_id)
+    if title:
+        query = query.filter(Defect.title.ilike(f"%{title}%"))
+    if priority:
+        query = query.filter(Defect.priority == priority)
+    if root_cause_category:
+        query = query.filter(Defect.root_cause_category == root_cause_category)
 
     total = query.count()
     defects = query.order_by(Defect.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()

@@ -4,22 +4,13 @@
 根据用户输入的简要描述，自动生成结构化的需求文档。
 支持自定义 Prompt 作为 system 提示词输入。
 """
-import json
 import logging
 from typing import Dict, Any, Optional
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
-from pydantic import BaseModel, Field
+from langchain_core.messages import SystemMessage, HumanMessage
 from app.agents.llm_factory import llm_factory
 from app.agents.base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
-
-
-class RequirementDraft(BaseModel):
-    """AI 生成的需求文档结构"""
-    title: str = Field(description="需求标题，简洁概括核心功能，不超过200字符")
-    content: str = Field(description="需求详细内容，包含背景、功能描述、验收标准等，使用 Markdown 格式")
 
 
 REQUIREMENT_GENERATOR_PROMPT = """请根据用户的简要描述，生成一份结构化、专业的需求文档。
@@ -41,9 +32,6 @@ REQUIREMENT_GENERATOR_PROMPT = """请根据用户的简要描述，生成一份�
 2. 内容要具体、可执行，避免模糊描述
 3. 标题要简洁明了，概括核心需求
 4. 根据用户输入合理扩展，补充用户可能遗漏但必要的细节
-
-## 输出格式
-{format_instructions}
 """
 
 DEFAULT_SYSTEM_PROMPT = """你是一名资深需求分析师，拥有丰富的软件工程和产品分析经验。你的任务是将用户提供的简要需求描述转化为结构化、专业、可执行的需求文档。
@@ -108,23 +96,19 @@ class RequirementGeneratorAgent(BaseAgent):
         project_name: str = "",
         system_prompt: str = "",
     ) -> Dict[str, Any]:
-        parser = PydanticOutputParser(pydantic_object=RequirementDraft)
-
         effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else DEFAULT_SYSTEM_PROMPT
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", effective_system_prompt),
-            ("user", REQUIREMENT_GENERATOR_PROMPT),
-        ])
+        # 直接构造消息，system prompt 不经过 .format() 解析，避免其中的 JSON 花括号被当作模板变量
+        messages = [
+            SystemMessage(content=effective_system_prompt),
+            HumanMessage(content=REQUIREMENT_GENERATOR_PROMPT.format(
+                user_input=user_input,
+                project_name=project_name or "未指定",
+            )),
+        ]
 
-        llm, used_config_id = llm_factory.get_llm_with_fallback(
+        _, used_config_id = llm_factory.get_llm_with_fallback(
             self.db, preferred_config_id=self.llm_config_id
-        )
-
-        messages = prompt.format_messages(
-            user_input=user_input,
-            project_name=project_name or "未指定",
-            format_instructions=parser.get_format_instructions(),
         )
 
         logger.info(f"开始生成需求文档，输入长度: {len(user_input)}")
@@ -142,33 +126,10 @@ class RequirementGeneratorAgent(BaseAgent):
         self.llm_config_id = config_id or used_config_id
         self._log_step("llm_call", {"input_len": len(user_input)}, "success")
 
-        try:
-            result = parser.parse(response.content)
-            draft = result.model_dump()
-        except Exception as e:
-            logger.warning(f"Pydantic 解析失败，尝试 JSON 解析: {e}")
-            draft = self._fallback_parse(response.content)
-
-        logger.info(f"需求文档生成完成，标题: {draft.get('title', '未知')}")
+        logger.info(f"需求文档生成完成，原始输出长度: {len(response.content)}")
 
         return {
-            "title": draft.get("title", ""),
-            "content": draft.get("content", ""),
+            "raw_content": response.content,
             "token_usage": self.get_token_usage(),
             "llm_config_id": self.llm_config_id,
-        }
-
-    def _fallback_parse(self, content: str) -> Dict[str, Any]:
-        from app.agents.utils import extract_json
-
-        parsed = extract_json(content)
-        if parsed and isinstance(parsed, dict):
-            return {
-                "title": parsed.get("title", "AI 生成需求"),
-                "content": parsed.get("content", content[:2000]),
-            }
-
-        return {
-            "title": "AI 生成需求（格式解析降级）",
-            "content": content[:2000],
         }

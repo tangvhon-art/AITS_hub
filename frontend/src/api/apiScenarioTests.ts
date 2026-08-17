@@ -42,7 +42,7 @@ export interface ApiScenarioStep {
 
 export const apiScenariosApi = {
   list: (projectId: number, params?: any) =>
-    request.get<PaginatedResponse<ApiScenario>>(`/projects/${projectId}/api-scenarios`, { params }),
+    request.post<PaginatedResponse<ApiScenario>>(`/projects/${projectId}/api-scenarios/search`, params),
   get: (projectId: number, id: number) =>
     request.get<ApiScenario>(`/projects/${projectId}/api-scenarios/${id}`),
   create: (projectId: number, data: any) =>

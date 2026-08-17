@@ -131,6 +131,8 @@
               <a-select-option value="RETRY">重试中</a-select-option>
               <a-select-option value="REVOKED">已取消</a-select-option>
             </a-select>
+            <a-button size="small" type="primary" @click="handleSearch" style="margin-left: 8px">查询</a-button>
+            <a-button size="small" @click="handleReset">重置</a-button>
             <a-tooltip title="自动刷新">
               <a-switch
                 v-model:checked="autoRefresh"
@@ -269,6 +271,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import {
   DatabaseOutlined,
@@ -282,6 +285,8 @@ import {
 
 // Flower API 基础路径（通过 Vite 代理）
 const FLOWER_API = '/flower/api'
+
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const flowerOnline = ref(false)
@@ -342,6 +347,15 @@ const filteredTasks = computed(() => {
   if (!statusFilter.value) return taskList.value
   return taskList.value.filter((t: any) => t.state === statusFilter.value)
 })
+
+function handleSearch() {
+  syncToUrl({ status: statusFilter.value })
+}
+
+function handleReset() {
+  statusFilter.value = undefined
+  syncToUrl({ status: statusFilter.value })
+}
 
 // 统计数据
 const stats = computed(() => {
@@ -476,6 +490,8 @@ function formatTime(timestamp: number): string {
 }
 
 onMounted(() => {
+  const params = loadFromUrl({ status: undefined })
+  statusFilter.value = params.status
   fetchAll()
   refreshTimer = window.setInterval(() => {
     if (autoRefresh.value) {

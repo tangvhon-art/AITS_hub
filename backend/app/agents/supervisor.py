@@ -96,6 +96,8 @@ class SupervisorEngine:
         from app.models.test_case import TestCase
         from app.models.defect import Defect
         from app.models.report import TestReport
+        from app.services.content_extractor import ContentExtractor
+        from app.services.ai_creation_service import AICreationService
 
         results = {
             "project_id": project_id,
@@ -109,26 +111,14 @@ class SupervisorEngine:
         try:
             gen_agent = CaseGeneratorAgent(self.db, llm_config_id=llm_config_id)
             gen_result = gen_agent.generate(requirement_content, count=generate_count)
-            cases = gen_result.get("cases", [])
-
-            # 保存用例到数据库
-            saved_cases = []
-            for case_data in cases:
-                case = TestCase(
-                    project_id=project_id,
-                    title=case_data.get("title", "未命名用例"),
-                    module=case_data.get("module", ""),
-                    priority=case_data.get("priority", "P1"),
-                    case_type=case_data.get("case_type", "functional"),
-                    preconditions=case_data.get("preconditions", ""),
-                    steps=json.dumps(case_data.get("steps", []), ensure_ascii=False),
-                    expected_result=case_data.get("expected_result", ""),
-                    status="draft",
-                    created_by=created_by,
-                )
-                self.db.add(case)
-                self.db.flush()
-                saved_cases.append({**case_data, "id": case.id})
+            cases = ContentExtractor.extract_test_cases(gen_result["raw_content"])
+            created_cases = AICreationService.create_test_cases(
+                self.db, project_id=project_id, cases=cases, created_by=created_by,
+            )
+            saved_cases = [{"id": c.id, "title": c.title, "module": c.module,
+                            "priority": c.priority, "case_type": c.case_type,
+                            "preconditions": c.preconditions, "steps": c.steps,
+                            "expected_result": c.expected_result} for c in created_cases]
 
             results["cases"] = saved_cases
             results["steps"].append({
@@ -149,7 +139,8 @@ class SupervisorEngine:
         logger.info("Supervisor: 开始用例评审")
         try:
             reviewer = CaseReviewerAgent(self.db, llm_config_id=llm_config_id)
-            review_result = reviewer.review(cases, requirement=requirement_content)
+            agent_result = reviewer.review(cases, requirement=requirement_content)
+            review_result = ContentExtractor.extract_review(agent_result["raw_content"])
             results["review_result"] = review_result
             results["steps"].append({
                 "step": "case_review",
@@ -255,31 +246,21 @@ class SupervisorEngine:
             for run in failed_runs:
                 try:
                     defect_agent = DefectAnalyzerAgent(self.db, llm_config_id=llm_config_id)
-                    defect_result = defect_agent.analyze(
+                    agent_result = defect_agent.analyze(
                         execution_log=run.get("execution_log", ""),
                         error_message=run.get("error_message", ""),
                         test_case=run.get("case_data"),
                     )
-                    # 保存缺陷
-                    defect = Defect(
+                    defect_data = ContentExtractor.extract_defect(agent_result["raw_content"])
+                    defect = AICreationService.create_defect(
+                        self.db,
                         project_id=project_id,
+                        defect_data=defect_data,
                         run_id=run.get("run_id"),
                         case_id=run.get("case_id"),
-                        title=defect_result.get("title", "执行失败"),
-                        description=defect_result.get("description", ""),
-                        severity=defect_result.get("severity", "major"),
-                        priority=defect_result.get("priority", "P2"),
-                        status="open",
-                        root_cause=defect_result.get("root_cause", ""),
-                        root_cause_category=defect_result.get("root_cause_category", "other"),
-                        reproduce_steps=defect_result.get("reproduce_steps", ""),
-                        expected_result=defect_result.get("expected_result", ""),
-                        actual_result=defect_result.get("actual_result", ""),
                         created_by=created_by,
                     )
-                    self.db.add(defect)
-                    self.db.flush()
-                    defects.append({**defect_result, "id": defect.id})
+                    defects.append({"id": defect.id, "title": defect.title})
                 except Exception as e:
                     logger.error(f"缺陷分析失败: {e}")
 
@@ -295,13 +276,13 @@ class SupervisorEngine:
                 report_type="full",
                 title=f"测试报告 - {requirement_title or china_now_naive().strftime('%Y-%m-%d')}",
             )
-            # 保存报告
+            report_content = ContentExtractor.extract_report(report_result["raw_content"])
             report = TestReport(
                 project_id=project_id,
                 title=report_result.get("title", "测试报告"),
                 report_type="full",
                 status="completed",
-                content=report_result.get("content", ""),
+                content=report_content,
                 summary=report_result.get("summary", {}),
                 total_cases=report_result.get("total_cases", 0),
                 passed_cases=report_result.get("passed_cases", 0),
@@ -315,7 +296,7 @@ class SupervisorEngine:
             )
             self.db.add(report)
             self.db.flush()
-            results["report"] = {**report_result, "id": report.id}
+            results["report"] = {"id": report.id, "title": report.title}
             results["steps"].append({"step": "report_generation", "status": "success", "report_id": report.id})
 
         except Exception as e:

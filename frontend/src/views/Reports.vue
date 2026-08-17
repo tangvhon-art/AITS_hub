@@ -2,21 +2,30 @@
   <div class="reports-page">
     <div class="page-header">
       <h2>测试报告</h2>
-      <div>
-        <a-select
-          v-model:value="filterVersionId"
-          placeholder="全部版本"
-          allow-clear
-          style="width: 150px; margin-right: 8px"
-          @change="loadReports"
-        >
-          <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
-        </a-select>
-        <a-button type="primary" @click="showGenerateModal" :loading="generating">
-          <template #icon><FileTextOutlined /></template>
-          AI 生成报告
-        </a-button>
-      </div>
+      <a-button type="primary" @click="showGenerateModal" :loading="generating">
+        <template #icon><FileTextOutlined /></template>
+        AI 生成报告
+      </a-button>
+    </div>
+
+    <div class="filter-bar">
+      <a-input v-model:value="filterTitle" placeholder="标题" allow-clear style="width: 180px" />
+      <a-select v-model:value="filterType" placeholder="类型" allow-clear style="width: 120px">
+        <a-select-option value="summary">汇总</a-select-option>
+        <a-select-option value="execution">执行</a-select-option>
+        <a-select-option value="defect">缺陷</a-select-option>
+        <a-select-option value="full">完整</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
+        <a-select-option value="generating">生成中</a-select-option>
+        <a-select-option value="completed">已完成</a-select-option>
+        <a-select-option value="failed">失败</a-select-option>
+      </a-select>
+      <a-select v-model:value="filterVersionId" placeholder="所属版本" allow-clear style="width: 150px">
+        <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+      </a-select>
+      <a-button type="primary" @click="loadReports">查询</a-button>
+      <a-button @click="handleReset">重置</a-button>
     </div>
 
     <a-card>
@@ -29,7 +38,10 @@
         row-key="id"
       >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'status'">
+          <template v-if="column.key === 'report_type'">
+            <a-tag>{{ reportTypeText(record.report_type) }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'pass_rate'">
@@ -115,6 +127,7 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { FileTextOutlined } from '@ant-design/icons-vue'
 import { getReports, generateReport, deleteReport as deleteReportApi, type TestReport } from '@/api/reports'
@@ -124,12 +137,16 @@ import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const generating = ref(false)
 const reports = ref<TestReport[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 const versions = ref<ProjectVersion[]>([])
+const filterTitle = ref('')
+const filterType = ref<string | undefined>(undefined)
+const filterStatus = ref<string | undefined>(undefined)
 const filterVersionId = ref<number | undefined>(undefined)
 const reportPrompts = ref<Prompt[]>([])
 const llmConfigs = ref<any[]>([])
@@ -167,6 +184,7 @@ const columns = [
 ]
 
 async function loadReports() {
+  syncToUrl({ title: filterTitle.value, report_type: filterType.value, status: filterStatus.value, version_id: filterVersionId.value })
   loading.value = true
   if (!projectId) {
     loading.value = false
@@ -177,6 +195,9 @@ async function loadReports() {
     const res = await getReports(projectId, {
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
+      title: filterTitle.value || undefined,
+      report_type: filterType.value,
+      status: filterStatus.value,
       version_id: filterVersionId.value,
     })
     reports.value = res.items
@@ -186,6 +207,14 @@ async function loadReports() {
   } finally {
     loading.value = false
   }
+}
+
+function handleReset() {
+  filterTitle.value = ''
+  filterType.value = undefined
+  filterStatus.value = undefined
+  filterVersionId.value = undefined
+  loadReports()
 }
 
 function handleTableChange(pag: any) {
@@ -247,6 +276,11 @@ function reportTypeText(t?: string) {
 
 onMounted(() => {
   if (projectId) {
+    const params = loadFromUrl({ title: '', report_type: undefined, status: undefined, version_id: undefined as number | undefined })
+    filterTitle.value = params.title || ''
+    filterType.value = params.report_type
+    filterStatus.value = params.status
+    filterVersionId.value = params.version_id ? Number(params.version_id) : undefined
     loadReports()
     getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
     promptsApi.list('report_generation').then(data => { reportPrompts.value = data }).catch(() => {})
@@ -259,6 +293,7 @@ onMounted(() => {
 .reports-page { padding: 20px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .page-header h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 .report-detail { max-height: 600px; overflow-y: auto; }
 .report-stats { margin-bottom: 16px; }
 .report-content { line-height: 1.8; }

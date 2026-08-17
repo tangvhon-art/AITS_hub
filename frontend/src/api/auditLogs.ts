@@ -30,7 +30,7 @@ export function getAuditLogs(params?: {
   page?: number
   page_size?: number
 }) {
-  return request.get<AuditLogListResponse>('/audit-logs', { params })
+  return request.post<AuditLogListResponse>('/audit-logs/search', params)
 }
 
 export function getAuditLog(logId: number) {

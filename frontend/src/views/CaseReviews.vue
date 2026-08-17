@@ -9,6 +9,21 @@
     </div>
 
     <a-card>
+      <a-form layout="inline" style="margin-bottom: 16px">
+        <a-form-item label="状态">
+          <a-select v-model:value="filterStatus" allow-clear placeholder="全部" style="width: 150px">
+            <a-select-option value="running">评审中</a-select-option>
+            <a-select-option value="success">已完成</a-select-option>
+            <a-select-option value="failed">失败</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item>
+          <a-space>
+            <a-button type="primary" @click="loadReviews">查询</a-button>
+            <a-button @click="handleReset">重置</a-button>
+          </a-space>
+        </a-form-item>
+      </a-form>
       <a-table
         :columns="columns"
         :data-source="reviews"
@@ -230,6 +245,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { AuditOutlined } from '@ant-design/icons-vue'
 import { listCaseReviews, getCaseReviewDetail, reviewCases, type CaseReviewItem } from '@/api/caseReviews'
@@ -238,11 +254,13 @@ import { promptsApi, type Prompt } from '@/api/prompts'
 import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = Number(route.params.id)
 
 const loading = ref(false)
 const reviews = ref<CaseReviewItem[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
+const filterStatus = ref<string>()
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
@@ -303,8 +321,11 @@ function severityColor(severity: string) {
 
 async function loadReviews() {
   loading.value = true
+  syncToUrl({ status: filterStatus.value })
   try {
-    const data = await listCaseReviews(projectId, { page: pagination.value.current, page_size: pagination.value.pageSize })
+    const params: any = { page: pagination.value.current, page_size: pagination.value.pageSize }
+    if (filterStatus.value) params.status = filterStatus.value
+    const data = await listCaseReviews(projectId, params)
     reviews.value = data.items
     pagination.value.total = data.total
   } catch (e: any) {
@@ -316,6 +337,11 @@ async function loadReviews() {
 
 function handleTableChange(pag: any) {
   pagination.value.current = pag.current
+  loadReviews()
+}
+
+function handleReset() {
+  filterStatus.value = undefined
   loadReviews()
 }
 
@@ -444,6 +470,8 @@ async function viewDetail(record: CaseReviewItem) {
 }
 
 onMounted(() => {
+  const params = loadFromUrl({ status: undefined })
+  filterStatus.value = params.status
   loadReviews()
   loadRequirements()
   loadModuleOptions()

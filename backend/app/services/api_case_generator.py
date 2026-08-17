@@ -196,7 +196,7 @@ class ApiCaseGenerator:
                        case_count: int = 5, coverage_scenarios: Optional[List[str]] = None,
                        assertion_depth: str = "standard", language: str = "zh",
                        system_prompt: str = "",
-                       ) -> tuple[List[Dict[str, Any]], Dict[str, int], Optional[int]]:
+                       ) -> Dict[str, Any]:
         """
         生成接口测试用例
         返回 (cases, token_usage, used_config_id)
@@ -217,7 +217,10 @@ class ApiCaseGenerator:
         )
 
         content = response.content if hasattr(response, "content") else str(response)
-        cases = parse_llm_response(content)
-        cases = validate_cases(cases)
+        logger.info(f"接口用例生成完成，原始输出长度: {len(content)}")
 
-        return cases, token_usage, used_config_id
+        return {
+            "raw_content": content,
+            "token_usage": token_usage,
+            "llm_config_id": used_config_id,
+        }

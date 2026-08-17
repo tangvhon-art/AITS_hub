@@ -14,6 +14,8 @@
             allow-clear
             @search="loadChannels"
           />
+          <a-button type="primary" style="margin-right: 8px" @click="loadChannels">查询</a-button>
+          <a-button style="margin-right: 8px" @click="handleReset">重置</a-button>
           <a-button type="primary" @click="openCreateModal">
             <template #icon><plus-outlined /></template>
             新建渠道
@@ -128,6 +130,9 @@ import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, LoadingOutlined } from '@ant-design/icons-vue'
 import { notificationApi, type NotificationChannel } from '@/api/notifications'
+import { useUrlSearch } from '@/composables/useUrlSearch'
+
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -165,6 +170,7 @@ function typeLabel(type: string): string {
 }
 
 async function loadChannels() {
+  syncToUrl({ keyword: searchKeyword.value })
   loading.value = true
   try {
     const params: any = {}
@@ -286,7 +292,14 @@ async function handleDelete(record: NotificationChannel) {
   }
 }
 
+function handleReset() {
+  searchKeyword.value = ''
+  loadChannels()
+}
+
 onMounted(() => {
+  const params = loadFromUrl({ keyword: '' })
+  searchKeyword.value = params.keyword
   loadChannels()
 })
 </script>

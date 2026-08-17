@@ -28,7 +28,7 @@ export interface EnvironmentVariable {
 
 export const dataPoolsApi = {
   list: (projectId: number, params?: any) =>
-    request.get<PaginatedResponse<TestDataPool>>(`/projects/${projectId}/data-pools`, { params }),
+    request.post<PaginatedResponse<TestDataPool>>(`/projects/${projectId}/data-pools/search`, params),
   get: (projectId: number, id: number) =>
     request.get<TestDataPool>(`/projects/${projectId}/data-pools/${id}`),
   create: (projectId: number, data: any) =>

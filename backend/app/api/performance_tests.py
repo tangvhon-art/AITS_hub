@@ -1,6 +1,6 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Query, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
@@ -59,13 +59,13 @@ def create_test(
     return PerformanceTestResponse.model_validate(test)
 
 
-@router.get("", response_model=PaginatedResponse)
+@router.post("/search", response_model=PaginatedResponse)
 def list_tests(
     project_id: int,
-    keyword: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    keyword: Optional[str] = Body(None),
+    status: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

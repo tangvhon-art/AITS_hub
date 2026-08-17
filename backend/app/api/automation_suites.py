@@ -4,7 +4,7 @@
 import json
 import logging
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks, Body
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
 from app.core.deps import get_current_user, get_project
@@ -37,11 +37,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/suites", tags=["自动化编排"])
 
-@router.get("", response_model=List[AutomationSuiteResponse])
+@router.post("/search", response_model=List[AutomationSuiteResponse])
 def list_suites(
     project_id: int,
-    status: Optional[str] = None,
-    plan_id: Optional[int] = None,
+    status: Optional[str] = Body(None),
+    plan_id: Optional[int] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -380,10 +380,10 @@ def get_suite_run_results(
 # ============ 全局执行记录路由 ============
 run_router = APIRouter(prefix="/api/projects/{project_id}/suite-runs", tags=["编排执行记录"])
 
-@run_router.get("", response_model=List[SuiteRunResponse])
+@run_router.post("/search", response_model=List[SuiteRunResponse])
 def list_all_suite_runs(
     project_id: int,
-    status: Optional[str] = None,
+    status: Optional[str] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

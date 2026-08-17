@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks, Body
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -30,12 +30,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/reports", tags=["报告管理"])
 
-@router.get("", response_model=ReportListResponse)
+@router.post("/search", response_model=ReportListResponse)
 def list_reports(
     project_id: int,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    version_id: Optional[int] = None,
+    page: int = Body(1),
+    page_size: int = Body(20),
+    version_id: Optional[int] = Body(None),
+    title: Optional[str] = Body(None),
+    report_type: Optional[str] = Body(None),
+    status: Optional[str] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -45,6 +48,12 @@ def list_reports(
     query = db.query(TestReport).filter(TestReport.project_id == project_id)
     if version_id is not None:
         query = query.filter(TestReport.version_id == version_id)
+    if title:
+        query = query.filter(TestReport.title.ilike(f"%{title}%"))
+    if report_type:
+        query = query.filter(TestReport.report_type == report_type)
+    if status:
+        query = query.filter(TestReport.status == status)
     total = query.count()
     reports = query.order_by(TestReport.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 

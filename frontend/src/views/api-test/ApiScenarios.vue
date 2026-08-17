@@ -9,6 +9,13 @@
     </div>
 
     <a-card>
+      <div class="filter-bar">
+        <a-input-search v-model:value="keyword" placeholder="搜索场景名称" style="width: 250px" @search="loadData" />
+        <a-space>
+          <a-button type="primary" @click="loadData">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
+      </div>
       <a-table
         :columns="columns"
         :data-source="dataSource"
@@ -39,12 +46,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { apiScenariosApi, type ApiScenario } from '@/api/apiTest'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
+const keyword = ref('')
 const dataSource = ref<ApiScenario[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 
@@ -56,11 +66,13 @@ const columns = [
 ]
 
 const loadData = async () => {
+  syncToUrl({ keyword: keyword.value })
   loading.value = true
   try {
     const res = await apiScenariosApi.list(projectId, {
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
+      keyword: keyword.value,
     })
     dataSource.value = res.items
     pagination.value.total = res.total
@@ -72,6 +84,12 @@ const loadData = async () => {
 const handleTableChange = (pag: any) => {
   pagination.value.current = pag.current
   pagination.value.pageSize = pag.pageSize
+  loadData()
+}
+
+function handleReset() {
+  keyword.value = ''
+  pagination.value.current = 1
   loadData()
 }
 
@@ -99,7 +117,11 @@ const handleDelete = async (record: ApiScenario) => {
   loadData()
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  const params = loadFromUrl({ keyword: '' })
+  keyword.value = params.keyword
+  loadData()
+})
 </script>
 
 <style scoped>
@@ -111,5 +133,10 @@ onMounted(() => loadData())
 }
 .page-header h2 {
   margin: 0;
+}
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 </style>

@@ -17,7 +17,7 @@ export interface TestCase {
 }
 
 export function getCases(projectId: number, params?: { module?: string; priority?: string; status?: string }) {
-  return request.get<TestCase[]>(`/projects/${projectId}/cases`, { params })
+  return request.post<TestCase[]>(`/projects/${projectId}/cases/search`, params)
 }
 
 export function createCase(projectId: number, data: Partial<TestCase>) {
@@ -48,7 +48,7 @@ export function generateCasesStatus(projectId: number, taskId: number) {
 
 // 需求相关
 export function getRequirements(projectId: number, params?: { version_id?: number }) {
-  return request.get(`/projects/${projectId}/requirements`, { params })
+  return request.post(`/projects/${projectId}/requirements/search`, params)
 }
 
 export function createRequirement(projectId: number, data: { title: string; content: string; version_id?: number }) {

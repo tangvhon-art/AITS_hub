@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
@@ -16,10 +16,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/requirements", tags=["需求管理"])
 
-@router.get("", response_model=List[RequirementResponse])
+@router.post("/search", response_model=List[RequirementResponse])
 def list_requirements(
     project_id: int,
-    version_id: Optional[int] = None,
+    version_id: Optional[int] = Body(None),
+    title: Optional[str] = Body(None),
+    source: Optional[str] = Body(None),
+    status: Optional[str] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -30,6 +33,12 @@ def list_requirements(
     )
     if version_id is not None:
         query = query.filter(TestRequirement.version_id == version_id)
+    if title:
+        query = query.filter(TestRequirement.title.ilike(f"%{title}%"))
+    if source:
+        query = query.filter(TestRequirement.source == source)
+    if status:
+        query = query.filter(TestRequirement.status == status)
     requirements = query.order_by(TestRequirement.created_at.desc()).all()
     return requirements
 

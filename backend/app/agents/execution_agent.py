@@ -158,7 +158,6 @@ class ExecutionAgent(BaseAgent):
             target_url: 起始 URL
             headless: 是否无头模式
         """
-        from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
         start_time = time.time()

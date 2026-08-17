@@ -12,12 +12,17 @@
       <!-- 左侧：环境列表 -->
       <a-col :span="8">
         <a-card title="环境列表" size="small">
-          <div v-if="environments.length === 0" class="empty">
+          <div class="env-filter-bar">
+            <a-input v-model:value="keyword" placeholder="搜索环境名称" allow-clear style="flex: 1" @pressEnter="handleSearch" />
+            <a-button type="primary" @click="handleSearch">查询</a-button>
+            <a-button @click="handleReset">重置</a-button>
+          </div>
+          <div v-if="filteredEnvironments.length === 0" class="empty">
             <a-empty description="暂无环境" />
           </div>
           <div v-else class="env-list">
             <div
-              v-for="env in environments"
+              v-for="env in filteredEnvironments"
               :key="env.id"
               class="env-item"
               :class="{ active: selectedEnvId === env.id }"
@@ -134,16 +139,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { environmentsApi } from '@/api/environments'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const environments = ref<any[]>([])
+const keyword = ref('')
+const appliedKeyword = ref('')
+const filteredEnvironments = computed(() => {
+  if (!appliedKeyword.value) return environments.value
+  const kw = appliedKeyword.value.toLowerCase()
+  return environments.value.filter(env =>
+    (env.name || '').toLowerCase().includes(kw) ||
+    (env.base_url || '').toLowerCase().includes(kw)
+  )
+})
 const selectedEnvId = ref<number | null>(null)
 const selectedEnv = ref<any>(null)
 const variables = ref<any[]>([])
@@ -248,7 +265,21 @@ const handleDeleteEnv = async () => {
   } catch {}
 }
 
+function handleSearch() {
+  appliedKeyword.value = keyword.value
+  syncToUrl({ keyword: keyword.value })
+}
+
+function handleReset() {
+  keyword.value = ''
+  appliedKeyword.value = ''
+  syncToUrl({ keyword: '' })
+}
+
 onMounted(() => {
+  const params = loadFromUrl({ keyword: '' })
+  keyword.value = params.keyword
+  appliedKeyword.value = params.keyword
   loadEnvironments()
 })
 </script>
@@ -262,6 +293,11 @@ onMounted(() => {
 }
 .page-header h2 {
   margin: 0;
+}
+.env-filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 .env-list {
   display: flex;

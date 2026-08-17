@@ -39,7 +39,7 @@ export interface PromptUpdate {
 
 export const promptsApi = {
   list: (category?: string) =>
-    request.get<Prompt[]>('/prompts', { params: category ? { category } : {} }),
+    request.post<Prompt[]>('/prompts/search', category ? { category } : {}),
 
   create: (data: PromptCreate) =>
     request.post<Prompt>('/prompts', data),

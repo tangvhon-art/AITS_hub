@@ -1,7 +1,7 @@
 """
 接口定义管理 API
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
@@ -17,14 +17,14 @@ from app.schemas.api_test import (
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-definitions", tags=["接口测试-接口定义"])
 
-@router.get("", response_model=PaginatedResponse)
+@router.post("/search", response_model=PaginatedResponse)
 def list_definitions(
     project_id: int,
-    module_id: Optional[int] = Query(None, description="目录ID筛选"),
-    keyword: Optional[str] = Query(None, description="关键词搜索"),
-    method: Optional[str] = Query(None, description="请求方法筛选"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    module_id: Optional[int] = Body(None),
+    keyword: Optional[str] = Body(None),
+    method: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

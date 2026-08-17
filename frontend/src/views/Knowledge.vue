@@ -30,7 +30,13 @@
       </a-col>
       <a-col :span="8">
         <a-card>
-          <a-input-search v-model:value="searchQuery" placeholder="检索知识库..." @search="handleSearch" enter-button />
+          <a-input-search v-model:value="searchQuery" placeholder="检索知识库..." @search="handleSearch" />
+          <div style="margin-top: 8px">
+            <a-space>
+              <a-button type="primary" @click="handleSearch">查询</a-button>
+              <a-button @click="handleReset">重置</a-button>
+            </a-space>
+          </div>
         </a-card>
       </a-col>
     </a-row>
@@ -110,6 +116,7 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { FileAddOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import {
@@ -118,6 +125,7 @@ import {
 } from '@/api/knowledge'
 
 const route = useRoute()
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = Number(route.params.id)
 
 const loading = ref(false)
@@ -207,6 +215,7 @@ async function handleUpload(file: File) {
 }
 
 async function handleSearch() {
+  syncToUrl({ q: searchQuery.value })
   if (!searchQuery.value.trim()) {
     searchResults.value = []
     return
@@ -217,6 +226,12 @@ async function handleSearch() {
   } catch (e: any) {
     message.error(e.response?.data?.detail || '检索失败')
   }
+}
+
+function handleReset() {
+  searchQuery.value = ''
+  searchResults.value = []
+  syncToUrl({ q: searchQuery.value })
 }
 
 function viewDoc(record: KnowledgeDoc) {
@@ -244,7 +259,12 @@ function statusText(s?: string) {
 }
 
 onMounted(() => {
-  if (projectId) loadDocs()
+  const params = loadFromUrl({ q: '' })
+  searchQuery.value = params.q
+  if (projectId) {
+    loadDocs()
+    if (searchQuery.value) handleSearch()
+  }
 })
 
 </script>

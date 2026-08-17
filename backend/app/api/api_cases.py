@@ -5,7 +5,7 @@
 import json
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, BackgroundTasks
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db, SessionLocal
@@ -34,15 +34,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-cases", tags=["接口测试-用例管理"])
 
-@router.get("", response_model=PaginatedResponse)
+@router.post("/search", response_model=PaginatedResponse)
 def list_cases(
     project_id: int,
-    module_id: Optional[int] = Query(None),
-    api_id: Optional[int] = Query(None),
-    keyword: Optional[str] = Query(None),
-    priority: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    module_id: Optional[int] = Body(None),
+    api_id: Optional[int] = Body(None),
+    keyword: Optional[str] = Body(None),
+    priority: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -649,39 +649,21 @@ def save_ai_generated_cases(
     generated_cases = task.output_result.get("cases", []) if task.output_result else []
     selected_indices = data.selected_indices or list(range(len(generated_cases)))
 
-    saved_count = 0
+    selected_cases = []
     for idx in selected_indices:
-        if idx < 0 or idx >= len(generated_cases):
-            continue
-        case_data = generated_cases[idx]
+        if 0 <= idx < len(generated_cases):
+            selected_cases.append(generated_cases[idx])
 
-        case = ApiTestCase(
-            project_id=project_id,
-            module_id=data.module_id,
-            api_id=task.input_params.get("api_id") if task.input_params else None,
-            name=case_data.get("name", "AI生成用例"),
-            description=case_data.get("description", ""),
-            priority=case_data.get("priority", "P2"),
-            method="GET",
-            path="",
-            created_by=current_user.id,
-        )
-        db.add(case)
-        db.flush()
-
-        # 创建断言
-        for a_idx, assertion_data in enumerate(case_data.get("assertions", [])):
-            assertion = ApiCaseAssertion(
-                case_id=case.id,
-                assert_type=assertion_data.get("assert_type", "status_code"),
-                assert_target=assertion_data.get("assert_target", ""),
-                operator=assertion_data.get("operator", "equals"),
-                expected_value=str(assertion_data.get("expected_value", "")),
-                sort_order=a_idx,
-                enabled=True,
-            )
-            db.add(assertion)
-        saved_count += 1
+    from app.services.ai_creation_service import AICreationService
+    created_cases = AICreationService.create_api_cases(
+        db,
+        project_id=project_id,
+        cases=selected_cases,
+        api_id=task.input_params.get("api_id") if task.input_params else None,
+        module_id=data.module_id,
+        created_by=current_user.id,
+    )
+    saved_count = len(created_cases)
 
     log_audit(
         db, action="create", resource_type="case",

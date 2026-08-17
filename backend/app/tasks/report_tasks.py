@@ -71,19 +71,27 @@ def generate_test_report_task(
             system_prompt=system_prompt,
         )
 
-        # 更新报告
-        report.content = result.get("content", "")
-        report.summary = result.get("summary", {})
-        report.total_cases = result.get("total_cases", 0)
-        report.passed_cases = result.get("passed_cases", 0)
-        report.failed_cases = result.get("failed_cases", 0)
-        report.pass_rate = result.get("pass_rate", 0.0)
-        report.total_defects = result.get("total_defects", 0)
-        report.open_defects = result.get("open_defects", 0)
-        report.total_runs = result.get("total_runs", 0)
-        report.avg_duration = result.get("avg_duration", 0.0)
-        report.status = "completed"
-        report.updated_at = china_now_naive()
+        from app.services.content_extractor import ContentExtractor
+        from app.services.ai_creation_service import AICreationService
+
+        # 提取报告内容并更新
+        report_content = ContentExtractor.extract_report(result["raw_content"])
+        AICreationService.update_report(
+            db,
+            report,
+            content=report_content,
+            summary=result.get("summary", {}),
+            stats={
+                "total_cases": result.get("total_cases", 0),
+                "passed_cases": result.get("passed_cases", 0),
+                "failed_cases": result.get("failed_cases", 0),
+                "pass_rate": result.get("pass_rate", 0.0),
+                "total_defects": result.get("total_defects", 0),
+                "open_defects": result.get("open_defects", 0),
+                "total_runs": result.get("total_runs", 0),
+                "avg_duration": result.get("avg_duration", 0.0),
+            },
+        )
 
         # 更新 Agent 任务
         if agent_task_id:

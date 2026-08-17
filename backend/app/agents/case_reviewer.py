@@ -6,7 +6,6 @@
 import json
 import logging
 from typing import List, Dict, Any, Optional
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.base_agent import BaseAgent
@@ -27,7 +26,7 @@ REVIEW_SYSTEM_PROMPT = """你是一位资深测试评审专家，拥有丰富的
 
 你必须且只能输出一个合法的 JSON 对象，包含以下结构：
 
-{{"score": 85, "passed": true, "summary": "整体评价（50字以内）", "issues": [{{"case_index": 0, "issue_type": "完整性/覆盖率/可执行性/规范性/冗余性", "severity": "high/medium/low", "description": "问题描述", "suggestion": "修改建议"}}], "overall_suggestions": ["整体改进建议1", "整体改进建议2"]}}
+{"score": 85, "passed": true, "summary": "整体评价（50字以内）", "issues": [{"case_index": 0, "issue_type": "完整性/覆盖率/可执行性/规范性/冗余性", "severity": "high/medium/low", "description": "问题描述", "suggestion": "修改建议"}], "overall_suggestions": ["整体改进建议1", "整体改进建议2"]}
 
 ### 绝对禁止
 1. 禁止使用 ```json ``` 等 Markdown 代码块包裹输出
@@ -108,16 +107,10 @@ class CaseReviewerAgent(BaseAgent):
             response = self._call_llm(messages)
             self._log_step("llm_call", {}, "success")
 
-            # 解析评审结果
-            review_result = self._parse_review(response.content)
-            self._log_step("review_complete", {"score": review_result.get("score")}, "success")
+            logger.info(f"用例评审完成，原始输出长度: {len(response.content)}")
 
             return {
-                "score": review_result.get("score", 0),
-                "passed": review_result.get("passed", False),
-                "summary": review_result.get("summary", ""),
-                "issues": review_result.get("issues", []),
-                "overall_suggestions": review_result.get("overall_suggestions", []),
+                "raw_content": response.content,
                 "token_usage": self.get_token_usage(),
                 "llm_config_id": self.llm_config_id,
             }
@@ -126,27 +119,8 @@ class CaseReviewerAgent(BaseAgent):
             logger.error(f"用例评审失败: {e}")
             self._log_step("review_error", {"error": str(e)}, "failed")
             return {
-                "score": 0,
-                "passed": False,
-                "summary": f"评审失败: {str(e)}",
-                "issues": [],
-                "overall_suggestions": [],
-                "error": str(e),
+                "raw_content": "",
                 "token_usage": self.get_token_usage(),
+                "llm_config_id": self.llm_config_id,
+                "error": str(e),
             }
-
-    def _parse_review(self, content: str) -> Dict[str, Any]:
-        """解析评审结果"""
-        from app.agents.utils import extract_json
-        parsed = extract_json(content)
-        if parsed:
-            return parsed
-
-        # 降级返回
-        return {
-            "score": 60,
-            "passed": False,
-            "summary": "无法解析评审结果，请人工检查",
-            "issues": [],
-            "overall_suggestions": ["建议人工评审"],
-        }

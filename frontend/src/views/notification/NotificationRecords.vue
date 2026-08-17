@@ -23,7 +23,6 @@
           placeholder="事件类型"
           style="width: 200px"
           allow-clear
-          @change="onFilterChange"
         >
           <a-select-option v-for="e in eventTypes" :key="e.code" :value="e.code">
             {{ e.name }}
@@ -34,13 +33,16 @@
           placeholder="发送状态"
           style="width: 140px"
           allow-clear
-          @change="onFilterChange"
         >
           <a-select-option value="pending">发送中</a-select-option>
           <a-select-option value="success">成功</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
         </a-select>
-        <a-range-picker v-model:value="dateRange" @change="onFilterChange" />
+        <a-range-picker v-model:value="dateRange" />
+        <a-space>
+          <a-button type="primary" @click="onFilterChange">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </a-space>
       </div>
 
       <a-table
@@ -138,6 +140,9 @@ import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import { notificationApi, type NotificationRecord, type EventTypeInfo } from '@/api/notifications'
+import { useUrlSearch } from '@/composables/useUrlSearch'
+
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const records = ref<NotificationRecord[]>([])
@@ -208,6 +213,15 @@ function formatJson(text?: string): string {
 }
 
 async function loadRecords() {
+  const syncParams: Record<string, any> = {
+    event: filterEvent.value,
+    status: filterStatus.value,
+  }
+  if (dateRange.value && dateRange.value.length === 2) {
+    syncParams.start_date = dateRange.value[0].format('YYYY-MM-DD')
+    syncParams.end_date = dateRange.value[1].format('YYYY-MM-DD')
+  }
+  syncToUrl(syncParams)
   loading.value = true
   try {
     const params: any = {
@@ -239,6 +253,14 @@ async function loadEvents() {
 }
 
 function onFilterChange() {
+  pagination.current = 1
+  loadRecords()
+}
+
+function handleReset() {
+  filterEvent.value = undefined
+  filterStatus.value = undefined
+  dateRange.value = undefined
   pagination.current = 1
   loadRecords()
 }
@@ -280,6 +302,12 @@ function toggleAutoRefresh(checked: boolean) {
 }
 
 onMounted(() => {
+  const params = loadFromUrl({ event: undefined, status: undefined, start_date: undefined, end_date: undefined })
+  filterEvent.value = params.event
+  filterStatus.value = params.status
+  if (params.start_date && params.end_date) {
+    dateRange.value = [dayjs(params.start_date), dayjs(params.end_date)]
+  }
   loadEvents()
   loadRecords()
 })

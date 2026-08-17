@@ -9,7 +9,7 @@
 import json
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_audit
@@ -89,11 +89,11 @@ def list_notification_events(
 
 # ==================== 通知渠道 ====================
 
-@router.get("/channels", response_model=List[NotificationChannelResponse])
+@router.post("/channels/search", response_model=List[NotificationChannelResponse])
 def list_channels(
-    keyword: Optional[str] = Query(None, description="按名称搜索"),
-    channel_type: Optional[str] = Query(None, description="按类型筛选"),
-    enabled: Optional[bool] = Query(None, description="按启用状态筛选"),
+    keyword: Optional[str] = Body(None),
+    channel_type: Optional[str] = Body(None),
+    enabled: Optional[bool] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -252,14 +252,14 @@ def test_channel(
 
 # ==================== 通知规则 ====================
 
-@router.get("/rules", response_model=PaginatedResponse)
+@router.post("/rules/search", response_model=PaginatedResponse)
 def list_rules(
-    event_code: Optional[str] = Query(None, description="按事件编码筛选"),
-    channel_id: Optional[int] = Query(None, description="按渠道筛选"),
-    enabled: Optional[bool] = Query(None, description="按启用状态筛选"),
-    keyword: Optional[str] = Query(None, description="按规则名称搜索"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    event_code: Optional[str] = Body(None),
+    channel_id: Optional[int] = Body(None),
+    enabled: Optional[bool] = Body(None),
+    keyword: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -410,16 +410,16 @@ def delete_rule(
 
 # ==================== 通知记录 ====================
 
-@router.get("/records", response_model=PaginatedResponse)
+@router.post("/records/search", response_model=PaginatedResponse)
 def list_records(
-    project_id: Optional[int] = Query(None, description="按来源项目筛选"),
-    event_code: Optional[str] = Query(None, description="按事件编码筛选"),
-    status_filter: Optional[str] = Query(None, alias="status", description="按发送状态筛选"),
-    channel_id: Optional[int] = Query(None, description="按渠道筛选"),
-    start_date: Optional[str] = Query(None, description="开始日期 YYYY-MM-DD"),
-    end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    project_id: Optional[int] = Body(None),
+    event_code: Optional[str] = Body(None),
+    status_filter: Optional[str] = Body(None, alias="status"),
+    channel_id: Optional[int] = Body(None),
+    start_date: Optional[str] = Body(None),
+    end_date: Optional[str] = Body(None),
+    page: int = Body(1),
+    page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

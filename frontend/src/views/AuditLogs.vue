@@ -7,7 +7,7 @@
     <a-card>
       <a-form layout="inline" style="margin-bottom: 16px">
         <a-form-item label="操作类型">
-          <a-select v-model:value="filterAction" allow-clear placeholder="全部" style="width: 150px" @change="loadLogs">
+          <a-select v-model:value="filterAction" allow-clear placeholder="全部" style="width: 150px">
             <a-select-option value="create">创建</a-select-option>
             <a-select-option value="update">更新</a-select-option>
             <a-select-option value="delete">删除</a-select-option>
@@ -21,7 +21,7 @@
           </a-select>
         </a-form-item>
         <a-form-item label="资源类型">
-          <a-select v-model:value="filterResourceType" allow-clear placeholder="全部" style="width: 150px" @change="loadLogs">
+          <a-select v-model:value="filterResourceType" allow-clear placeholder="全部" style="width: 150px">
             <a-select-option value="project">项目</a-select-option>
             <a-select-option value="requirement">需求</a-select-option>
             <a-select-option value="case">用例</a-select-option>
@@ -39,11 +39,17 @@
           </a-select>
         </a-form-item>
         <a-form-item label="状态">
-          <a-select v-model:value="filterStatus" allow-clear placeholder="全部" style="width: 120px" @change="loadLogs">
+          <a-select v-model:value="filterStatus" allow-clear placeholder="全部" style="width: 120px">
             <a-select-option value="success">成功</a-select-option>
             <a-select-option value="failed">失败</a-select-option>
             <a-select-option value="partial">部分成功</a-select-option>
           </a-select>
+        </a-form-item>
+        <a-form-item>
+          <a-space>
+            <a-button type="primary" @click="loadLogs">查询</a-button>
+            <a-button @click="handleReset">重置</a-button>
+          </a-space>
         </a-form-item>
       </a-form>
 
@@ -106,7 +112,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
+import { useUrlSearch } from '@/composables/useUrlSearch'
 import { getAuditLogs, type AuditLog } from '@/api/auditLogs'
+
+const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const logs = ref<AuditLog[]>([])
@@ -207,6 +216,7 @@ function showDetail(record: AuditLog) {
 }
 
 async function loadLogs() {
+  syncToUrl({ action: filterAction.value, resource_type: filterResourceType.value, status: filterStatus.value })
   loading.value = true
   try {
     const res = await getAuditLogs({
@@ -231,7 +241,18 @@ function handleTableChange(pag: any) {
   loadLogs()
 }
 
+function handleReset() {
+  filterAction.value = undefined
+  filterResourceType.value = undefined
+  filterStatus.value = undefined
+  loadLogs()
+}
+
 onMounted(() => {
+  const params = loadFromUrl({ action: undefined, resource_type: undefined, status: undefined })
+  filterAction.value = params.action
+  filterResourceType.value = params.resource_type
+  filterStatus.value = params.status
   loadLogs()
 })
 </script>
