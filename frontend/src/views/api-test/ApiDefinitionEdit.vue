@@ -314,8 +314,9 @@ const handleAiGenerateDoc = async () => {
         if (status.status === 'success') {
           clearInterval(poll)
           aiDocResult.value = status.documentation
+          form.value.description = status.documentation
           aiGenerating.value = false
-          message.success('文档生成成功')
+          message.success('文档已生成并写入接口描述')
         } else if (status.status === 'failed') {
           clearInterval(poll)
           aiGenerating.value = false
@@ -338,9 +339,7 @@ const handleApplyAiDoc = () => {
     message.warning('请先生成文档')
     return
   }
-  // 将生成的文档追加到接口描述中
-  const existingDesc = form.value.description ? form.value.description + '\n\n' : ''
-  form.value.description = existingDesc + '--- AI 生成文档 ---\n' + aiDocResult.value
+  form.value.description = aiDocResult.value
   message.success('已应用到接口描述')
   showAiDocModal.value = false
 }

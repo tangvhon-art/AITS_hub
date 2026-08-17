@@ -50,7 +50,10 @@
           <a-tag>{{ categoryText(record.category) }}</a-tag>
         </template>
         <template v-else-if="column.key === 'system_prompt'">
-          <a-tooltip :title="record.system_prompt">
+          <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '600px' }">
+            <template #title>
+              <div style="white-space: pre-wrap; max-height: 400px; overflow-y: auto">{{ record.system_prompt }}</div>
+            </template>
             <span class="prompt-preview">{{ record.system_prompt.slice(0, 80) }}{{ record.system_prompt.length > 80 ? '...' : '' }}</span>
           </a-tooltip>
         </template>

@@ -216,6 +216,16 @@
                 <template v-else-if="column.key === 'issue_type'">
                   <a-tag>{{ record.issue_type }}</a-tag>
                 </template>
+                <template v-else-if="column.key === 'description'">
+                  <a-tooltip :title="record.description" placement="topLeft">
+                    <span class="cell-ellipsis">{{ record.description }}</span>
+                  </a-tooltip>
+                </template>
+                <template v-else-if="column.key === 'suggestion'">
+                  <a-tooltip :title="record.suggestion" placement="topLeft">
+                    <span class="cell-ellipsis">{{ record.suggestion }}</span>
+                  </a-tooltip>
+                </template>
               </template>
             </a-table>
           </a-card>
@@ -243,7 +253,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
@@ -294,12 +304,12 @@ function formatDateTime(dt: string) {
 }
 
 function statusColor(status: string) {
-  const map: Record<string, string> = { success: 'success', failed: 'error', running: 'processing' }
+  const map: Record<string, string> = { success: 'success', failed: 'error', running: 'processing', pending: 'processing' }
   return map[status] || 'default'
 }
 
 function statusText(status: string) {
-  const map: Record<string, string> = { success: '已完成', failed: '失败', running: '评审中' }
+  const map: Record<string, string> = { success: '已完成', failed: '失败', running: '评审中', pending: '排队中' }
   return map[status] || status
 }
 
@@ -421,7 +431,7 @@ async function handleReview() {
 
   reviewing.value = true
   try {
-    const result = await reviewCases(projectId, {
+    await reviewCases(projectId, {
       cases: selectedCases.value.map(c => ({
         title: c.title,
         module: c.module,
@@ -434,13 +444,34 @@ async function handleReview() {
       llm_config_id: reviewForm.value.llm_config_id || undefined,
       prompt_id: reviewForm.value.prompt_id || undefined,
     })
-    message.success(`评审完成，评分：${result.result?.score ?? '-'}`)
+    message.success('评审任务已提交，正在异步处理中')
     handleCloseReviewModal()
     loadReviews()
+    startReviewPolling()
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '评审失败')
   } finally {
     reviewing.value = false
+  }
+}
+
+// 轮询评审状态，直到没有 running 的记录
+let reviewPollTimer: ReturnType<typeof setInterval> | null = null
+function startReviewPolling() {
+  stopReviewPolling()
+  reviewPollTimer = setInterval(async () => {
+    const hasRunning = reviews.value.some(r => r.status === 'pending' || r.status === 'running')
+    if (hasRunning) {
+      await loadReviews()
+    } else {
+      stopReviewPolling()
+    }
+  }, 3000)
+}
+function stopReviewPolling() {
+  if (reviewPollTimer) {
+    clearInterval(reviewPollTimer)
+    reviewPollTimer = null
   }
 }
 
@@ -478,6 +509,10 @@ onMounted(() => {
   promptsApi.list('case_review').then(data => { reviewPrompts.value = data }).catch(() => {})
   getLLMConfigs().then(data => { llmConfigs.value = data }).catch(() => {})
 })
+
+onUnmounted(() => {
+  stopReviewPolling()
+})
 </script>
 
 <style scoped>
@@ -507,4 +542,13 @@ onMounted(() => {
 }
 
 .review-detail { padding-bottom: 24px; }
+
+.cell-ellipsis {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
 </style>

@@ -10,14 +10,16 @@
 
     <a-card>
       <div style="margin-bottom: 12px">
-        <a-space>
+        <a-space wrap>
+          <a-input v-model:value="filterName" placeholder="版本名称" allow-clear style="width: 180px" />
           <a-select v-model:value="filterStatus" placeholder="状态筛选" allow-clear style="width: 140px">
             <a-select-option value="draft">草稿</a-select-option>
             <a-select-option value="active">进行中</a-select-option>
             <a-select-option value="released">已发布</a-select-option>
             <a-select-option value="archived">已归档</a-select-option>
           </a-select>
-          <a-button type="primary" @click="loadVersions">查询</a-button>
+          <a-range-picker v-model:value="filterDateRange" :placeholder="['开始日期', '结束日期']" />
+          <a-button type="primary" @click="handleSearch">查询</a-button>
           <a-button @click="handleReset">重置</a-button>
         </a-space>
       </div>
@@ -107,6 +109,7 @@ import { useCRUD } from '@/composables/useCRUD'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { formatDateTime, formatDate } from '@/utils/date'
+import dayjs from 'dayjs'
 import {
   getVersions, createVersion, updateVersion, deleteVersion,
   type ProjectVersion
@@ -117,18 +120,28 @@ const projectId = Number(route.params.id)
 const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const filterStatus = ref<string | undefined>(undefined)
+const filterName = ref<string | undefined>(undefined)
+const filterDateRange = ref<[dayjs.Dayjs, dayjs.Dayjs] | undefined>(undefined)
 
 // 使用 useList 封装分页列表逻辑
 const { loading, list, total, pagination, loadData: loadVersions, handleTableChange } = useList<ProjectVersion>(
   async (params) => {
-    syncToUrl({ status: filterStatus.value })
+    syncToUrl({ status: filterStatus.value, name: filterName.value })
     return getVersions(projectId, {
       status: filterStatus.value,
+      name: filterName.value || undefined,
+      start_date: filterDateRange.value?.[0]?.format('YYYY-MM-DD'),
+      end_date: filterDateRange.value?.[1]?.format('YYYY-MM-DD'),
       ...params,
     })
   },
   { immediate: false },
 )
+
+function handleSearch() {
+  pagination.current = 1
+  loadVersions()
+}
 
 const paginationConfig = computed(() => ({
   current: pagination.current,
@@ -160,6 +173,8 @@ function statusText(s?: string) {
 
 function handleReset() {
   filterStatus.value = undefined
+  filterName.value = undefined
+  filterDateRange.value = undefined
   pagination.current = 1
   loadVersions()
 }
@@ -198,8 +213,9 @@ const {
 
 onMounted(() => {
   if (projectId) {
-    const params = loadFromUrl({ status: undefined })
+    const params = loadFromUrl({ status: undefined, name: undefined })
     filterStatus.value = params.status
+    filterName.value = params.name
     loadVersions()
   }
 })

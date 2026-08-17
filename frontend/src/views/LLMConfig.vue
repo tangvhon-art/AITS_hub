@@ -17,6 +17,58 @@
       style="margin-bottom: 20px"
     />
 
+    <div class="filter-bar">
+      <a-space wrap>
+        <a-input
+          v-model:value="filters.name"
+          placeholder="配置名称"
+          allow-clear
+          style="width: 180px"
+          @press-enter="handleSearch"
+        />
+        <a-select
+          v-model:value="filters.provider"
+          placeholder="提供商"
+          allow-clear
+          style="width: 180px"
+          :options="providerOptions"
+        />
+        <a-input
+          v-model:value="filters.model_name"
+          placeholder="模型名称"
+          allow-clear
+          style="width: 160px"
+          @press-enter="handleSearch"
+        />
+        <a-select
+          v-model:value="filters.streaming"
+          placeholder="流式"
+          allow-clear
+          style="width: 100px"
+        >
+          <a-select-option :value="true">是</a-select-option>
+          <a-select-option :value="false">否</a-select-option>
+        </a-select>
+        <a-input-number
+          v-model:value="filters.priority"
+          placeholder="优先级"
+          :min="0"
+          style="width: 100px"
+        />
+        <a-select
+          v-model:value="filters.status"
+          placeholder="状态"
+          allow-clear
+          style="width: 100px"
+        >
+          <a-select-option value="active">启用</a-select-option>
+          <a-select-option value="inactive">停用</a-select-option>
+        </a-select>
+        <a-button type="primary" @click="handleSearch">查询</a-button>
+        <a-button @click="handleReset">重置</a-button>
+      </a-space>
+    </div>
+
     <a-spin :spinning="loading">
       <a-table
         :columns="columns"
@@ -162,12 +214,21 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
-import { getLLMConfigs, createLLMConfig, updateLLMConfig, deleteLLMConfig, testLLMConfig, setDefaultLLMConfig } from '@/api/llm'
+import { getLLMConfigs, createLLMConfig, updateLLMConfig, deleteLLMConfig, testLLMConfig, setDefaultLLMConfig, type LLMConfigQuery } from '@/api/llm'
 
 const loading = ref(false)
 const saving = ref(false)
 const configs = ref<any[]>([])
 const showCreateModal = ref(false)
+
+const filters = reactive<LLMConfigQuery>({
+  name: undefined,
+  provider: undefined,
+  model_name: undefined,
+  streaming: undefined,
+  priority: undefined,
+  status: undefined,
+})
 
 const pagination = reactive({
   current: 1,
@@ -263,11 +324,33 @@ function onProviderChange() {
 async function fetchConfigs() {
   loading.value = true
   try {
-    configs.value = await getLLMConfigs()
+    const params: LLMConfigQuery = {}
+    if (filters.name) params.name = filters.name
+    if (filters.provider) params.provider = filters.provider
+    if (filters.model_name) params.model_name = filters.model_name
+    if (filters.streaming !== undefined && filters.streaming !== null) params.streaming = filters.streaming
+    if (filters.priority !== undefined && filters.priority !== null) params.priority = filters.priority
+    if (filters.status) params.status = filters.status
+    configs.value = await getLLMConfigs(params)
     pagination.total = configs.value.length
+    pagination.current = 1
   } finally {
     loading.value = false
   }
+}
+
+function handleSearch() {
+  fetchConfigs()
+}
+
+function handleReset() {
+  filters.name = undefined
+  filters.provider = undefined
+  filters.model_name = undefined
+  filters.streaming = undefined
+  filters.priority = undefined
+  filters.status = undefined
+  fetchConfigs()
 }
 
 function editConfig(row: any) {
@@ -361,6 +444,9 @@ onMounted(fetchConfigs)
 </script>
 
 <style scoped>
+.filter-bar {
+  margin-bottom: 16px;
+}
 .response-box {
   background: #fafafa;
   border: 1px solid #f0f0f0;

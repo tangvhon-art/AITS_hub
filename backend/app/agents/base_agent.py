@@ -75,7 +75,6 @@ class BaseAgent(ABC):
                 usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
             )
 
-        self.llm_config_id = config_id
         return response
 
     def _init_routed_llm(

@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.database import get_db
 from app.core.deps import get_current_user
 from app.core.audit import log_audit
@@ -39,11 +39,30 @@ def _to_response(config: LLMConfig) -> dict:
 
 @router.get("", response_model=List[LLMConfigResponse])
 def list_llm_configs(
+    name: Optional[str] = Query(None, description="配置名称（模糊匹配）"),
+    provider: Optional[str] = Query(None, description="提供商"),
+    model_name: Optional[str] = Query(None, description="模型名称（模糊匹配）"),
+    streaming: Optional[bool] = Query(None, description="是否流式"),
+    priority: Optional[int] = Query(None, description="优先级"),
+    status: Optional[str] = Query(None, description="状态"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取模型配置列表"""
-    configs = db.query(LLMConfig).order_by(LLMConfig.priority.asc()).all()
+    """获取模型配置列表（支持筛选）"""
+    query = db.query(LLMConfig)
+    if name:
+        query = query.filter(LLMConfig.name.ilike(f"%{name}%"))
+    if provider:
+        query = query.filter(LLMConfig.provider == provider)
+    if model_name:
+        query = query.filter(LLMConfig.model_name.ilike(f"%{model_name}%"))
+    if streaming is not None:
+        query = query.filter(LLMConfig.streaming == streaming)
+    if priority is not None:
+        query = query.filter(LLMConfig.priority == priority)
+    if status:
+        query = query.filter(LLMConfig.status == status)
+    configs = query.order_by(LLMConfig.priority.asc()).all()
     return [_to_response(c) for c in configs]
 
 

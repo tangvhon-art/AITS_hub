@@ -94,6 +94,10 @@ def generate_api_doc_task(self, task_id: int):
 
         markdown_content, token_usage, used_config_id = result_container.get("result", ("", {}, None))
 
+        # 回写到接口描述字段
+        api_def.description = markdown_content
+        api_def.updated_at = china_now_naive()
+
         task.status = "success"
         task.output_result = {"documentation": markdown_content}
         task.token_usage = token_usage

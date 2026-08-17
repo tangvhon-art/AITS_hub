@@ -17,7 +17,6 @@ from app.models.user import User
 from app.models.agent_task import AgentTask
 from app.models.project import Project
 from app.agents.supervisor import SupervisorEngine
-from app.agents.case_reviewer import CaseReviewerAgent
 from app.agents.bdd_generator import BDDGeneratorAgent
 from app.schemas.agent_task import (
     AgentTaskResponse,
@@ -151,24 +150,20 @@ def review_cases(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """评审测试用例"""
+    """评审测试用例（异步）"""
     get_project(project_id, db, current_user)
-
-    # 获取自定义 Prompt
-    system_prompt = ""
-    if req.prompt_id:
-        from app.models.prompt import Prompt
-        prompt_obj = db.query(Prompt).filter(Prompt.id == req.prompt_id).first()
-        if prompt_obj:
-            system_prompt = prompt_obj.system_prompt or ""
-            logger.info(f"用例评审使用自定义 Prompt: {prompt_obj.name}")
 
     # 创建任务记录
     task = AgentTask(
         project_id=project_id,
         agent_type="case_reviewer",
-        status="running",
-        input_params={"case_count": len(req.cases), "requirement": req.requirement, "prompt_id": req.prompt_id},
+        status="pending",
+        input_params={
+            "cases": req.cases,
+            "case_count": len(req.cases),
+            "requirement": req.requirement,
+            "prompt_id": req.prompt_id,
+        },
         created_by=current_user.id,
         llm_config_id=req.llm_config_id,
     )
@@ -176,33 +171,20 @@ def review_cases(
     db.commit()
     db.refresh(task)
 
+    # 异步派发 Celery 任务
     try:
-        reviewer = CaseReviewerAgent(db, llm_config_id=req.llm_config_id, task_id=task.id, project_id=project_id)
-        agent_result = reviewer.review(req.cases, requirement=req.requirement, system_prompt=system_prompt)
+        from app.tasks.review_tasks import review_cases_task
+        review_cases_task.delay(task.id)
+    except Exception:
+        logger.warning("Celery 不可用，使用后台线程回退")
+        import threading
+        from app.tasks.review_tasks import review_cases_task
 
-        from app.services.content_extractor import ContentExtractor
-        extracted = ContentExtractor.extract_review(agent_result["raw_content"])
-        result = {
-            **extracted,
-            "token_usage": agent_result.get("token_usage", {}),
-            "llm_config_id": agent_result.get("llm_config_id"),
-        }
+        def _run():
+            review_cases_task(task.id)
+        threading.Thread(target=_run, daemon=True).start()
 
-        task.status = "success"
-        task.output_result = result
-        task.token_usage = result.get("token_usage", {})
-        task.llm_config_id = result.get("llm_config_id")
-        task.completed_at = china_now_naive()
-        db.commit()
-
-        return {"task_id": task.id, "result": result}
-
-    except Exception as e:
-        task.status = "failed"
-        task.error_message = str(e)
-        task.completed_at = china_now_naive()
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"评审失败: {str(e)}")
+    return {"task_id": task.id, "status": "pending", "message": "评审任务已提交"}
 
 
 @project_router.post("/case-reviews/search")

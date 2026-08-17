@@ -32,5 +32,5 @@ export function reviewCases(
   projectId: number,
   data: { cases: any[]; requirement: string; llm_config_id?: number; prompt_id?: number },
 ) {
-  return request.post<{ task_id: number; result: any }>(`/projects/${projectId}/cases/review`, data)
+  return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/cases/review`, data)
 }

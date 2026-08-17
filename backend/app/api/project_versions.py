@@ -26,6 +26,9 @@ router = APIRouter(prefix="/api/projects/{project_id}/versions", tags=["版本�
 def list_versions(
     project_id: int,
     status: Optional[str] = Body(None),
+    name: Optional[str] = Body(None),
+    start_date: Optional[str] = Body(None),
+    end_date: Optional[str] = Body(None),
     page: int = Body(1),
     page_size: int = Body(50),
     db: Session = Depends(get_db),
@@ -36,6 +39,20 @@ def list_versions(
     query = db.query(ProjectVersion).filter(ProjectVersion.project_id == project_id)
     if status:
         query = query.filter(ProjectVersion.status == status)
+    if name:
+        query = query.filter(ProjectVersion.name.ilike(f"%{name}%"))
+    if start_date:
+        try:
+            sd = datetime.fromisoformat(start_date)
+            query = query.filter(ProjectVersion.start_date >= sd)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            ed = datetime.fromisoformat(end_date)
+            query = query.filter(ProjectVersion.end_date <= ed)
+        except ValueError:
+            pass
     total = query.count()
     versions = query.order_by(ProjectVersion.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return VersionListResponse(

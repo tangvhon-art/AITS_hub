@@ -21,7 +21,7 @@ export interface VersionListResponse {
   items: ProjectVersion[]
 }
 
-export function getVersions(projectId: number, params?: { status?: string; page?: number; page_size?: number }) {
+export function getVersions(projectId: number, params?: { status?: string; name?: string; start_date?: string; end_date?: string; page?: number; page_size?: number }) {
   return request.post<VersionListResponse>(`/projects/${projectId}/versions/search`, params)
 }
 

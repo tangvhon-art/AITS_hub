@@ -1,6 +1,7 @@
+import json
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TestCaseStep(BaseModel):
@@ -17,6 +18,19 @@ class TestCaseBase(BaseModel):
     steps: Any = []  # List[TestCaseStep] 或 JSON 字符串
     expected_result: str = ""
     bdd_content: str = ""
+
+    @field_validator("steps", mode="before")
+    @classmethod
+    def parse_steps(cls, v):
+        """数据库中 steps 以 JSON 字符串存储，读取时反序列化为列表"""
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return v if isinstance(v, list) else []
 
 
 class TestCaseCreate(TestCaseBase):

@@ -2,9 +2,15 @@
 Celery 应用实例配置
 使用 Redis 作为 broker 和 result backend
 """
+import os
+import platform
+
+# macOS 下 fork + 线程/事件循环会导致 SIGABRT，禁用 fork 安全检查
+if platform.system() == "Darwin":
+    os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+
 from celery import Celery
 from app.config import settings
-import os
 
 # 获取项目根目录
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,6 +30,7 @@ celery_app = Celery(
         "app.tasks.requirement_tasks",
         "app.tasks.knowledge_tasks",
         "app.tasks.report_tasks",
+        "app.tasks.review_tasks",
     ],
 )
 
@@ -44,7 +51,8 @@ celery_app.conf.update(
     task_soft_time_limit=540,
     # 结果过期时间（1小时）
     result_expires=3600,
-    # 并发 worker 数
+    # macOS 下使用 solo 池避免 fork 导致的 SIGABRT
+    worker_pool="solo" if platform.system() == "Darwin" else "prefork",
     worker_concurrency=4,
     # 任务预取数
     worker_prefetch_multiplier=1,

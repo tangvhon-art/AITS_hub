@@ -51,9 +51,19 @@ export interface LLMConfigUpdate {
 /** BaseAPI 实例：全局模型配置资源 */
 export const llmConfigApi = new BaseAPI<LLMConfig, LLMConfigCreate, LLMConfigUpdate>('/llm-configs', { global: true })
 
-/** 获取模型配置列表（非分页，后端返回数组） */
-export function getLLMConfigs() {
-  return request.get<LLMConfig[]>('/llm-configs')
+/** 模型配置查询参数 */
+export interface LLMConfigQuery {
+  name?: string
+  provider?: string
+  model_name?: string
+  streaming?: boolean
+  priority?: number
+  status?: string
+}
+
+/** 获取模型配置列表（非分页，后端返回数组，支持筛选） */
+export function getLLMConfigs(params?: LLMConfigQuery) {
+  return request.get<LLMConfig[]>('/llm-configs', { params })
 }
 
 /** 创建模型配置 */
