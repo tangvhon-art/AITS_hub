@@ -183,14 +183,32 @@
           <a-switch v-model:checked="createForm.ai_generate" />
           <span style="margin-left: 8px; color: #666; font-size: 12px">开启后将根据描述自动生成Playwright脚本（异步）</span>
         </a-form-item>
-        <a-form-item :label="createForm.ai_generate ? '测试需求描述（必填）' : '描述'">
-          <a-textarea
-            v-model:value="createForm.description"
-            :rows="4"
-            :placeholder="createForm.ai_generate ? '请描述测试需求，例如：打开登录页，输入用户名admin，不输入密码，点击登录按钮，验证错误提示' : '请输入描述'"
-          />
-        </a-form-item>
-        <a-form-item label="目标URL">
+        <template v-if="createForm.ai_generate">
+          <a-form-item :label="createForm.ai_generate ? '测试需求描述（必填）' : '描述'">
+            <a-textarea
+              v-model:value="createForm.description"
+              :rows="4"
+              :placeholder="createForm.ai_generate ? '请描述测试需求，例如：打开登录页，输入用户名admin，不输入密码，点击登录按钮，验证错误提示' : '请输入描述'"
+            />
+          </a-form-item>
+          <a-form-item label="Prompt 模板">
+            <a-select
+              v-model:value="createForm.prompt_id"
+              placeholder="使用默认 Prompt"
+              allow-clear
+              :options="scriptPrompts.map(p => ({ label: p.name, value: p.id }))"
+            />
+          </a-form-item>
+          <a-form-item label="模型配置">
+            <a-select
+              v-model:value="createForm.llm_config_id"
+              placeholder="使用默认模型"
+              allow-clear
+              :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
+            />
+          </a-form-item>
+        </template>
+        <a-form-item v-if="!createForm.ai_generate" label="目标URL">
           <a-input v-model:value="createForm.target_url" placeholder="https://example.com" />
         </a-form-item>
       </a-form>
@@ -346,6 +364,8 @@ import {
   type AutomationScript, type ScriptSuiteInfo
 } from '@/api/automationScripts'
 import { getExecutionRun } from '@/api/execution'
+import { promptsApi, type Prompt } from '@/api/prompts'
+import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -364,7 +384,11 @@ const createForm = ref({
   description: '',
   target_url: '',
   ai_generate: false,
+  prompt_id: null as number | null,
+  llm_config_id: null as number | null,
 })
+const scriptPrompts = ref<Prompt[]>([])
+const llmConfigs = ref<any[]>([])
 
 const editing = ref(false)
 const editContent = ref('')
@@ -460,7 +484,7 @@ async function handleCreate() {
       message.success('创建成功')
     }
     showCreateModal.value = false
-    createForm.value = { name: '', description: '', target_url: '', ai_generate: false }
+    createForm.value = { name: '', description: '', target_url: '', ai_generate: false, prompt_id: null, llm_config_id: null }
     await loadScripts()
     selectScript(newScript)
     // AI生成模式下，3秒后自动刷新
@@ -732,6 +756,8 @@ function getStatusText(status?: string) {
 
 onMounted(() => {
   loadScripts()
+  promptsApi.list('script_generation').then(data => { scriptPrompts.value = data }).catch(() => {})
+  getLLMConfigs().then(data => { llmConfigs.value = data }).catch(() => {})
 })
 
 onUnmounted(() => {

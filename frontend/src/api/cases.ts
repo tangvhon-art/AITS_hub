@@ -36,7 +36,7 @@ export function deleteCase(projectId: number, caseId: number) {
   return request.delete(`/projects/${projectId}/cases/${caseId}`)
 }
 
-export function generateCases(projectId: number, data: { requirement_id?: number; content: string; count: number; llm_config_id?: number }) {
+export function generateCases(projectId: number, data: { requirement_id?: number; content: string; count: number; llm_config_id?: number; prompt_id?: number }) {
   return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/cases/generate`, data)
 }
 
@@ -69,4 +69,14 @@ export function uploadRequirement(projectId: number, file: File) {
 
 export function deleteRequirement(projectId: number, reqId: number) {
   return request.delete(`/projects/${projectId}/requirements/${reqId}`)
+}
+
+export function generateRequirement(projectId: number, data: { description: string; llm_config_id?: number; prompt_id?: number; version_id?: number }) {
+  return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/requirements/generate`, data)
+}
+
+export function generateRequirementStatus(projectId: number, taskId: number) {
+  return request.get<{ status: string; requirement_id: number | null; title: string; error: string }>(
+    `/projects/${projectId}/requirements/generate/${taskId}`,
+  )
 }

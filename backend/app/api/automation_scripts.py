@@ -120,6 +120,7 @@ def create_script(
                 "description": data.description,
                 "target_url": data.target_url,
                 "need_ai_name": need_ai_name,
+                "prompt_id": data.prompt_id,
             },
             llm_config_id=data.llm_config_id,
             created_by=current_user.id,
@@ -150,6 +151,7 @@ def create_script(
             llm_config_id=data.llm_config_id,
             need_ai_name=need_ai_name,
             agent_task_id=agent_task_id,
+            prompt_id=data.prompt_id,
         )
 
     return script
@@ -162,6 +164,7 @@ def _generate_script_background(
     llm_config_id: Optional[int] = None,
     need_ai_name: bool = False,
     agent_task_id: Optional[int] = None,
+    prompt_id: Optional[int] = None,
 ):
     """后台异步生成AI脚本"""
     import asyncio
@@ -198,6 +201,15 @@ def _generate_script_background(
             except Exception as e:
                 logger.warning(f"AI生成脚本名称失败，使用默认名称: script_id={script_id}, error={e}")
 
+        # 获取自定义 Prompt
+        system_prompt = ""
+        if prompt_id:
+            from app.models.prompt import Prompt
+            prompt_obj = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+            if prompt_obj:
+                system_prompt = prompt_obj.system_prompt or ""
+                logger.info(f"使用自定义 Prompt: {prompt_obj.name}")
+
         # 调用AI生成脚本内容
         generated_content = asyncio.run(
             ScriptGenerator.generate_with_ai(
@@ -206,6 +218,7 @@ def _generate_script_background(
                 script_name=final_name,
                 llm_config_id=llm_config_id,
                 db_session=db,
+                system_prompt=system_prompt,
             )
         )
 

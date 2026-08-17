@@ -15,7 +15,7 @@
         <a-select v-model:value="statusFilter" allow-clear placeholder="状态筛选" style="width: 150px" @change="loadData">
           <a-select-option value="draft">草稿</a-select-option>
           <a-select-option value="running">运行中</a-select-option>
-          <a-select-option value="completed">已完成</a-select-option>
+          <a-select-option value="completed">已执行</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
           <a-select-option value="stopped">已停止</a-select-option>
         </a-select>
@@ -45,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
@@ -60,6 +60,7 @@ const keyword = ref('')
 const statusFilter = ref<string | undefined>(undefined)
 const dataSource = ref<PerformanceTest[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const columns = [
   { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
@@ -72,7 +73,7 @@ const columns = [
 ]
 
 const statusColor = (s: string) => ({ draft: 'default', running: 'processing', completed: 'success', failed: 'error', stopped: 'warning' })[s] || 'default'
-const statusText = (s: string) => ({ draft: '草稿', running: '运行中', completed: '已完成', failed: '失败', stopped: '已停止' })[s] || s
+const statusText = (s: string) => ({ draft: '草稿', running: '运行中', completed: '已执行', failed: '失败', stopped: '已停止' })[s] || s
 const targetTypeText = (t: string) => ({ api_definition: '接口定义', api_case: '接口用例', api_scenario: '接口场景' })[t] || t
 
 async function loadData() {
@@ -86,8 +87,38 @@ async function loadData() {
     })
     dataSource.value = res.items
     pagination.value.total = res.total
+    startPollingIfNeeded()
   } catch { } finally {
     loading.value = false
+  }
+}
+
+function startPollingIfNeeded() {
+  stopPolling()
+  const hasRunning = dataSource.value.some(t => t.status === 'running')
+  if (hasRunning) {
+    pollTimer = setInterval(async () => {
+      try {
+        const res = await performanceTestsApi.list(projectId, {
+          page: pagination.value.current,
+          page_size: pagination.value.pageSize,
+          keyword: keyword.value || undefined,
+          status: statusFilter.value,
+        })
+        dataSource.value = res.items
+        pagination.value.total = res.total
+        if (!res.items.some((t: PerformanceTest) => t.status === 'running')) {
+          stopPolling()
+        }
+      } catch { }
+    }, 5000)
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
   }
 }
 
@@ -126,6 +157,7 @@ async function handleDelete(record: PerformanceTest) {
 }
 
 onMounted(() => loadData())
+onUnmounted(() => stopPolling())
 </script>
 
 <style scoped>

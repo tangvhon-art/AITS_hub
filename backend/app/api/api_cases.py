@@ -564,6 +564,7 @@ def ai_generate_cases(
             "case_count": data.case_count,
             "coverage_scenarios": data.coverage_scenarios,
             "assertion_depth": data.assertion_depth,
+            "prompt_id": data.prompt_id,
         },
         llm_config_id=data.llm_config_id,
         created_by=current_user.id,

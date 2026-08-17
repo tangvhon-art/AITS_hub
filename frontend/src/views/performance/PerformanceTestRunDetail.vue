@@ -18,7 +18,8 @@
     <a-row :gutter="16">
       <a-col :span="12">
         <a-card title="响应时间趋势">
-          <div ref="responseChartRef" class="chart-container"></div>
+          <div v-if="hasTrendData" ref="responseChartRef" class="chart-container"></div>
+          <a-empty v-else :description="trendEmptyText" class="chart-empty" />
         </a-card>
       </a-col>
       <a-col :span="12">
@@ -42,39 +43,101 @@
     </a-card>
 
     <a-card title="执行记录列表" style="margin-top: 16px">
-      <a-table :columns="runColumns" :data-source="runs" :loading="loading" :pagination="runPagination" row-key="id" size="small" @change="handleRunTableChange">
+      <a-table
+        :columns="runColumns"
+        :data-source="runs"
+        :loading="loading"
+        :pagination="runPagination"
+        row-key="id"
+        size="small"
+        :row-class-name="rowClassName"
+        @change="handleRunTableChange"
+      >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
           </template>
-          <template v-if="column.key === 'action'">
-            <a-button size="small" type="link" @click="viewRun(record)">详情</a-button>
+          <template v-else-if="column.key === 'action'">
+            <a-button size="small" type="link" :loading="runLoading && selectedRunId === record.id" @click="viewRun(record)">详情</a-button>
           </template>
         </template>
       </a-table>
     </a-card>
+
+    <!-- 执行记录详情抽屉 -->
+    <a-drawer
+      v-model:open="showDetailDrawer"
+      title="执行记录详情"
+      placement="right"
+      width="720"
+      @after-open="renderDetailChart"
+    >
+      <template v-if="detailRun.id">
+        <a-row :gutter="12" style="margin-bottom: 16px">
+          <a-col :span="8"><a-card size="small"><a-statistic title="总请求数" :value="detailRun.total_requests" /></a-card></a-col>
+          <a-col :span="8"><a-card size="small"><a-statistic title="失败数" :value="detailRun.total_failures || 0" :value-style="{ color: (detailRun.total_failures || 0) > 0 ? '#cf1322' : '#3f8600' }" /></a-card></a-col>
+          <a-col :span="8"><a-card size="small"><a-statistic title="失败率" :value="detailRun.failure_rate || 0" suffix="%" /></a-card></a-col>
+        </a-row>
+        <a-row :gutter="12" style="margin-bottom: 16px">
+          <a-col :span="8"><a-card size="small"><a-statistic title="RPS" :value="detailRun.requests_per_second || 0" :precision="1" /></a-card></a-col>
+          <a-col :span="8"><a-card size="small"><a-statistic title="平均响应" :value="detailRun.avg_response_time || 0" :precision="1" suffix="ms" /></a-card></a-col>
+          <a-col :span="8"><a-card size="small"><a-statistic title="P95响应" :value="detailRun.p95_response_time || 0" :precision="1" suffix="ms" :value-style="{ color: (detailRun.p95_response_time || 0) > 1000 ? '#cf1322' : '#3f8600' }" /></a-card></a-col>
+        </a-row>
+
+        <a-card title="响应时间趋势" size="small" style="margin-bottom: 16px">
+          <div v-if="hasDetailTrendData" ref="detailChartRef" class="chart-container"></div>
+          <a-empty v-else :description="detailTrendEmptyText" class="chart-empty" />
+        </a-card>
+
+        <a-card title="性能指标汇总" size="small" style="margin-bottom: 16px">
+          <a-descriptions :column="2" bordered size="small">
+            <a-descriptions-item label="状态"><a-tag :color="statusColor(detailRun.status)">{{ statusText(detailRun.status) }}</a-tag></a-descriptions-item>
+            <a-descriptions-item label="开始时间">{{ detailRun.started_at || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="结束时间">{{ detailRun.finished_at || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="最小响应">{{ detailRun.min_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
+            <a-descriptions-item label="最大响应">{{ detailRun.max_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
+            <a-descriptions-item label="P50响应">{{ detailRun.p50_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
+            <a-descriptions-item label="P95响应">{{ detailRun.p95_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
+            <a-descriptions-item label="P99响应">{{ detailRun.p99_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
+          </a-descriptions>
+        </a-card>
+
+        <a-card v-if="detailErrorData.length > 0" title="错误汇总" size="small">
+          <a-table :columns="errorColumns" :data-source="detailErrorData" :pagination="false" row-key="error" size="small" />
+        </a-card>
+      </template>
+      <a-empty v-else description="暂无数据" />
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import * as echarts from 'echarts'
 import { performanceTestsApi, type PerformanceTestRun } from '@/api/performanceTests'
 
 const route = useRoute()
-const router = useRouter()
 const projectId = Number(route.params.id)
 const testId = Number(route.params.testId)
 
 const loading = ref(false)
+const runLoading = ref(false)
 const run = ref<Partial<PerformanceTestRun>>({})
 const runs = ref<PerformanceTestRun[]>([])
+const selectedRunId = ref<number | null>(null)
 const runPagination = ref({ current: 1, pageSize: 10, total: 0 })
 const responseChartRef = ref<HTMLElement>()
 let chartInstance: echarts.ECharts | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const showDetailDrawer = ref(false)
+const detailRun = ref<Partial<PerformanceTestRun>>({})
+const detailErrorData = ref<any[]>([])
+const detailChartRef = ref<HTMLElement>()
+let detailChartInstance: echarts.ECharts | null = null
 
 const runColumns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -97,6 +160,23 @@ const errorData = ref<any[]>([])
 const statusColor = (s?: string) => ({ pending: 'default', running: 'processing', completed: 'success', failed: 'error', stopped: 'warning' })[s || ''] || 'default'
 const statusText = (s?: string) => ({ pending: '等待中', running: '运行中', completed: '已完成', failed: '失败', stopped: '已停止' })[s || ''] || s || '-'
 
+const hasTrendData = computed(() => Array.isArray(run.value.stats_history) && run.value.stats_history.length > 0)
+const trendEmptyText = computed(() => {
+  const s = run.value.status
+  if (s === 'pending' || s === 'running') return '测试运行中，趋势数据将在测试完成后显示'
+  return '暂无趋势数据'
+})
+const hasDetailTrendData = computed(() => Array.isArray(detailRun.value.stats_history) && detailRun.value.stats_history.length > 0)
+const detailTrendEmptyText = computed(() => {
+  const s = detailRun.value.status
+  if (s === 'pending' || s === 'running') return '测试运行中，趋势数据将在测试完成后显示'
+  return '暂无趋势数据'
+})
+
+function rowClassName(record: any) {
+  return record.id === selectedRunId.value ? 'selected-run-row' : ''
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -109,6 +189,7 @@ async function loadData() {
     ])
     if (runRes.items.length > 0) {
       run.value = runRes.items[0]
+      selectedRunId.value = runRes.items[0].id
       errorData.value = Object.entries(run.value.error_summary || {}).map(([error, count]) => ({ error, count }))
       await nextTick()
       renderChart()
@@ -130,6 +211,7 @@ function startPollingIfNeeded() {
         if (run.value.id) {
           const detail = await performanceTestsApi.getRun(run.value.id)
           run.value = detail
+          selectedRunId.value = detail.id
           errorData.value = Object.entries(detail.error_summary || {}).map(([error, count]) => ({ error, count }))
           await nextTick()
           renderChart()
@@ -151,13 +233,18 @@ function stopPolling() {
 }
 
 async function viewRun(record: PerformanceTestRun) {
+  runLoading.value = true
+  selectedRunId.value = record.id
   try {
     const detail = await performanceTestsApi.getRun(record.id)
-    run.value = detail
-    errorData.value = Object.entries(detail.error_summary || {}).map(([error, count]) => ({ error, count }))
-    await nextTick()
-    renderChart()
-  } catch { }
+    detailRun.value = detail
+    detailErrorData.value = Object.entries(detail.error_summary || {}).map(([error, count]) => ({ error, count }))
+    showDetailDrawer.value = true
+  } catch (e: any) {
+    message.error('加载详情失败: ' + (e.message || '未知错误'))
+  } finally {
+    runLoading.value = false
+  }
 }
 
 function handleRunTableChange(p: any) {
@@ -167,23 +254,53 @@ function handleRunTableChange(p: any) {
 }
 
 function renderChart() {
-  if (!responseChartRef.value) return
-  if (!chartInstance) {
-    chartInstance = echarts.init(responseChartRef.value)
-  }
+  if (!hasTrendData.value) return
+  nextTick(() => {
+    if (!responseChartRef.value) return
+    if (!chartInstance) {
+      chartInstance = echarts.init(responseChartRef.value)
+    }
+    doRenderChart(chartInstance, run.value)
+  })
+}
 
-  const history = run.value.stats_history || []
-  const categories = history.map((_, i) => `${i + 1}s`)
+function renderDetailChart() {
+  nextTick(() => {
+    if (!hasDetailTrendData.value) return
+    if (!detailChartRef.value) return
+    if (!detailChartInstance) {
+      detailChartInstance = echarts.init(detailChartRef.value)
+    }
+    doRenderChart(detailChartInstance, detailRun.value)
+  })
+}
+
+watch(hasTrendData, (val) => {
+  if (val) renderChart()
+})
+watch(hasDetailTrendData, (val) => {
+  if (val) renderDetailChart()
+})
+
+function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestRun>) {
+  const history = data.stats_history || []
+  const categories = history.map((h: any, i: number) => {
+    if (h.timestamp) {
+      const d = new Date(h.timestamp)
+      if (!isNaN(d.getTime())) return d.toLocaleTimeString('zh-CN', { hour12: false })
+    }
+    return `${i + 1}s`
+  })
   const p50Data = history.map((h: any) => h.p50 || 0)
   const p95Data = history.map((h: any) => h.p95 || 0)
   const p99Data = history.map((h: any) => h.p99 || 0)
   const rpsData = history.map((h: any) => h.rps || 0)
 
-  chartInstance.setOption({
+  instance.setOption({
     tooltip: { trigger: 'axis' },
     legend: { data: ['P50', 'P95', 'P99', 'RPS'] },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', data: categories },
+    xAxis: { type: 'category', data: categories, axisLabel: { rotate: categories.length > 15 ? 30 : 0 } },
     yAxis: [
       { type: 'value', name: 'ms', position: 'left' },
       { type: 'value', name: 'RPS', position: 'right' },
@@ -194,13 +311,23 @@ function renderChart() {
       { name: 'P99', type: 'line', data: p99Data, smooth: true },
       { name: 'RPS', type: 'line', data: rpsData, smooth: true, yAxisIndex: 1, lineStyle: { type: 'dashed' } },
     ],
-  })
+  }, true)
 }
 
-onMounted(() => loadData())
+function handleResize() {
+  chartInstance?.resize()
+  detailChartInstance?.resize()
+}
+
+onMounted(() => {
+  loadData()
+  window.addEventListener('resize', handleResize)
+})
 onUnmounted(() => {
   stopPolling()
+  window.removeEventListener('resize', handleResize)
   chartInstance?.dispose()
+  detailChartInstance?.dispose()
 })
 </script>
 
@@ -209,4 +336,14 @@ onUnmounted(() => {
 .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .page-header h2 { margin: 0; flex: 1; }
 .chart-container { height: 300px; }
+.chart-empty { height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+</style>
+
+<style>
+.selected-run-row {
+  background-color: #e6f4ff !important;
+}
+.selected-run-row:hover > td {
+  background-color: #bae0ff !important;
+}
 </style>

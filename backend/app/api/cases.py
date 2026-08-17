@@ -239,6 +239,7 @@ def generate_cases(
             "count": gen_request.count,
             "requirement_id": req_id,
             "requirement_title": req_title,
+            "prompt_id": gen_request.prompt_id,
         },
         llm_config_id=gen_request.llm_config_id,
         created_by=current_user.id,

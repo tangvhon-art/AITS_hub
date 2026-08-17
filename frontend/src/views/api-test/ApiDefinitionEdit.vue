@@ -166,6 +166,14 @@
             <a-select-option v-for="cfg in llmConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.name }}</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item label="Prompt 模板">
+          <a-select
+            v-model:value="aiDocConfig.prompt_id"
+            placeholder="使用默认 Prompt"
+            allow-clear
+            :options="apiDocPrompts.map(p => ({ label: p.name, value: p.id }))"
+          />
+        </a-form-item>
         <a-form-item label="接口描述（AI 生成）">
           <a-textarea
             v-model:value="aiDocResult"
@@ -196,6 +204,7 @@ import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiDefinitionsApi, apiModulesApi, type ApiDefinition, type ApiModule } from '@/api/apiTest'
 import { getLLMConfigs } from '@/api/llm'
+import { promptsApi, type Prompt } from '@/api/prompts'
 
 const route = useRoute()
 const router = useRouter()
@@ -210,8 +219,9 @@ const moduleTree = ref<any[]>([])
 const showAiDocModal = ref(false)
 const aiGenerating = ref(false)
 const llmConfigs = ref<any[]>([])
+const apiDocPrompts = ref<Prompt[]>([])
 const aiDocResult = ref('')
-const aiDocConfig = ref({ llm_config_id: null as number | null })
+const aiDocConfig = ref({ llm_config_id: null as number | null, prompt_id: null as number | null })
 
 const form = ref<any>({
   name: '',
@@ -293,6 +303,7 @@ const handleAiGenerateDoc = async () => {
       projectId,
       Number(apiId),
       aiDocConfig.value.llm_config_id || undefined,
+      aiDocConfig.value.prompt_id || undefined,
     )
     const taskId = res.task_id
     message.info('AI 文档生成中...')
@@ -360,6 +371,7 @@ onMounted(() => {
   loadModules()
   loadData()
   loadLlmConfigs()
+  promptsApi.list('api_test').then(data => { apiDocPrompts.value = data }).catch(() => {})
   // 新建时从 query 参数读取默认分组
   if (!isEdit.value && route.query.module_id) {
     form.value.module_id = Number(route.query.module_id)

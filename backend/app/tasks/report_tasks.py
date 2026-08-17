@@ -47,6 +47,19 @@ def generate_test_report_task(
 
         logger.info(f"开始生成测试报告: report_id={report_id}, title={title}")
 
+        # 获取自定义 Prompt
+        system_prompt = ""
+        if agent_task_id:
+            agent_task_record = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+            if agent_task_record:
+                prompt_id = (agent_task_record.input_params or {}).get("prompt_id")
+                if prompt_id:
+                    from app.models.prompt import Prompt
+                    prompt_obj = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+                    if prompt_obj:
+                        system_prompt = prompt_obj.system_prompt or ""
+                        logger.info(f"使用自定义 Prompt: {prompt_obj.name}")
+
         # 调用报告生成 Agent
         agent = ReportGeneratorAgent(db, llm_config_id=llm_config_id)
         result = agent.generate(
@@ -54,6 +67,7 @@ def generate_test_report_task(
             report_type=report_type,
             title=title,
             version_id=version_id,
+            system_prompt=system_prompt,
         )
 
         # 更新报告

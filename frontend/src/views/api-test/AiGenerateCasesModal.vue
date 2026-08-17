@@ -48,6 +48,14 @@
             <a-select-option v-for="cfg in llmConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.name }}</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item label="Prompt 模板">
+          <a-select
+            v-model:value="config.prompt_id"
+            placeholder="使用默认 Prompt"
+            allow-clear
+            :options="apiTestPrompts.map(p => ({ label: p.name, value: p.id }))"
+          />
+        </a-form-item>
       </a-form>
       <div class="modal-actions">
         <a-button @click="handleCancel">取消</a-button>
@@ -107,6 +115,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { apiCasesApi, apiDefinitionsApi } from '@/api/apiTest'
 import { getLLMConfigs } from '@/api/llm'
+import { promptsApi, type Prompt } from '@/api/prompts'
 
 const props = defineProps<{
   open: boolean
@@ -124,6 +133,7 @@ const progress = ref(0)
 const taskId = ref<number | null>(null)
 const apiList = ref<any[]>([])
 const llmConfigs = ref<any[]>([])
+const apiTestPrompts = ref<Prompt[]>([])
 const generatedCases = ref<any[]>([])
 let pollTimer: any = null
 
@@ -133,6 +143,7 @@ const config = ref({
   case_count: 5,
   assertion_depth: 'standard',
   llm_config_id: null as number | null,
+  prompt_id: null as number | null,
   coverage_scenarios: [] as string[],
 })
 
@@ -153,6 +164,12 @@ const loadApis = async () => {
 const loadLlmConfigs = async () => {
   try {
     llmConfigs.value = await getLLMConfigs()
+  } catch {}
+}
+
+const loadPrompts = async () => {
+  try {
+    apiTestPrompts.value = await promptsApi.list('api_test')
   } catch {}
 }
 
@@ -225,6 +242,7 @@ watch(() => props.open, (val) => {
   if (val) {
     loadApis()
     loadLlmConfigs()
+    loadPrompts()
   }
 })
 
@@ -232,6 +250,7 @@ onMounted(() => {
   if (props.open) {
     loadApis()
     loadLlmConfigs()
+    loadPrompts()
   }
 })
 </script>

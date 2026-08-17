@@ -108,15 +108,17 @@ class ApiDocGenerator:
         self.db = db_session
         self.llm_config_id = llm_config_id
 
-    async def generate(self, api_definition: Dict[str, Any]) -> Tuple[str, Dict[str, int], Optional[int]]:
+    async def generate(self, api_definition: Dict[str, Any], system_prompt: str = "") -> Tuple[str, Dict[str, int], Optional[int]]:
         """
         生成接口文档
         返回 (markdown_content, token_usage, used_config_id)
         """
         prompt = build_doc_prompt(api_definition)
 
+        effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else SYSTEM_PROMPT
+
         messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
+            SystemMessage(content=effective_system_prompt),
             HumanMessage(content=prompt),
         ]
 

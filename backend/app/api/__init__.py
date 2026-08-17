@@ -37,6 +37,7 @@ from app.api.coverage import router as coverage_router
 from app.api.data_pools import router as data_pools_router
 from app.api.env_variables import router as env_variables_router
 from app.api.env_variables import compare_router as env_compare_router
+from app.api.prompts import router as prompts_router
 
 __all__ = [
     "auth_router",
@@ -78,4 +79,5 @@ __all__ = [
     "data_pools_router",
     "env_variables_router",
     "env_compare_router",
+    "prompts_router",
 ]

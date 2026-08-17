@@ -90,12 +90,14 @@ class PerformanceTestUser(HttpUser):
         test_data: Optional[list] = None,
     ) -> dict:
         """启动 Locust 性能测试（通过子进程）"""
-        from app.models.performance_test import PerformanceTestRun
+        from app.models.performance_test import PerformanceTest, PerformanceTestRun
         from app.core.timezone import china_now_naive
 
         run = self.db.query(PerformanceTestRun).filter(PerformanceTestRun.id == run_id).first()
         if not run:
             return {"error": "执行记录不存在"}
+
+        test = self.db.query(PerformanceTest).filter(PerformanceTest.id == run.test_id).first()
 
         run.status = "running"
         run.started_at = china_now_naive()
@@ -152,6 +154,8 @@ class PerformanceTestUser(HttpUser):
             run.failure_rate = stats.get("failure_rate", 0.0)
             run.stats_history = stats.get("stats_history", [])
             run.error_summary = stats.get("error_summary", {})
+            if test:
+                test.status = "completed"
             self.db.commit()
 
             os.unlink(script_path)
@@ -163,6 +167,8 @@ class PerformanceTestUser(HttpUser):
             run.status = "failed"
             run.finished_at = china_now_naive()
             run.error_summary = {"error": "执行超时"}
+            if test:
+                test.status = "failed"
             self.db.commit()
             return {"status": "failed", "error": "执行超时"}
         except Exception as e:
@@ -170,6 +176,8 @@ class PerformanceTestUser(HttpUser):
             run.status = "failed"
             run.finished_at = china_now_naive()
             run.error_summary = {"error": str(e)}
+            if test:
+                test.status = "failed"
             self.db.commit()
             return {"status": "failed", "error": str(e)}
 
@@ -256,13 +264,16 @@ class PerformanceTestUser(HttpUser):
 
         history_path = f"/tmp/locust_result_{run_id}_stats_history.csv"
         if not os.path.exists(history_path):
+            logger.warning(f"stats_history CSV 文件不存在: {history_path}")
             return []
 
         history = []
+        total_rows = 0
         try:
             with open(history_path, "r") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
+                    total_rows += 1
                     if row.get("Name") != "Aggregated":
                         continue
                     history.append({
@@ -277,6 +288,11 @@ class PerformanceTestUser(HttpUser):
                     })
         except Exception as e:
             logger.warning(f"解析 stats_history CSV 失败: {e}")
+
+        if total_rows > 0 and len(history) == 0:
+            logger.warning(f"stats_history CSV 有 {total_rows} 行但无 Aggregated 行，可能 Locust 版本输出格式不同")
+        else:
+            logger.info(f"stats_history 解析完成: {len(history)} 条 Aggregated 记录 (共 {total_rows} 行)")
 
         return history
 

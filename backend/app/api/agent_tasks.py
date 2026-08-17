@@ -2,11 +2,14 @@
 Agent 任务监控 API + Supervisor 流水线 API
 """
 import json
+import logging
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.core.deps import get_current_user, get_project
@@ -151,21 +154,31 @@ def review_cases(
     """评审测试用例"""
     get_project(project_id, db, current_user)
 
+    # 获取自定义 Prompt
+    system_prompt = ""
+    if req.prompt_id:
+        from app.models.prompt import Prompt
+        prompt_obj = db.query(Prompt).filter(Prompt.id == req.prompt_id).first()
+        if prompt_obj:
+            system_prompt = prompt_obj.system_prompt or ""
+            logger.info(f"用例评审使用自定义 Prompt: {prompt_obj.name}")
+
     # 创建任务记录
     task = AgentTask(
         project_id=project_id,
         agent_type="case_reviewer",
         status="running",
-        input_params={"case_count": len(req.cases)},
+        input_params={"case_count": len(req.cases), "requirement": req.requirement, "prompt_id": req.prompt_id},
         created_by=current_user.id,
+        llm_config_id=req.llm_config_id,
     )
     db.add(task)
     db.commit()
     db.refresh(task)
 
     try:
-        reviewer = CaseReviewerAgent(db, llm_config_id=req.llm_config_id, task_id=task.id)
-        result = reviewer.review(req.cases, requirement=req.requirement)
+        reviewer = CaseReviewerAgent(db, llm_config_id=req.llm_config_id, task_id=task.id, project_id=project_id)
+        result = reviewer.review(req.cases, requirement=req.requirement, system_prompt=system_prompt)
 
         task.status = "success"
         task.output_result = result
@@ -182,6 +195,79 @@ def review_cases(
         task.completed_at = china_now_naive()
         db.commit()
         raise HTTPException(status_code=500, detail=f"评审失败: {str(e)}")
+
+
+@project_router.get("/case-reviews")
+def list_case_reviews(
+    project_id: int,
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取用例评审历史列表"""
+    get_project(project_id, db, current_user)
+
+    query = db.query(AgentTask).filter(
+        AgentTask.project_id == project_id,
+        AgentTask.agent_type == "case_reviewer",
+    ).order_by(AgentTask.created_at.desc())
+
+    total = query.count()
+    items = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "id": t.id,
+                "status": t.status,
+                "input_params": t.input_params or {},
+                "output_result": t.output_result or {},
+                "llm_config_id": t.llm_config_id,
+                "token_usage": t.token_usage or {},
+                "error_message": t.error_message,
+                "created_by": t.created_by,
+                "created_at": t.created_at,
+                "completed_at": t.completed_at,
+            }
+            for t in items
+        ],
+    }
+
+
+@project_router.get("/case-reviews/{task_id}")
+def get_case_review_detail(
+    project_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取用例评审详情"""
+    get_project(project_id, db, current_user)
+
+    task = db.query(AgentTask).filter(
+        AgentTask.id == task_id,
+        AgentTask.project_id == project_id,
+        AgentTask.agent_type == "case_reviewer",
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="评审记录不存在")
+
+    return {
+        "id": task.id,
+        "status": task.status,
+        "input_params": task.input_params or {},
+        "output_result": task.output_result or {},
+        "llm_config_id": task.llm_config_id,
+        "token_usage": task.token_usage or {},
+        "error_message": task.error_message,
+        "created_by": task.created_by,
+        "created_at": task.created_at,
+        "completed_at": task.completed_at,
+    }
 
 # ========== BDD 用例生成 ==========
 

@@ -46,6 +46,7 @@ class ReviewRequest(BaseModel):
     cases: List[Dict[str, Any]] = Field(..., description="待评审用例列表")
     requirement: str = Field(default="", description="原始需求")
     llm_config_id: Optional[int] = None
+    prompt_id: Optional[int] = Field(default=None, description="自定义 Prompt ID")
 
 
 class BDDGenerateRequest(BaseModel):

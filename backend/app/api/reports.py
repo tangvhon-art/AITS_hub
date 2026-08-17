@@ -113,6 +113,7 @@ def generate_report(
             "version_id": req.version_id,
             "version_name": version.name,
             "title": report_title,
+            "prompt_id": req.prompt_id,
         },
         llm_config_id=req.llm_config_id,
         created_by=current_user.id,

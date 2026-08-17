@@ -24,6 +24,7 @@ export interface AutomationScript {
   updated_at?: string
   ai_generate?: boolean
   llm_config_id?: number | null
+  prompt_id?: number | null
 }
 
 export interface ScriptRunResult {

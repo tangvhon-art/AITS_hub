@@ -18,6 +18,12 @@
           </template>
           上传文档
         </a-button>
+        <a-button @click="showAiGenerateModal = true" style="margin-right: 8px">
+          <template #icon>
+            <RobotOutlined />
+          </template>
+          AI生成需求
+        </a-button>
         <a-button type="primary" @click="showCreateModal = true">
           <template #icon>
             <PlusOutlined />
@@ -41,9 +47,7 @@
             <span v-else style="color: #999">-</span>
           </template>
           <template v-else-if="column.key === 'source'">
-            <a-tag :color="record.source === 'upload' ? 'green' : 'blue'">
-              {{ record.source === 'upload' ? '上传' : '手动' }}
-            </a-tag>
+            <a-tag :color="sourceColor(record.source)">{{ sourceLabel(record.source) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
@@ -128,9 +132,57 @@
         <a-form-item label="生成数量">
           <a-input-number v-model:value="generateCount" :min="1" :max="50" style="width: 100%" />
         </a-form-item>
+        <a-form-item label="Prompt 模板">
+          <a-select
+            v-model:value="selectedCasePrompt"
+            placeholder="使用默认 Prompt"
+            allow-clear
+            :options="casePrompts.map(p => ({ label: p.name, value: p.id }))"
+          />
+        </a-form-item>
         <a-form-item label="模型配置">
           <a-select
             v-model:value="selectedLLMConfig"
+            placeholder="使用默认模型"
+            allow-clear
+            :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- AI生成需求对话框 -->
+    <a-modal
+      v-model:open="showAiGenerateModal"
+      title="AI 生成需求文档"
+      @ok="doAiGenerate"
+      :confirm-loading="aiGenerating"
+      width="600px"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="需求描述" required>
+          <a-textarea
+            v-model:value="aiGenForm.description"
+            :rows="6"
+            placeholder="请输入需求的简要描述，AI 将自动生成结构化的需求文档..."
+          />
+        </a-form-item>
+        <a-form-item label="所属版本">
+          <a-select v-model:value="aiGenForm.version_id" placeholder="选择版本（可选）" allow-clear>
+            <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="Prompt 模板">
+          <a-select
+            v-model:value="aiGenForm.prompt_id"
+            placeholder="使用默认 Prompt"
+            allow-clear
+            :options="requirementPrompts.map(p => ({ label: p.name, value: p.id }))"
+          />
+        </a-form-item>
+        <a-form-item label="模型配置">
+          <a-select
+            v-model:value="aiGenForm.llm_config_id"
             placeholder="使用默认模型"
             allow-clear
             :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
@@ -146,10 +198,11 @@ import { formatDateTime } from '@/utils/date'
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons-vue'
-import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateCases as generateCasesApi } from '@/api/cases'
+import { PlusOutlined, UploadOutlined, InboxOutlined, RobotOutlined } from '@ant-design/icons-vue'
+import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateCases as generateCasesApi, generateRequirement as generateRequirementApi, generateRequirementStatus } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
+import { promptsApi, type Prompt } from '@/api/prompts'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -161,14 +214,26 @@ const requirements = ref<any[]>([])
 const showCreateModal = ref(false)
 const showUploadModal = ref(false)
 const showGenerateModal = ref(false)
+const showAiGenerateModal = ref(false)
+const aiGenerating = ref(false)
 const uploadFile = ref<File | null>(null)
 const generatingReq = ref<any>(null)
 const generateCount = ref(10)
 const selectedLLMConfig = ref<number | null>(null)
+const selectedCasePrompt = ref<number | null>(null)
 const llmConfigs = ref<any[]>([])
+const casePrompts = ref<Prompt[]>([])
+const requirementPrompts = ref<Prompt[]>([])
 const versions = ref<ProjectVersion[]>([])
 const filterVersionId = ref<number | undefined>(undefined)
 const editingId = ref<number | null>(null)
+
+const aiGenForm = reactive({
+  description: '',
+  version_id: undefined as number | undefined,
+  prompt_id: undefined as number | undefined,
+  llm_config_id: undefined as number | undefined
+})
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
@@ -208,6 +273,24 @@ function statusLabel(status: string) {
     reviewed: '已评审'
   }
   return map[status] || status
+}
+
+function sourceColor(source: string) {
+  const map: Record<string, string> = {
+    manual: 'blue',
+    upload: 'green',
+    ai: 'purple'
+  }
+  return map[source] || 'default'
+}
+
+function sourceLabel(source: string) {
+  const map: Record<string, string> = {
+    manual: '手动',
+    upload: '上传',
+    ai: 'AI生成'
+  }
+  return map[source] || source
 }
 
 async function fetchRequirements() {
@@ -311,14 +394,42 @@ async function doGenerate() {
       requirement_id: generatingReq.value.id,
       content: generatingReq.value.content,
       count: generateCount.value,
-      llm_config_id: selectedLLMConfig.value || undefined
+      llm_config_id: selectedLLMConfig.value || undefined,
+      prompt_id: selectedCasePrompt.value || undefined
     })
     message.success(`用例生成任务已提交（任务ID: ${result.task_id}），可在Agent任务中查看进度`)
     showGenerateModal.value = false
-    // 更新需求状态为已生成
+    selectedCasePrompt.value = null
     fetchRequirements()
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '提交失败，请重试')
+  }
+}
+
+async function doAiGenerate() {
+  if (!aiGenForm.description.trim()) {
+    message.warning('请输入需求描述')
+    return
+  }
+  aiGenerating.value = true
+  try {
+    const result: any = await generateRequirementApi(projectId, {
+      description: aiGenForm.description,
+      llm_config_id: aiGenForm.llm_config_id || undefined,
+      prompt_id: aiGenForm.prompt_id || undefined,
+      version_id: aiGenForm.version_id || undefined
+    })
+    message.success(`需求生成任务已提交（任务ID: ${result.task_id}），可在Agent任务中查看进度`)
+    showAiGenerateModal.value = false
+    aiGenForm.description = ''
+    aiGenForm.version_id = undefined
+    aiGenForm.prompt_id = undefined
+    aiGenForm.llm_config_id = undefined
+    setTimeout(() => fetchRequirements(), 3000)
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '提交失败，请重试')
+  } finally {
+    aiGenerating.value = false
   }
 }
 
@@ -326,6 +437,8 @@ onMounted(() => {
   fetchRequirements()
   getLLMConfigs().then(data => { llmConfigs.value = data })
   getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
+  promptsApi.list('case_generation').then(data => { casePrompts.value = data }).catch(() => {})
+  promptsApi.list('requirement_generation').then(data => { requirementPrompts.value = data }).catch(() => {})
 })
 </script>
 

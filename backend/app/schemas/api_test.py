@@ -513,6 +513,7 @@ class AiGenerateRequest(BaseModel):
     coverage_scenarios: Optional[List[str]] = ["normal", "missing_param", "invalid_param"]
     assertion_depth: str = "standard"
     llm_config_id: Optional[int] = None
+    prompt_id: Optional[int] = None
     language: str = "zh"
 
 

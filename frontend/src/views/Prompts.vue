@@ -1,0 +1,237 @@
+<template>
+  <div class="prompts-page">
+    <div class="page-header">
+      <h2>Prompt 管理</h2>
+      <div class="header-actions">
+        <a-button @click="handleSeedDefaults" :loading="seeding">初始化默认模板</a-button>
+        <a-button type="primary" @click="handleAdd">
+          <template #icon><PlusOutlined /></template>
+          新建 Prompt
+        </a-button>
+      </div>
+    </div>
+
+    <a-table
+      :columns="columns"
+      :data-source="dataSource"
+      :loading="loading"
+      row-key="id"
+      :pagination="{ pageSize: 20, showSizeChanger: true }"
+    >
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'name'">
+          <span>{{ record.name }}</span>
+          <a-tag v-if="record.is_default" color="blue" style="margin-left: 8px">默认</a-tag>
+        </template>
+        <template v-else-if="column.key === 'category'">
+          <a-tag>{{ categoryText(record.category) }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'system_prompt'">
+          <a-tooltip :title="record.system_prompt">
+            <span class="prompt-preview">{{ record.system_prompt.slice(0, 80) }}{{ record.system_prompt.length > 80 ? '...' : '' }}</span>
+          </a-tooltip>
+        </template>
+        <template v-else-if="column.key === 'status'">
+          <a-tag :color="record.status === 'active' ? 'green' : 'default'">
+            {{ record.status === 'active' ? '启用' : '停用' }}
+          </a-tag>
+        </template>
+        <template v-else-if="column.key === 'action'">
+          <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
+          <a-popconfirm title="确定删除此 Prompt？" @confirm="handleDelete(record)">
+            <a-button type="link" size="small" danger>删除</a-button>
+          </a-popconfirm>
+        </template>
+      </template>
+    </a-table>
+
+    <!-- 编辑/新建弹窗 -->
+    <a-modal
+      v-model:open="showModal"
+      :title="editingId ? '编辑 Prompt' : '新建 Prompt'"
+      width="700px"
+      @ok="handleSave"
+      :confirm-loading="saving"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="名称" required>
+          <a-input v-model:value="form.name" placeholder="Prompt 名称" />
+        </a-form-item>
+        <a-form-item label="分类">
+          <a-select v-model:value="form.category" style="width: 100%">
+            <a-select-option value="case_generation">用例生成</a-select-option>
+            <a-select-option value="case_review">用例评审</a-select-option>
+            <a-select-option value="api_test">API 测试</a-select-option>
+            <a-select-option value="requirement_generation">需求生成</a-select-option>
+            <a-select-option value="report_generation">报告生成</a-select-option>
+            <a-select-option value="script_generation">脚本生成</a-select-option>
+            <a-select-option value="other">其他</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="描述">
+          <a-input v-model:value="form.description" placeholder="Prompt 描述说明" />
+        </a-form-item>
+        <a-form-item label="System 提示词" required>
+          <a-textarea
+            v-model:value="form.system_prompt"
+            :rows="8"
+            placeholder="作为 system 角色的提示词，定义 AI 的行为和输出要求"
+          />
+        </a-form-item>
+        <a-form-item label="设为默认">
+          <a-switch v-model:checked="form.is_default" />
+          <span style="margin-left: 8px; color: #999">设为该分类下的默认 Prompt</span>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { message } from 'ant-design-vue'
+import { PlusOutlined } from '@ant-design/icons-vue'
+import { promptsApi, type Prompt, type PromptCreate } from '@/api/prompts'
+
+const loading = ref(false)
+const dataSource = ref<Prompt[]>([])
+const showModal = ref(false)
+const editingId = ref<number | null>(null)
+const saving = ref(false)
+const seeding = ref(false)
+
+const form = ref<PromptCreate>({
+  name: '',
+  description: '',
+  category: 'case_generation',
+  system_prompt: '',
+  is_default: false,
+  status: 'active',
+})
+
+const columns = [
+  { title: '名称', key: 'name', width: 200 },
+  { title: '分类', key: 'category', width: 120 },
+  { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+  { title: 'System 提示词', key: 'system_prompt', ellipsis: true },
+  { title: '状态', key: 'status', width: 80 },
+  { title: '操作', key: 'action', width: 120 },
+]
+
+const categoryText = (c: string) => ({
+  case_generation: '用例生成',
+  case_review: '用例评审',
+  api_test: 'API 测试',
+  requirement_generation: '需求生成',
+  report_generation: '报告生成',
+  script_generation: '脚本生成',
+  other: '其他',
+})[c] || c
+
+async function loadData() {
+  loading.value = true
+  try {
+    dataSource.value = await promptsApi.list()
+  } catch {
+    message.error('加载 Prompt 列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+function handleAdd() {
+  editingId.value = null
+  form.value = {
+    name: '',
+    description: '',
+    category: 'case_generation',
+    system_prompt: '',
+    is_default: false,
+    status: 'active',
+  }
+  showModal.value = true
+}
+
+function handleEdit(record: Prompt) {
+  editingId.value = record.id
+  form.value = {
+    name: record.name,
+    description: record.description,
+    category: record.category,
+    system_prompt: record.system_prompt,
+    user_prompt_template: record.user_prompt_template,
+    variables: record.variables,
+    is_default: record.is_default,
+    status: record.status,
+  }
+  showModal.value = true
+}
+
+async function handleSave() {
+  if (!form.value.name.trim()) {
+    message.warning('请输入名称')
+    return
+  }
+  if (!form.value.system_prompt.trim()) {
+    message.warning('请输入 System 提示词')
+    return
+  }
+  saving.value = true
+  try {
+    if (editingId.value) {
+      await promptsApi.update(editingId.value, form.value)
+      message.success('更新成功')
+    } else {
+      await promptsApi.create(form.value)
+      message.success('创建成功')
+    }
+    showModal.value = false
+    loadData()
+  } catch {
+    message.error('保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function handleDelete(record: Prompt) {
+  try {
+    await promptsApi.delete(record.id)
+    message.success('删除成功')
+    loadData()
+  } catch {
+    message.error('删除失败')
+  }
+}
+
+async function handleSeedDefaults() {
+  seeding.value = true
+  try {
+    const res = await promptsApi.seedDefaults()
+    message.success(res.detail)
+    loadData()
+  } catch {
+    message.error('初始化失败')
+  } finally {
+    seeding.value = false
+  }
+}
+
+onMounted(() => loadData())
+</script>
+
+<style scoped>
+.prompts-page { padding: 0; }
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.page-header h2 { margin: 0; }
+.header-actions { display: flex; gap: 8px; }
+.prompt-preview {
+  color: #666;
+  font-size: 13px;
+}
+</style>

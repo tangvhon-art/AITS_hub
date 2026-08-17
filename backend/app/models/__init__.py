@@ -34,6 +34,7 @@ from app.models.api_test import (
 from app.models.performance_test import PerformanceTest, PerformanceTestRun
 from app.models.test_coverage import CoverageConfig, CoverageSnapshot
 from app.models.test_data_pool import TestDataPool, EnvironmentVariableOverride
+from app.models.prompt import Prompt
 
 __all__ = [
     "User",
@@ -76,4 +77,5 @@ __all__ = [
     "CoverageSnapshot",
     "TestDataPool",
     "EnvironmentVariableOverride",
+    "Prompt",
 ]

@@ -53,6 +53,7 @@ def generate_api_cases_task(self, task_id: int):
         case_count = input_params.get("case_count", 5)
         coverage_scenarios = input_params.get("coverage_scenarios", [])
         assertion_depth = input_params.get("assertion_depth", "standard")
+        prompt_id = input_params.get("prompt_id")
 
         api_def = db.query(ApiDefinition).filter(ApiDefinition.id == api_id).first() if api_id else None
         if not api_def:
@@ -61,6 +62,15 @@ def generate_api_cases_task(self, task_id: int):
             task.completed_at = china_now_naive()
             db.commit()
             return
+
+        # 获取自定义 Prompt
+        system_prompt = ""
+        if prompt_id:
+            from app.models.prompt import Prompt
+            prompt_obj = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+            if prompt_obj:
+                system_prompt = prompt_obj.system_prompt or ""
+                logger.info(f"使用自定义 Prompt: {prompt_obj.name}")
 
         api_dict = _api_definition_to_dict(api_def)
         generator = ApiCaseGenerator(db, llm_config_id=task.llm_config_id)
@@ -78,6 +88,7 @@ def generate_api_cases_task(self, task_id: int):
                         case_count=case_count,
                         coverage_scenarios=coverage_scenarios,
                         assertion_depth=assertion_depth,
+                        system_prompt=system_prompt,
                     )
                 )
             except Exception as e:

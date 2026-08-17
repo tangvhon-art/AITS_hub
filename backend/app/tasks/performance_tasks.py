@@ -35,13 +35,16 @@ def run_performance_test_task(
     except Exception as e:
         logger.error(f"性能测试执行失败: run_id={run_id}, error={e}", exc_info=True)
         try:
-            from app.models.performance_test import PerformanceTestRun
+            from app.models.performance_test import PerformanceTest, PerformanceTestRun
             from app.core.timezone import china_now_naive
             run = db.query(PerformanceTestRun).filter(PerformanceTestRun.id == run_id).first()
             if run:
                 run.status = "failed"
                 run.finished_at = china_now_naive()
                 run.error_summary = {"error": str(e)[:500]}
+                test = db.query(PerformanceTest).filter(PerformanceTest.id == run.test_id).first()
+                if test:
+                    test.status = "failed"
                 db.commit()
         except Exception:
             pass

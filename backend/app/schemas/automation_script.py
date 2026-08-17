@@ -18,6 +18,7 @@ class AutomationScriptBase(BaseModel):
 class AutomationScriptCreate(AutomationScriptBase):
     ai_generate: bool = False
     llm_config_id: Optional[int] = None
+    prompt_id: Optional[int] = None
 
 
 class AutomationScriptUpdate(BaseModel):

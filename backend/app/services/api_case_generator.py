@@ -172,7 +172,8 @@ class ApiCaseGenerator:
 
     async def generate(self, api_definition: Dict[str, Any], strategy: str = "comprehensive",
                        case_count: int = 5, coverage_scenarios: Optional[List[str]] = None,
-                       assertion_depth: str = "standard", language: str = "zh"
+                       assertion_depth: str = "standard", language: str = "zh",
+                       system_prompt: str = "",
                        ) -> tuple[List[Dict[str, Any]], Dict[str, int], Optional[int]]:
         """
         生成接口测试用例
@@ -182,8 +183,10 @@ class ApiCaseGenerator:
             api_definition, strategy, case_count, coverage_scenarios, assertion_depth, language
         )
 
+        effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else SYSTEM_PROMPT
+
         messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
+            SystemMessage(content=effective_system_prompt),
             HumanMessage(content=prompt),
         ]
 

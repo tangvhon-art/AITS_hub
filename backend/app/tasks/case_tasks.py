@@ -34,6 +34,7 @@ def generate_cases_task(self, task_id: int):
         req_id = input_params.get("requirement_id")
         count = input_params.get("count", 10)
         content = input_params.get("content", "")
+        prompt_id = input_params.get("prompt_id")
 
         # 获取需求信息
         requirement_content = content
@@ -57,18 +58,31 @@ def generate_cases_task(self, task_id: int):
             TestCase.is_deleted == False,
         ).count()
 
+        # 获取自定义 Prompt
+        system_prompt = ""
+        if prompt_id:
+            from app.models.prompt import Prompt
+            prompt_obj = db.query(Prompt).filter(
+                Prompt.id == prompt_id,
+            ).first()
+            if prompt_obj:
+                system_prompt = prompt_obj.system_prompt or ""
+                logger.info(f"使用自定义 Prompt: {prompt_obj.name}")
+
         # 执行生成
-        agent = CaseGeneratorAgent(db_session=db, llm_config_id=task.llm_config_id)
+        agent = CaseGeneratorAgent(db_session=db, llm_config_id=task.llm_config_id, project_id=project_id)
         result = agent.generate(
             requirement_content=requirement_content,
             count=count,
             requirement_title=requirement_title,
             project_name=project_name,
             existing_count=existing_count,
+            system_prompt=system_prompt,
         )
 
         # 保存用例
         cases_saved = 0
+        save_errors = []
         for case_data in result.get("cases", []):
             try:
                 case = TestCase(
@@ -76,17 +90,19 @@ def generate_cases_task(self, task_id: int):
                     req_id=req_id,
                     title=case_data.get("title", ""),
                     module=case_data.get("module", "默认模块"),
-                    priority=case_data.get("priority", "P2"),
+                    priority=case_data.get("priority", "P1"),
                     case_type=case_data.get("case_type", "functional"),
                     preconditions=case_data.get("preconditions", ""),
                     steps=json.dumps(case_data.get("steps", []), ensure_ascii=False) if isinstance(case_data.get("steps"), list) else case_data.get("steps", "[]"),
                     expected_result=case_data.get("expected_result", ""),
-                    bdd_content=case_data.get("bdd_content"),
+                    bdd_content=case_data.get("bdd_content", ""),
                     created_by=task.created_by,
                 )
                 db.add(case)
                 cases_saved += 1
-            except Exception:
+            except Exception as e:
+                logger.warning(f"保存用例失败: {e}, case_data: {case_data.get('title', '未知')}")
+                save_errors.append({"title": case_data.get("title", ""), "error": str(e)})
                 continue
 
         db.commit()
@@ -95,6 +111,7 @@ def generate_cases_task(self, task_id: int):
         task.output_result = {
             "case_count": len(result.get("cases", [])),
             "cases_saved": cases_saved,
+            "save_errors": save_errors,
         }
         task.llm_config_id = result.get("llm_config_id")
         task.token_usage = result.get("token_usage", {})

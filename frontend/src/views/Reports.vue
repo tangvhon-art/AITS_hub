@@ -68,6 +68,22 @@
             <a-select-option value="full">完整报告</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item label="Prompt 模板">
+          <a-select
+            v-model:value="generateForm.prompt_id"
+            placeholder="使用默认 Prompt"
+            allow-clear
+            :options="reportPrompts.map(p => ({ label: p.name, value: p.id }))"
+          />
+        </a-form-item>
+        <a-form-item label="模型配置">
+          <a-select
+            v-model:value="generateForm.llm_config_id"
+            placeholder="使用默认模型"
+            allow-clear
+            :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
+          />
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -103,6 +119,8 @@ import { message } from 'ant-design-vue'
 import { FileTextOutlined } from '@ant-design/icons-vue'
 import { getReports, generateReport, deleteReport as deleteReportApi, type TestReport } from '@/api/reports'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
+import { promptsApi, type Prompt } from '@/api/prompts'
+import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -113,12 +131,14 @@ const reports = ref<TestReport[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 const versions = ref<ProjectVersion[]>([])
 const filterVersionId = ref<number | undefined>(undefined)
+const reportPrompts = ref<Prompt[]>([])
+const llmConfigs = ref<any[]>([])
 
 const generateVisible = ref(false)
 const detailVisible = ref(false)
 const currentReport = ref<TestReport | null>(null)
 
-const generateForm = ref({ title: '', report_type: 'full', version_id: undefined as number | undefined })
+const generateForm = ref({ title: '', report_type: 'full', version_id: undefined as number | undefined, prompt_id: undefined as number | undefined, llm_config_id: undefined as number | undefined })
 
 const renderedContent = computed(() => {
   if (!currentReport.value?.content) return ''
@@ -175,7 +195,7 @@ function handleTableChange(pag: any) {
 }
 
 function showGenerateModal() {
-  generateForm.value = { title: '', report_type: 'full', version_id: undefined }
+  generateForm.value = { title: '', report_type: 'full', version_id: undefined, prompt_id: undefined, llm_config_id: undefined }
   generateVisible.value = true
 }
 
@@ -229,6 +249,8 @@ onMounted(() => {
   if (projectId) {
     loadReports()
     getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
+    promptsApi.list('report_generation').then(data => { reportPrompts.value = data }).catch(() => {})
+    getLLMConfigs().then(data => { llmConfigs.value = data })
   }
 })
 </script>

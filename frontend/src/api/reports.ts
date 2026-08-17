@@ -38,7 +38,7 @@ export function getReport(projectId: number, reportId: number) {
   return request.get<TestReport>(`/projects/${projectId}/reports/${reportId}`)
 }
 
-export function generateReport(projectId: number, data: { title?: string; report_type?: string; version_id: number; llm_config_id?: number }) {
+export function generateReport(projectId: number, data: { title?: string; report_type?: string; version_id: number; llm_config_id?: number; prompt_id?: number }) {
   return request.post<TestReport>(`/projects/${projectId}/reports/generate`, data)
 }
 

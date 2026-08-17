@@ -19,6 +19,7 @@ class ReportGenerateRequest(BaseModel):
     title: Optional[str] = None
     report_type: str = Field(default="full", description="报告类型：summary/execution/defect/full")
     llm_config_id: Optional[int] = None
+    prompt_id: Optional[int] = None
     version_id: int = Field(..., description="所属版本ID（必填）")
 
 

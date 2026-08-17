@@ -1,15 +1,18 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 from app.database import get_db
 from app.core.deps import get_current_user, get_project
-from app.core.audit import audit
+from app.core.audit import audit, log_audit
 from app.models.user import User
 from app.models.project import Project
 from app.models.requirement import TestRequirement
 from app.models.test_case import TestCase
-from app.schemas.requirement import RequirementCreate, RequirementUpdate, RequirementResponse
+from app.schemas.requirement import RequirementCreate, RequirementUpdate, RequirementResponse, RequirementGenerateRequest
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/requirements", tags=["需求管理"])
 
@@ -293,3 +296,99 @@ async def upload_requirement(
     db.commit()
     db.refresh(requirement)
     return requirement
+
+
+@router.post("/generate")
+def generate_requirement(
+    project_id: int,
+    gen_request: RequirementGenerateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    AI 生成需求文档（异步执行）
+    提交后立即返回任务ID，生成结果可在Agent任务中查看
+    """
+    from app.core.rate_limiter import rate_limit
+    rate_limit(request, key_prefix="ai_requirement", limit=20, window=60)
+
+    get_project(project_id, db, current_user)
+
+    if not gen_request.description or not gen_request.description.strip():
+        raise HTTPException(status_code=400, detail="需求描述不能为空")
+
+    from app.models.agent_task import AgentTask
+    task = AgentTask(
+        project_id=project_id,
+        agent_type="requirement_generator",
+        status="pending",
+        input_params={
+            "description": gen_request.description,
+            "prompt_id": gen_request.prompt_id,
+            "version_id": gen_request.version_id,
+        },
+        llm_config_id=gen_request.llm_config_id,
+        created_by=current_user.id,
+    )
+    db.add(task)
+    db.flush()
+    log_audit(
+        db, action="generate", resource_type="requirement",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "task_id": task.id},
+    )
+    db.commit()
+    db.refresh(task)
+
+    try:
+        from app.tasks.requirement_tasks import generate_requirement_task
+        generate_requirement_task.delay(task.id)
+    except Exception:
+        logger.warning("Celery 不可用，使用后台线程回退")
+        import threading
+        from app.tasks.requirement_tasks import generate_requirement_task
+
+        def _run():
+            generate_requirement_task(task.id)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    return {
+        "task_id": task.id,
+        "status": "pending",
+        "message": "需求生成任务已提交，可在Agent任务中查看进度",
+    }
+
+
+@router.get("/generate/{task_id}")
+def generate_requirement_status(
+    project_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """查询需求生成任务状态"""
+    get_project(project_id, db, current_user)
+
+    from app.models.agent_task import AgentTask
+    task = db.query(AgentTask).filter(
+        AgentTask.id == task_id,
+        AgentTask.project_id == project_id,
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    result = {
+        "status": task.status,
+        "requirement_id": None,
+        "title": "",
+        "error": task.error_message or "",
+    }
+    if task.status == "success" and task.output_result:
+        result["requirement_id"] = task.output_result.get("requirement_id")
+        result["title"] = task.output_result.get("title", "")
+
+    return result

@@ -40,3 +40,11 @@ class CaseGenerateRequest(BaseModel):
     content: str = ""
     count: int = 10
     llm_config_id: Optional[int] = None
+    prompt_id: Optional[int] = None
+
+
+class RequirementGenerateRequest(BaseModel):
+    description: str = Field(..., description="用户输入的需求简要描述")
+    llm_config_id: Optional[int] = None
+    prompt_id: Optional[int] = None
+    version_id: Optional[int] = None

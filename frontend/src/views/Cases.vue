@@ -176,6 +176,14 @@
             </a-form-item>
           </a-col>
         </a-row>
+        <a-form-item label="Prompt 模板">
+          <a-select
+            v-model:value="selectedPromptId"
+            placeholder="使用默认 Prompt"
+            allow-clear
+            :options="prompts.map(p => ({ label: p.name + (p.is_default ? '（默认）' : ''), value: p.id }))"
+          />
+        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -189,6 +197,7 @@ import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
+import { promptsApi, type Prompt } from '@/api/prompts'
 
 const route = useRoute()
 const router = useRouter()
@@ -222,6 +231,8 @@ const selectedReqId = ref<number | null>(null)
 const generateContent = ref('')
 const generateCount = ref(10)
 const selectedLLMConfig = ref<number | null>(null)
+const prompts = ref<Prompt[]>([])
+const selectedPromptId = ref<number | null>(null)
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
@@ -392,7 +403,8 @@ async function doGenerate() {
       requirement_id: selectedReqId.value || undefined,
       content: generateContent.value,
       count: generateCount.value,
-      llm_config_id: selectedLLMConfig.value || undefined
+      llm_config_id: selectedLLMConfig.value || undefined,
+      prompt_id: selectedPromptId.value || undefined
     })
     message.info(result.message)
 
@@ -407,6 +419,7 @@ async function doGenerate() {
           showGenerateModal.value = false
           generateContent.value = ''
           selectedReqId.value = null
+          selectedPromptId.value = null
           fetchCases()
         } else if (status.status === 'failed') {
           clearInterval(poll)
@@ -429,6 +442,7 @@ onMounted(() => {
   fetchCases()
   getRequirements(projectId).then(data => { requirements.value = data })
   getLLMConfigs().then(data => { llmConfigs.value = data })
+  promptsApi.list('case_generation').then(data => { prompts.value = data }).catch(() => {})
 })
 </script>
 

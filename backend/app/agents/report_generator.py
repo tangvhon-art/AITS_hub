@@ -55,6 +55,7 @@ class ReportGeneratorAgent(BaseAgent):
             report_type=kwargs.get("report_type", "summary"),
             title=kwargs.get("title", ""),
             version_id=kwargs.get("version_id"),
+            system_prompt=kwargs.get("system_prompt", ""),
         )
 
     def generate(
@@ -63,6 +64,7 @@ class ReportGeneratorAgent(BaseAgent):
         report_type: str = "summary",
         title: str = "",
         version_id: Optional[int] = None,
+        system_prompt: str = "",
     ) -> Dict[str, Any]:
         """
         生成测试报告
@@ -72,6 +74,7 @@ class ReportGeneratorAgent(BaseAgent):
             report_type: 报告类型
             title: 报告标题
             version_id: 版本ID（按版本过滤数据）
+            system_prompt: 自定义 system 提示词（来自 Prompt 管理）
 
         Returns:
             报告内容
@@ -97,7 +100,7 @@ class ReportGeneratorAgent(BaseAgent):
             top_k=3,
         )
 
-        system_content = REPORT_PROMPT
+        system_content = system_prompt.strip() if system_prompt and system_prompt.strip() else REPORT_PROMPT
         if rag_context:
             system_content += f"\n\n{rag_context}"
 

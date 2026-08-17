@@ -48,6 +48,7 @@ def generate_api_doc_task(self, task_id: int):
 
         input_params = task.input_params or {}
         api_id = input_params.get("api_id")
+        prompt_id = input_params.get("prompt_id")
 
         api_def = db.query(ApiDefinition).filter(ApiDefinition.id == api_id).first() if api_id else None
         if not api_def:
@@ -56,6 +57,15 @@ def generate_api_doc_task(self, task_id: int):
             task.completed_at = china_now_naive()
             db.commit()
             return
+
+        # 获取自定义 Prompt
+        system_prompt = ""
+        if prompt_id:
+            from app.models.prompt import Prompt
+            prompt_obj = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+            if prompt_obj:
+                system_prompt = prompt_obj.system_prompt or ""
+                logger.info(f"使用自定义 Prompt: {prompt_obj.name}")
 
         api_dict = _api_definition_to_dict(api_def)
         generator = ApiDocGenerator(db, llm_config_id=task.llm_config_id)
@@ -67,7 +77,7 @@ def generate_api_doc_task(self, task_id: int):
             asyncio.set_event_loop(new_loop)
             try:
                 result_container["result"] = new_loop.run_until_complete(
-                    generator.generate(api_dict)
+                    generator.generate(api_dict, system_prompt=system_prompt)
                 )
             except Exception as e:
                 result_container["error"] = str(e)

@@ -45,6 +45,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '用例管理', icon: 'UnorderedListOutlined' }
       },
       {
+        path: 'projects/:id/case-reviews',
+        name: 'CaseReviews',
+        component: () => import('@/views/CaseReviews.vue'),
+        meta: { title: '用例评审', icon: 'AuditOutlined' }
+      },
+      {
+        path: 'prompts',
+        name: 'Prompts',
+        component: () => import('@/views/Prompts.vue'),
+        meta: { title: 'Prompt 管理', icon: 'MessageOutlined' }
+      },
+      {
         path: 'projects/:id/execution',
         name: 'Execution',
         component: () => import('@/views/Execution.vue'),

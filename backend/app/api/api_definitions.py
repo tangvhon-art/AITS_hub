@@ -186,6 +186,7 @@ def ai_generate_doc(
     definition_id: int,
     request: Request,
     llm_config_id: Optional[int] = None,
+    prompt_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -206,7 +207,7 @@ def ai_generate_doc(
         project_id=project_id,
         agent_type="api_doc_generator",
         status="pending",
-        input_params={"api_id": definition_id},
+        input_params={"api_id": definition_id, "prompt_id": prompt_id},
         llm_config_id=llm_config_id,
         created_by=current_user.id,
     )

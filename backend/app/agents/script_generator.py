@@ -174,6 +174,7 @@ class ScriptGenerator(BaseAgent):
         llm_config_id: Optional[int] = None,
         db_session=None,
         project_id: Optional[int] = None,
+        system_prompt: str = "",
     ) -> str:
         """
         基于自然语言描述，调用 AI 生成 Playwright 脚本
@@ -185,6 +186,7 @@ class ScriptGenerator(BaseAgent):
             llm_config_id: 指定的 LLM 配置ID
             db_session: 数据库会话
             project_id: 项目ID（用于 RAG 知识库检索）
+            system_prompt: 自定义 system 提示词（来自 Prompt 管理）
 
         Returns:
             生成的 Python 脚本内容
@@ -206,7 +208,7 @@ class ScriptGenerator(BaseAgent):
             except Exception:
                 pass
 
-        system_content = SCRIPT_GENERATE_SYSTEM_PROMPT
+        system_content = system_prompt.strip() if system_prompt and system_prompt.strip() else SCRIPT_GENERATE_SYSTEM_PROMPT
         if rag_context:
             system_content += f"\n\n{rag_context}"
 

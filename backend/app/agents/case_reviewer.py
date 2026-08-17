@@ -55,15 +55,17 @@ class CaseReviewerAgent(BaseAgent):
         return self.review(
             cases=kwargs.get("cases", []),
             requirement=kwargs.get("requirement", ""),
+            system_prompt=kwargs.get("system_prompt", ""),
         )
 
-    def review(self, cases: List[Dict[str, Any]], requirement: str = "") -> Dict[str, Any]:
+    def review(self, cases: List[Dict[str, Any]], requirement: str = "", system_prompt: str = "") -> Dict[str, Any]:
         """
         评审测试用例
 
         Args:
             cases: 测试用例列表
             requirement: 原始需求描述
+            system_prompt: 自定义 system 提示词（来自 Prompt 管理）
 
         Returns:
             评审结果
@@ -90,7 +92,7 @@ class CaseReviewerAgent(BaseAgent):
             top_k=3,
         )
 
-        system_content = REVIEW_SYSTEM_PROMPT
+        system_content = system_prompt.strip() if system_prompt and system_prompt.strip() else REVIEW_SYSTEM_PROMPT
         if rag_context:
             system_content += f"\n\n{rag_context}"
 
