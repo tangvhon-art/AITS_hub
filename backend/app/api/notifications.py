@@ -252,6 +252,22 @@ def test_channel(
 
 # ==================== 通知规则 ====================
 
+def _parse_event_codes(raw) -> list:
+    """从数据库字段解析事件编码列表（兼容旧数据：单字符串 / JSON 字符串 / 列表）"""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        if not raw.strip():
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return [raw]
+    return []
+
 @router.post("/rules/search", response_model=PaginatedResponse)
 def list_rules(
     event_code: Optional[str] = Body(None),
@@ -265,8 +281,6 @@ def list_rules(
 ):
     """通知规则列表"""
     query = db.query(NotificationRule)
-    if event_code:
-        query = query.filter(NotificationRule.event_code == event_code)
     if channel_id:
         query = query.filter(NotificationRule.channel_id == channel_id)
     if enabled is not None:
@@ -274,10 +288,22 @@ def list_rules(
     if keyword:
         query = query.filter(NotificationRule.name.like(f"%{keyword}%"))
 
-    total = query.count()
-    rules = query.order_by(NotificationRule.id.desc()).offset(
-        (page - 1) * page_size
-    ).limit(page_size).all()
+    # event_code 筛选：数据库中存储为 JSON 字符串，需在 Python 中过滤
+    if event_code:
+        all_rules = query.order_by(NotificationRule.id.desc()).all()
+        filtered = []
+        for r in all_rules:
+            codes = _parse_event_codes(r.event_code)
+            if event_code in codes:
+                filtered.append(r)
+        total = len(filtered)
+        start = (page - 1) * page_size
+        rules = filtered[start:start + page_size]
+    else:
+        total = query.count()
+        rules = query.order_by(NotificationRule.id.desc()).offset(
+            (page - 1) * page_size
+        ).limit(page_size).all()
 
     items = []
     for rule in rules:
@@ -304,14 +330,15 @@ def create_rule(
     if not channel:
         raise HTTPException(status_code=400, detail="所选通知渠道不存在")
 
-    # 校验事件编码合法
+    # 校验事件编码合法（支持多选）
     valid_codes = {e["code"] for e in EVENT_TYPES}
-    if data.event_code not in valid_codes:
-        raise HTTPException(status_code=400, detail=f"不支持的事件编码: {data.event_code}")
+    for code in data.event_code:
+        if code not in valid_codes:
+            raise HTTPException(status_code=400, detail=f"不支持的事件编码: {code}")
 
     rule = NotificationRule(
         name=data.name,
-        event_code=data.event_code,
+        event_code=json.dumps(data.event_code, ensure_ascii=False),
         channel_id=data.channel_id,
         conditions=data.conditions or {},
         receivers=data.receivers or {},
@@ -361,8 +388,10 @@ def update_rule(
 
     if "event_code" in update_data:
         valid_codes = {e["code"] for e in EVENT_TYPES}
-        if update_data["event_code"] not in valid_codes:
-            raise HTTPException(status_code=400, detail=f"不支持的事件编码: {update_data['event_code']}")
+        for code in update_data["event_code"]:
+            if code not in valid_codes:
+                raise HTTPException(status_code=400, detail=f"不支持的事件编码: {code}")
+        update_data["event_code"] = json.dumps(update_data["event_code"], ensure_ascii=False)
 
     for key, value in update_data.items():
         setattr(rule, key, value)

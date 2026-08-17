@@ -26,6 +26,23 @@ from app.services.card_builder import CardBuilder
 logger = logging.getLogger(__name__)
 
 
+def _parse_rule_event_codes(raw) -> list:
+    """从规则的 event_code 字段解析事件编码列表（兼容旧数据）"""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        if not raw.strip():
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return [raw]
+    return []
+
+
 # ==================== 事件类型元数据 ====================
 
 EVENT_TYPES: List[Dict[str, str]] = [
@@ -144,15 +161,17 @@ class NotificationService:
         context = context or {}
         records: List[NotificationRecord] = []
 
-        # 查询全局启用的规则（渠道/规则均为公共配置，不按 project_id 过滤）
-        rules = (
+        # 查询全局启用的规则（event_code 支持多选，存储为 JSON 字符串，需在 Python 中匹配）
+        all_rules = (
             self.db.query(NotificationRule)
-            .filter(
-                NotificationRule.event_code == event_code,
-                NotificationRule.enabled == True,
-            )
+            .filter(NotificationRule.enabled == True)
             .all()
         )
+        rules = []
+        for r in all_rules:
+            codes = _parse_rule_event_codes(r.event_code)
+            if event_code in codes:
+                rules.append(r)
 
         if not rules:
             return records

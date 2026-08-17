@@ -36,7 +36,7 @@ class NotificationRule(SoftDeleteMixin, Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
     name = Column(String(100), nullable=False, comment="规则名称")
-    event_code = Column(String(50), nullable=False, index=True, comment="事件编码（如 plan.execution.completed）")
+    event_code = Column(String(2000), nullable=False, index=True, comment="事件编码列表（JSON数组存储，如 [\"plan.execution.completed\"]）")
     channel_id = Column(Integer, ForeignKey("notification_channels.id"), nullable=False, index=True, comment="关联通知渠道ID")
     conditions = Column(JSON, default=dict, comment="触发条件（如 {\"min_failures\": 1, \"project_ids\": [1,2]}）")
     receivers = Column(JSON, default=dict, comment="接收人配置（预留）")

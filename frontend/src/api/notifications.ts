@@ -52,7 +52,7 @@ export interface NotificationChannelUpdate {
 export interface NotificationRule {
   id: number
   name: string
-  event_code: string
+  event_code: string[]
   channel_id: number
   conditions?: Record<string, any>
   receivers?: Record<string, any>
@@ -65,7 +65,7 @@ export interface NotificationRule {
 
 export interface NotificationRuleCreate {
   name: string
-  event_code: string
+  event_code: string[]
   channel_id: number
   conditions?: Record<string, any>
   receivers?: Record<string, any>
@@ -74,7 +74,7 @@ export interface NotificationRuleCreate {
 
 export interface NotificationRuleUpdate {
   name?: string
-  event_code?: string
+  event_code?: string[]
   channel_id?: number
   conditions?: Record<string, any>
   receivers?: Record<string, any>

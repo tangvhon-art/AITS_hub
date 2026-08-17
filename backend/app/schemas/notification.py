@@ -1,9 +1,10 @@
 """
 通知模块 Pydantic Schemas
 """
+import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ==================== 事件类型元数据 ====================
@@ -67,11 +68,29 @@ class NotificationChannelResponse(BaseModel):
 
 class NotificationRuleBase(BaseModel):
     name: str = Field(..., max_length=100, description="规则名称")
-    event_code: str = Field(..., max_length=50, description="事件编码")
+    event_code: List[str] = Field(..., description="事件编码列表（支持多选）")
     channel_id: int = Field(..., description="关联渠道ID")
     conditions: Optional[Dict[str, Any]] = Field(default_factory=dict, description="触发条件")
     receivers: Optional[Dict[str, Any]] = Field(default_factory=dict, description="接收人配置")
     enabled: bool = Field(True, description="是否启用")
+
+    @field_validator("event_code", mode="before")
+    @classmethod
+    def parse_event_code(cls, v):
+        """数据库中 event_code 以 JSON 字符串存储，读取时反序列化为列表"""
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return [v]
+        if isinstance(v, list):
+            return v
+        return []
 
 
 class NotificationRuleCreate(NotificationRuleBase):
@@ -80,7 +99,7 @@ class NotificationRuleCreate(NotificationRuleBase):
 
 class NotificationRuleUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
-    event_code: Optional[str] = Field(None, max_length=50)
+    event_code: Optional[List[str]] = Field(None, description="事件编码列表")
     channel_id: Optional[int] = None
     conditions: Optional[Dict[str, Any]] = None
     receivers: Optional[Dict[str, Any]] = None
@@ -90,7 +109,7 @@ class NotificationRuleUpdate(BaseModel):
 class NotificationRuleResponse(BaseModel):
     id: int
     name: str
-    event_code: str
+    event_code: List[str] = []
     channel_id: int
     conditions: Optional[Dict[str, Any]] = {}
     receivers: Optional[Dict[str, Any]] = {}
@@ -98,8 +117,22 @@ class NotificationRuleResponse(BaseModel):
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    # 关联渠道名称（联表查询时填充）
     channel_name: Optional[str] = None
+
+    @field_validator("event_code", mode="before")
+    @classmethod
+    def parse_event_code(cls, v):
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return [v]
+        return v if isinstance(v, list) else []
 
     class Config:
         from_attributes = True

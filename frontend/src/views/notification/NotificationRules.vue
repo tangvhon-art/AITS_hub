@@ -40,7 +40,14 @@
             <span class="rule-name">{{ record.name }}</span>
           </template>
           <template v-else-if="column.key === 'event_code'">
-            <a-tag :color="eventColor(record.event_code)">{{ eventName(record.event_code) }}</a-tag>
+            <div class="event-tags-cell">
+              <a-tag
+                v-for="code in displayEvents(record.event_code)"
+                :key="code"
+                :color="eventColor(code)"
+              >{{ eventName(code) }}</a-tag>
+              <span v-if="extraEventCount(record.event_code) > 0" class="more-count">+{{ extraEventCount(record.event_code) }}</span>
+            </div>
           </template>
           <template v-else-if="column.key === 'channel_name'">
             {{ record.channel_name || '-' }}
@@ -89,7 +96,9 @@
         <a-form-item label="事件类型" required>
           <a-select
             v-model:value="formData.event_code"
-            placeholder="请选择触发事件类型"
+            mode="multiple"
+            :max-tag-count="3"
+            placeholder="请选择触发事件类型（支持多选）"
             show-search
             option-filter-prop="label"
             @change="onEventChange"
@@ -137,11 +146,20 @@
             <a-select-option value="建议">建议</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="限定项目ID">
-          <a-input
+        <a-form-item label="限定项目">
+          <a-select
             v-model:value="condProjectIds"
-            placeholder="留空表示全部项目；多个ID用英文逗号分隔，如 1,2,3"
-          />
+            mode="multiple"
+            :max-tag-count="5"
+            placeholder="不选表示全部项目"
+            show-search
+            option-filter-prop="label"
+            allow-clear
+          >
+            <a-select-option v-for="p in projectOptions" :key="p.id" :value="p.id" :label="p.name">
+              {{ p.name }}
+            </a-select-option>
+          </a-select>
         </a-form-item>
 
         <a-form-item label="启用规则">
@@ -162,6 +180,7 @@ import {
   type NotificationChannel,
   type EventTypeInfo,
 } from '@/api/notifications'
+import { getProjects } from '@/api/projects'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 
 const { loadFromUrl, syncToUrl } = useUrlSearch()
@@ -171,6 +190,7 @@ const saving = ref(false)
 const rules = ref<NotificationRule[]>([])
 const channels = ref<NotificationChannel[]>([])
 const eventTypes = ref<EventTypeInfo[]>([])
+const projectOptions = ref<{ id: number; name: string }[]>([])
 const filterEvent = ref<string | undefined>(undefined)
 
 const pagination = reactive({
@@ -187,7 +207,7 @@ const editingId = ref<number | null>(null)
 
 const formData = reactive({
   name: '',
-  event_code: undefined as string | undefined,
+  event_code: [] as string[],
   channel_id: undefined as number | undefined,
   enabled: true,
 })
@@ -196,7 +216,7 @@ const formData = reactive({
 const condOnlyFailure = ref(false)
 const condMinFailures = ref<number | null>(null)
 const condSeverities = ref<string[]>([])
-const condProjectIds = ref('')
+const condProjectIds = ref<number[]>([])
 
 const columns = [
   { title: '规则名称', key: 'name', dataIndex: 'name', width: 180 },
@@ -211,9 +231,9 @@ const columns = [
 const executionEvents = ['plan.execution.completed', 'plan.execution.failed', 'api.scenario.completed', 'ui.suite.completed']
 const defectEvents = ['defect.created', 'defect.assigned', 'defect.resolved', 'defect.closed', 'defect.reopened']
 
-const showFailureCondition = computed(() => executionEvents.includes(formData.event_code || ''))
-const showMinFailures = computed(() => executionEvents.includes(formData.event_code || ''))
-const showSeverities = computed(() => defectEvents.includes(formData.event_code || ''))
+const showFailureCondition = computed(() => formData.event_code.some(e => executionEvents.includes(e)))
+const showMinFailures = computed(() => formData.event_code.some(e => executionEvents.includes(e)))
+const showSeverities = computed(() => formData.event_code.some(e => defectEvents.includes(e)))
 
 function typeLabel(type: string): string {
   const map: Record<string, string> = { feishu: '飞书', dingtalk: '钉钉', wecom: '企业微信', webhook: 'Webhook' }
@@ -228,13 +248,31 @@ function eventColor(code: string): string {
   return eventTypes.value.find((e) => e.code === code)?.color || 'blue'
 }
 
+function toEventArray(codes: string[] | string): string[] {
+  return Array.isArray(codes) ? codes : [codes]
+}
+
+function displayEvents(codes: string[] | string): string[] {
+  return toEventArray(codes).slice(0, 2)
+}
+
+function extraEventCount(codes: string[] | string): number {
+  return Math.max(0, toEventArray(codes).length - 2)
+}
+
 function conditionsSummary(conditions: any): string {
   if (!conditions || typeof conditions !== 'object') return '全部'
   const parts: string[] = []
   if (conditions.only_on_failure) parts.push('仅失败时')
   if (conditions.min_failures) parts.push(`失败≥${conditions.min_failures}`)
   if (conditions.severities?.length) parts.push(`严重程度:${conditions.severities.join('/')}`)
-  if (conditions.project_ids?.length) parts.push(`项目:${conditions.project_ids.join(',')}`)
+  if (conditions.project_ids?.length) {
+    const names = conditions.project_ids.map((id: number) => {
+      const p = projectOptions.value.find(p => p.id === id)
+      return p ? p.name : id
+    })
+    parts.push(`项目:${names.join(',')}`)
+  }
   return parts.length ? parts.join('；') : '全部'
 }
 
@@ -273,6 +311,14 @@ async function loadEvents() {
   }
 }
 
+async function loadProjects() {
+  try {
+    projectOptions.value = await getProjects()
+  } catch (e) {
+    // 错误已由拦截器处理
+  }
+}
+
 function handleTableChange(pag: any) {
   pagination.current = pag.current
   pagination.pageSize = pag.pageSize
@@ -292,20 +338,18 @@ function handleReset() {
 
 function resetForm() {
   formData.name = ''
-  formData.event_code = undefined
+  formData.event_code = []
   formData.channel_id = undefined
   formData.enabled = true
   condOnlyFailure.value = false
   condMinFailures.value = null
   condSeverities.value = []
-  condProjectIds.value = ''
+  condProjectIds.value = []
   editingId.value = null
 }
 
 function onEventChange() {
-  // 切换事件时重置不相关条件
-  condMinFailures.value = null
-  condSeverities.value = []
+  // 多选模式下条件表单根据选中事件动态显示，无需重置
 }
 
 function openCreateModal() {
@@ -319,14 +363,14 @@ function openEditModal(record: NotificationRule) {
   isEdit.value = true
   editingId.value = record.id
   formData.name = record.name
-  formData.event_code = record.event_code
+  formData.event_code = Array.isArray(record.event_code) ? record.event_code : [record.event_code]
   formData.channel_id = record.channel_id
   formData.enabled = record.enabled
   const cond = record.conditions || {}
   condOnlyFailure.value = !!cond.only_on_failure
   condMinFailures.value = cond.min_failures ?? null
   condSeverities.value = cond.severities || []
-  condProjectIds.value = Array.isArray(cond.project_ids) ? cond.project_ids.join(',') : ''
+  condProjectIds.value = Array.isArray(cond.project_ids) ? cond.project_ids : []
   modalVisible.value = true
 }
 
@@ -335,13 +379,7 @@ function buildConditions(): Record<string, any> {
   if (condOnlyFailure.value) cond.only_on_failure = true
   if (condMinFailures.value != null) cond.min_failures = condMinFailures.value
   if (condSeverities.value.length) cond.severities = condSeverities.value
-  if (condProjectIds.value.trim()) {
-    const ids = condProjectIds.value
-      .split(',')
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => !isNaN(n))
-    if (ids.length) cond.project_ids = ids
-  }
+  if (condProjectIds.value.length) cond.project_ids = condProjectIds.value
   return cond
 }
 
@@ -350,7 +388,7 @@ async function handleSave() {
     message.warning('请输入规则名称')
     return
   }
-  if (!formData.event_code) {
+  if (!formData.event_code.length) {
     message.warning('请选择事件类型')
     return
   }
@@ -409,6 +447,7 @@ onMounted(() => {
   filterEvent.value = params.event
   loadEvents()
   loadChannels()
+  loadProjects()
   loadRules()
 })
 </script>
@@ -453,5 +492,17 @@ onMounted(() => {
   margin-left: 8px;
   font-size: 12px;
   color: #8c8c8c;
+}
+.event-tags-cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.more-count {
+  font-size: 12px;
+  color: #8c8c8c;
+  flex-shrink: 0;
 }
 </style>
