@@ -21,7 +21,8 @@
       <a-table
         :columns="columns"
         :data-source="configs"
-        :pagination="false"
+        :pagination="pagination"
+        @change="handleTableChange"
         row-key="id"
         size="middle"
         :scroll="{ x: 1100 }"
@@ -167,6 +168,19 @@ const loading = ref(false)
 const saving = ref(false)
 const configs = ref<any[]>([])
 const showCreateModal = ref(false)
+
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+
+function handleTableChange(pag: any) {
+  pagination.current = pag.current
+  pagination.pageSize = pag.pageSize
+}
 const editingConfig = ref<any>(null)
 
 const configForm = reactive({
@@ -250,6 +264,7 @@ async function fetchConfigs() {
   loading.value = true
   try {
     configs.value = await getLLMConfigs()
+    pagination.total = configs.value.length
   } finally {
     loading.value = false
   }

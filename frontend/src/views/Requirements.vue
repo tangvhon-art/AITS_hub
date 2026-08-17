@@ -47,7 +47,8 @@
       <a-table
         :columns="columns"
         :data-source="requirements"
-        :pagination="false"
+        :pagination="pagination"
+        @change="handleTableChange"
         row-key="id"
         size="middle"
       >
@@ -223,6 +224,19 @@ const uploading = ref(false)
 const requirements = ref<any[]>([])
 const showCreateModal = ref(false)
 const showUploadModal = ref(false)
+
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+
+function handleTableChange(pag: any) {
+  pagination.current = pag.current
+  pagination.pageSize = pag.pageSize
+}
 const showGenerateModal = ref(false)
 const showAiGenerateModal = ref(false)
 const aiGenerating = ref(false)
@@ -315,6 +329,7 @@ async function fetchRequirements() {
     if (filterSource.value) params.source = filterSource.value
     if (filterStatus.value) params.status = filterStatus.value
     requirements.value = await getRequirements(projectId, params)
+    pagination.total = requirements.value.length
   } finally {
     loading.value = false
   }

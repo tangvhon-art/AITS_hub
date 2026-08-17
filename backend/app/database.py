@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event, Column, Boolean, DateTime
+from sqlalchemy import create_engine, event, Column, Boolean, DateTime, Integer, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import settings
 from app.core.timezone import china_now_naive
@@ -52,6 +52,47 @@ class TimestampMixin:
     """时间戳混入类，统一提供 created_at / updated_at 字段"""
     created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
     updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")
+
+
+class ProjectScopedMixin:
+    """项目级数据混入，统一提供 project_id 字段
+
+    适用于所有绑定到项目的业务模型。新模型可直接继承此 Mixin，
+    避免每个模型重复定义 project_id 列。
+    """
+    project_id = Column(
+        Integer,
+        ForeignKey("test_projects.id"),
+        nullable=False,
+        index=True,
+        comment="所属项目ID",
+    )
+
+
+class CreatedByMixin:
+    """创建人混入，统一提供 created_by 字段"""
+    created_by = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+        comment="创建人ID",
+    )
+
+
+class BaseModelMixin(SoftDeleteMixin, TimestampMixin, CreatedByMixin):
+    """基础模型混入：软删除 + 时间戳 + 创建人
+
+    新模型推荐继承此 Mixin 以获得统一的公共字段。
+    如需项目级隔离，可同时继承 ProjectScopedMixin。
+
+    用法::
+
+        class MyModel(BaseModelMixin, ProjectScopedMixin, Base):
+            __tablename__ = "my_table"
+            id = Column(Integer, primary_key=True)
+            name = Column(String(100))
+    """
+    pass
 
 
 @event.listens_for(SessionLocal, "do_orm_execute")

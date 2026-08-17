@@ -36,7 +36,7 @@
 
           <div class="script-items">
             <div
-              v-for="script in filteredScripts"
+              v-for="script in pagedScripts"
               :key="script.id"
               class="script-item"
               :class="{ active: currentScript?.id === script.id }"
@@ -58,6 +58,15 @@
               <div class="script-item-time">{{ $formatDateTime(script.updated_at) }}</div>
             </div>
             <a-empty v-if="filteredScripts.length === 0" description="暂无脚本" />
+          </div>
+          <div class="script-pagination" v-if="filteredScripts.length > scriptPageSize">
+            <a-pagination
+              v-model:current="scriptPageCurrent"
+              :page-size="scriptPageSize"
+              :total="filteredScripts.length"
+              size="small"
+              simple
+            />
           </div>
         </a-card>
       </div>
@@ -288,7 +297,8 @@
         <a-table
           :columns="historyColumns"
           :data-source="scriptRuns"
-          :pagination="false"
+          :pagination="historyPagination"
+          @change="handleHistoryTableChange"
           row-key="id"
           size="small"
         >
@@ -356,7 +366,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
@@ -423,6 +433,19 @@ const editInfoForm = ref({
 const showHistoryModal = ref(false)
 const historyLoading = ref(false)
 const scriptRuns = ref<any[]>([])
+
+const historyPagination = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+
+function handleHistoryTableChange(pag: any) {
+  historyPagination.current = pag.current
+  historyPagination.pageSize = pag.pageSize
+}
 const historyColumns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
   { title: '状态', key: 'status', width: 90 },
@@ -448,6 +471,16 @@ const filteredScripts = computed(() => {
   }
   return result
 })
+
+const scriptPageCurrent = ref(1)
+const scriptPageSize = 15
+const pagedScripts = computed(() => {
+  const start = (scriptPageCurrent.value - 1) * scriptPageSize
+  return filteredScripts.value.slice(start, start + scriptPageSize)
+})
+
+// 筛选条件变化时重置分页
+watch([searchKeyword, filterStatus], () => { scriptPageCurrent.value = 1 })
 
 function handleSearch() {
   syncToUrl({ keyword: searchKeyword.value, status: filterStatus.value })
@@ -700,8 +733,10 @@ async function loadScriptRuns() {
   historyLoading.value = true
   try {
     scriptRuns.value = await getScriptRuns(projectId, currentScript.value.id!)
+    historyPagination.total = scriptRuns.value.length
   } catch (e: any) {
     scriptRuns.value = []
+    historyPagination.total = 0
   } finally {
     historyLoading.value = false
   }
@@ -812,6 +847,7 @@ onUnmounted(() => {
 .script-item-meta .status-passed { color: #52c41a; }
 .script-item-meta .status-failed { color: #ff4d4f; }
 .script-item-time { font-size: 11px; color: #999; }
+.script-pagination { margin-top: 12px; text-align: center; }
 
 .detail-title { display: flex; align-items: center; gap: 8px; }
 .editor-toolbar { margin-bottom: 8px; }

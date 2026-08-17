@@ -4,12 +4,16 @@ from typing import List
 from app.database import get_db
 from app.core.deps import get_current_user
 from app.core.audit import log_audit
+from app.core.crud import CRUDBase
 from app.models.user import User
 from app.models.llm_config import LLMConfig
 from app.schemas.llm_config import LLMConfigCreate, LLMConfigUpdate, LLMConfigResponse, LLMConfigTestRequest
 from app.agents.llm_factory import llm_factory, encrypt_api_key, decrypt_api_key
 
 router = APIRouter(prefix="/api/llm-configs", tags=["模型配置管理"])
+
+# 全局资源
+llm_config_crud = CRUDBase(LLMConfig, "模型配置")
 
 
 def _to_response(config: LLMConfig) -> dict:
@@ -96,9 +100,7 @@ def get_llm_config(
     current_user: User = Depends(get_current_user),
 ):
     """获取模型配置详情"""
-    config = db.query(LLMConfig).filter(LLMConfig.id == config_id).first()
-    if not config:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+    config = llm_config_crud.get(db, config_id)
     return _to_response(config)
 
 
@@ -111,9 +113,7 @@ def update_llm_config(
     current_user: User = Depends(get_current_user),
 ):
     """更新模型配置"""
-    config = db.query(LLMConfig).filter(LLMConfig.id == config_id).first()
-    if not config:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+    config = llm_config_crud.get(db, config_id)
 
     old_data = {"name": config.name, "provider": config.provider, "model_name": config.model_name, "status": config.status}
     update_data = config_data.model_dump(exclude_unset=True)
@@ -149,13 +149,11 @@ def delete_llm_config(
     current_user: User = Depends(get_current_user),
 ):
     """删除模型配置"""
-    config = db.query(LLMConfig).filter(LLMConfig.id == config_id).first()
-    if not config:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+    config = llm_config_crud.get(db, config_id)
     if config.is_default:
         raise HTTPException(status_code=400, detail="不能删除默认模型配置，请先设置其他配置为默认")
     config_name = config.name
-    config.soft_delete()
+    llm_config_crud.soft_delete(db, config_id)
     log_audit(
         db, action="delete", resource_type="llm_config",
         resource_id=config_id, resource_name=config_name,
@@ -163,7 +161,6 @@ def delete_llm_config(
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
-    db.commit()
 
 
 @router.post("/{config_id}/test")
@@ -175,9 +172,7 @@ def test_llm_config(
     current_user: User = Depends(get_current_user),
 ):
     """测试模型配置连接"""
-    config = db.query(LLMConfig).filter(LLMConfig.id == config_id).first()
-    if not config:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+    config = llm_config_crud.get(db, config_id)
 
     try:
         # 测试连接强制使用非流式，避免部分自部署模型流式格式不兼容导致报错
@@ -230,9 +225,7 @@ def set_default_llm_config(
     current_user: User = Depends(get_current_user),
 ):
     """设置为默认模型"""
-    config = db.query(LLMConfig).filter(LLMConfig.id == config_id).first()
-    if not config:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
+    config = llm_config_crud.get(db, config_id)
 
     db.query(LLMConfig).filter(LLMConfig.is_default == True).update({"is_default": False})
     config.is_default = True

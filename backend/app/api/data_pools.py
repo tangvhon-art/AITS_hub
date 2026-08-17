@@ -1,12 +1,11 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter, Body, Depends, Query, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.deps import get_current_user, get_project
-from app.core.audit import log_audit
-from app.core.timezone import china_now_naive
+from app.core.crud import CRUDBase
 from app.models.user import User
 from app.models.test_data_pool import TestDataPool
 from app.schemas.test_data_pool import (
@@ -21,6 +20,9 @@ router = APIRouter(
     tags=["测试数据池"],
 )
 
+# CRUDBase 实例：by_alias=True 处理 schema_config -> schema 字段映射
+pool_crud = CRUDBase(TestDataPool, "数据池", by_alias=True)
+
 
 @router.post("", response_model=TestDataPoolResponse, response_model_by_alias=True)
 def create_pool(
@@ -31,20 +33,7 @@ def create_pool(
     current_user: User = Depends(get_current_user),
 ):
     get_project(project_id, db, current_user)
-    pool = TestDataPool(
-        project_id=project_id,
-        name=data.name,
-        description=data.description,
-        data_type=data.data_type,
-        schema=data.schema_config,
-        data=data.data,
-        generator_config=data.generator_config,
-        environment_id=data.environment_id,
-        created_by=current_user.id,
-    )
-    db.add(pool)
-    db.commit()
-    db.refresh(pool)
+    pool = pool_crud.create(db, data, project_id=project_id, created_by=current_user.id)
     return TestDataPoolResponse.model_validate(pool)
 
 
@@ -59,6 +48,7 @@ def list_pools(
     current_user: User = Depends(get_current_user),
 ):
     get_project(project_id, db, current_user)
+    # keyword 模糊搜索在 CRUDBase.list 之外处理，因为它是 like 而非 eq
     query = db.query(TestDataPool).filter(TestDataPool.project_id == project_id)
     if keyword:
         query = query.filter(TestDataPool.name.contains(keyword))
@@ -80,12 +70,7 @@ def get_pool(
     current_user: User = Depends(get_current_user),
 ):
     get_project(project_id, db, current_user)
-    pool = db.query(TestDataPool).filter(
-        TestDataPool.id == pool_id,
-        TestDataPool.project_id == project_id,
-    ).first()
-    if not pool:
-        raise HTTPException(status_code=404, detail="数据池不存在")
+    pool = pool_crud.get(db, pool_id, project_id)
     return TestDataPoolResponse.model_validate(pool)
 
 
@@ -98,18 +83,7 @@ def update_pool(
     current_user: User = Depends(get_current_user),
 ):
     get_project(project_id, db, current_user)
-    pool = db.query(TestDataPool).filter(
-        TestDataPool.id == pool_id,
-        TestDataPool.project_id == project_id,
-    ).first()
-    if not pool:
-        raise HTTPException(status_code=404, detail="数据池不存在")
-    update_data = data.model_dump(exclude_unset=True, by_alias=True)
-    for key, value in update_data.items():
-        setattr(pool, key, value)
-    pool.updated_at = china_now_naive()
-    db.commit()
-    db.refresh(pool)
+    pool = pool_crud.update(db, pool_id, data, project_id)
     return TestDataPoolResponse.model_validate(pool)
 
 
@@ -121,14 +95,7 @@ def delete_pool(
     current_user: User = Depends(get_current_user),
 ):
     get_project(project_id, db, current_user)
-    pool = db.query(TestDataPool).filter(
-        TestDataPool.id == pool_id,
-        TestDataPool.project_id == project_id,
-    ).first()
-    if not pool:
-        raise HTTPException(status_code=404, detail="数据池不存在")
-    pool.soft_delete()
-    db.commit()
+    pool_crud.soft_delete(db, pool_id, project_id)
     return {"detail": "删除成功"}
 
 

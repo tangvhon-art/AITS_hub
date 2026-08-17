@@ -7,12 +7,16 @@ from typing import List, Optional
 from app.database import get_db
 from app.core.deps import get_current_user
 from app.core.audit import log_audit
+from app.core.crud import CRUDBase
 from app.core.timezone import china_now_naive
 from app.models.user import User
 from app.models.prompt import Prompt
 from app.schemas.prompt import PromptCreate, PromptUpdate, PromptResponse
 
 router = APIRouter(prefix="/api/prompts", tags=["Prompt 管理"])
+
+# 全局资源，project_id=None
+prompt_crud = CRUDBase(Prompt, "Prompt")
 
 
 @router.post("/search", response_model=List[PromptResponse])
@@ -77,9 +81,7 @@ def update_prompt(
     current_user: User = Depends(get_current_user),
 ):
     """更新 Prompt"""
-    prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
-    if not prompt:
-        raise HTTPException(status_code=404, detail="Prompt 不存在")
+    prompt = prompt_crud.get(db, prompt_id)
 
     update_data = data.model_dump(exclude_unset=True)
     if data.is_default:
@@ -105,11 +107,9 @@ def delete_prompt(
     current_user: User = Depends(get_current_user),
 ):
     """删除 Prompt"""
-    prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
-    if not prompt:
-        raise HTTPException(status_code=404, detail="Prompt 不存在")
+    prompt = prompt_crud.get(db, prompt_id)
     prompt_name = prompt.name
-    prompt.soft_delete()
+    prompt_crud.soft_delete(db, prompt_id)
     log_audit(
         db, action="delete", resource_type="prompt",
         resource_id=prompt_id, resource_name=prompt_name,
@@ -117,7 +117,6 @@ def delete_prompt(
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
-    db.commit()
     return {"detail": "删除成功"}
 
 

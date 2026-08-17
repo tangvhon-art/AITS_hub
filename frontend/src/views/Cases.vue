@@ -33,7 +33,8 @@
       <a-table
         :columns="columns"
         :data-source="cases"
-        :pagination="false"
+        :pagination="pagination"
+        @change="handleTableChange"
         row-key="id"
         size="middle"
         :scroll="{ x: 1000 }"
@@ -199,6 +200,19 @@ const { loadFromUrl, syncToUrl } = useUrlSearch()
 const loading = ref(false)
 const saving = ref(false)
 const cases = ref<any[]>([])
+
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+
+function handleTableChange(pag: any) {
+  pagination.current = pag.current
+  pagination.pageSize = pag.pageSize
+}
 const requirements = ref<any[]>([])
 const llmConfigs = ref<any[]>([])
 
@@ -291,6 +305,7 @@ async function fetchCases() {
     if (filterCaseType.value) params.case_type = filterCaseType.value
     if (filterStatus.value) params.status = filterStatus.value
     cases.value = await getCases(projectId, params)
+    pagination.total = cases.value.length
   } finally {
     loading.value = false
   }

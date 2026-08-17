@@ -4,7 +4,7 @@
       <h2>Prompt 管理</h2>
       <div class="header-actions">
         <a-button @click="handleSeedDefaults" :loading="seeding">初始化默认模板</a-button>
-        <a-button type="primary" @click="handleAdd">
+        <a-button type="primary" @click="openCreate(defaultForm)">
           <template #icon><PlusOutlined /></template>
           新建 Prompt
         </a-button>
@@ -60,28 +60,26 @@
           </a-tag>
         </template>
         <template v-else-if="column.key === 'action'">
-          <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
-          <a-popconfirm title="确定删除此 Prompt？" @confirm="handleDelete(record)">
-            <a-button type="link" size="small" danger>删除</a-button>
-          </a-popconfirm>
+          <a-button type="link" size="small" @click="openEdit(record.id, record)">编辑</a-button>
+          <a-button type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
         </template>
       </template>
     </a-table>
 
     <!-- 编辑/新建弹窗 -->
     <a-modal
-      v-model:open="showModal"
+      v-model:open="modalVisible"
       :title="editingId ? '编辑 Prompt' : '新建 Prompt'"
       width="700px"
-      @ok="handleSave"
-      :confirm-loading="saving"
+      @ok="submit"
+      :confirm-loading="modalLoading"
     >
       <a-form layout="vertical">
         <a-form-item label="名称" required>
-          <a-input v-model:value="form.name" placeholder="Prompt 名称" />
+          <a-input v-model:value="formData.name" placeholder="Prompt 名称" />
         </a-form-item>
         <a-form-item label="分类">
-          <a-select v-model:value="form.category" style="width: 100%">
+          <a-select v-model:value="formData.category" style="width: 100%">
             <a-select-option value="case_generation">用例生成</a-select-option>
             <a-select-option value="case_review">用例评审</a-select-option>
             <a-select-option value="api_test">API 测试</a-select-option>
@@ -92,17 +90,17 @@
           </a-select>
         </a-form-item>
         <a-form-item label="描述">
-          <a-input v-model:value="form.description" placeholder="Prompt 描述说明" />
+          <a-input v-model:value="formData.description" placeholder="Prompt 描述说明" />
         </a-form-item>
         <a-form-item label="System 提示词" required>
           <a-textarea
-            v-model:value="form.system_prompt"
+            v-model:value="formData.system_prompt"
             :rows="8"
             placeholder="作为 system 角色的提示词，定义 AI 的行为和输出要求"
           />
         </a-form-item>
         <a-form-item label="设为默认">
-          <a-switch v-model:checked="form.is_default" />
+          <a-switch v-model:checked="formData.is_default" />
           <span style="margin-left: 8px; color: #999">设为该分类下的默认 Prompt</span>
         </a-form-item>
       </a-form>
@@ -115,6 +113,7 @@ import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { useUrlSearch } from '@/composables/useUrlSearch'
+import { useCRUD } from '@/composables/useCRUD'
 import { promptsApi, type Prompt, type PromptCreate } from '@/api/prompts'
 
 const { loadFromUrl, syncToUrl } = useUrlSearch()
@@ -123,18 +122,47 @@ const loading = ref(false)
 const dataSource = ref<Prompt[]>([])
 const filterCategory = ref<string>()
 const searchKeyword = ref('')
-const showModal = ref(false)
-const editingId = ref<number | null>(null)
-const saving = ref(false)
 const seeding = ref(false)
 
-const form = ref<PromptCreate>({
+// 新建时的默认表单值
+const defaultForm: PromptCreate = {
   name: '',
   description: '',
   category: 'case_generation',
   system_prompt: '',
   is_default: false,
   status: 'active',
+}
+
+// 使用 useCRUD 封装新增/编辑/删除逻辑
+const {
+  modalVisible,
+  modalLoading,
+  editingId,
+  formData,
+  openCreate,
+  openEdit,
+  submit,
+  handleDelete,
+} = useCRUD<Prompt>({
+  api: {
+    create: (data) => promptsApi.create(data as PromptCreate),
+    update: (id, data) => promptsApi.update(id, data),
+    remove: (id) => promptsApi.delete(id),
+  },
+  resourceName: 'Prompt',
+  onSuccess: loadData,
+  beforeSubmit: () => {
+    if (!formData.name?.trim()) {
+      message.warning('请输入名称')
+      return false
+    }
+    if (!formData.system_prompt?.trim()) {
+      message.warning('请输入 System 提示词')
+      return false
+    }
+    return true
+  },
 })
 
 const columns = [
@@ -189,71 +217,6 @@ async function loadData() {
     message.error('加载 Prompt 列表失败')
   } finally {
     loading.value = false
-  }
-}
-
-function handleAdd() {
-  editingId.value = null
-  form.value = {
-    name: '',
-    description: '',
-    category: 'case_generation',
-    system_prompt: '',
-    is_default: false,
-    status: 'active',
-  }
-  showModal.value = true
-}
-
-function handleEdit(record: Prompt) {
-  editingId.value = record.id
-  form.value = {
-    name: record.name,
-    description: record.description,
-    category: record.category,
-    system_prompt: record.system_prompt,
-    user_prompt_template: record.user_prompt_template,
-    variables: record.variables,
-    is_default: record.is_default,
-    status: record.status,
-  }
-  showModal.value = true
-}
-
-async function handleSave() {
-  if (!form.value.name.trim()) {
-    message.warning('请输入名称')
-    return
-  }
-  if (!form.value.system_prompt.trim()) {
-    message.warning('请输入 System 提示词')
-    return
-  }
-  saving.value = true
-  try {
-    if (editingId.value) {
-      await promptsApi.update(editingId.value, form.value)
-      message.success('更新成功')
-    } else {
-      await promptsApi.create(form.value)
-      message.success('创建成功')
-    }
-    showModal.value = false
-    loadData()
-  } catch {
-    message.error('保存失败')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function handleDelete(record: Prompt) {
-  try {
-    await promptsApi.delete(record.id)
-    message.success('删除成功')
-    loadData()
-  } catch {
-    message.error('删除失败')
   }
 }
 

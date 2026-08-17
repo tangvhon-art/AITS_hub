@@ -105,7 +105,8 @@
             <a-table
               :columns="runColumns"
               :data-source="runs"
-              :pagination="false"
+              :pagination="runsPagination"
+              @change="handleRunsTableChange"
               row-key="id"
               size="small"
             >
@@ -169,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, reactive, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlayCircleOutlined } from '@ant-design/icons-vue'
@@ -197,6 +198,19 @@ const screenshotBase64 = ref('')
 const logContainer = ref<HTMLElement>()
 
 const runs = ref<any[]>([])
+
+const runsPagination = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+
+function handleRunsTableChange(pag: any) {
+  runsPagination.current = pag.current
+  runsPagination.pageSize = pag.pageSize
+}
 const runsLoading = ref(false)
 
 const runColumns = [
@@ -318,6 +332,7 @@ async function fetchRuns() {
   runsLoading.value = true
   try {
     runs.value = await getExecutionRuns(projectId)
+    runsPagination.total = runs.value.length
   } finally {
     runsLoading.value = false
   }

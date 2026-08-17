@@ -27,7 +27,8 @@
         :columns="columns"
         :data-source="channels"
         :loading="loading"
-        :pagination="false"
+        :pagination="pagination"
+        @change="handleTableChange"
         row-key="id"
         size="middle"
       >
@@ -138,6 +139,19 @@ const loading = ref(false)
 const saving = ref(false)
 const channels = ref<NotificationChannel[]>([])
 const searchKeyword = ref('')
+
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+
+function handleTableChange(pag: any) {
+  pagination.current = pag.current
+  pagination.pageSize = pag.pageSize
+}
 const testingId = ref<number | null>(null)
 
 const modalVisible = ref(false)
@@ -176,6 +190,7 @@ async function loadChannels() {
     const params: any = {}
     if (searchKeyword.value) params.keyword = searchKeyword.value
     channels.value = await notificationApi.getChannels(params)
+    pagination.total = channels.value.length
   } catch (e) {
     // 错误已由拦截器处理
   } finally {

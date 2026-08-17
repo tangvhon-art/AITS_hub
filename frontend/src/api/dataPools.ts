@@ -1,4 +1,5 @@
 import request from './request'
+import { BaseAPI } from './base'
 import type { PaginatedResponse } from './types'
 
 export interface TestDataPool {
@@ -26,17 +27,24 @@ export interface EnvironmentVariable {
   is_sensitive: boolean
 }
 
+/** BaseAPI 实例：项目级数据池资源 */
+export const dataPoolApi = new BaseAPI<TestDataPool>('/data-pools')
+
+/**
+ * 兼容旧接口：dataPoolsApi 对象
+ * 标准 CRUD 方法委托给 BaseAPI，自定义方法（generate/preview）保留。
+ */
 export const dataPoolsApi = {
   list: (projectId: number, params?: any) =>
-    request.post<PaginatedResponse<TestDataPool>>(`/projects/${projectId}/data-pools/search`, params),
+    dataPoolApi.list(projectId, params) as Promise<PaginatedResponse<TestDataPool>>,
   get: (projectId: number, id: number) =>
-    request.get<TestDataPool>(`/projects/${projectId}/data-pools/${id}`),
+    dataPoolApi.get(projectId, id),
   create: (projectId: number, data: any) =>
-    request.post<TestDataPool>(`/projects/${projectId}/data-pools`, data),
+    dataPoolApi.create(projectId, data),
   update: (projectId: number, id: number, data: any) =>
-    request.put<TestDataPool>(`/projects/${projectId}/data-pools/${id}`, data),
+    dataPoolApi.update(projectId, id, data),
   delete: (projectId: number, id: number) =>
-    request.delete(`/projects/${projectId}/data-pools/${id}`),
+    dataPoolApi.remove(projectId, id),
   generate: (projectId: number, id: number, count: number = 10) =>
     request.post(`/projects/${projectId}/data-pools/${id}/generate`, {}, { params: { count } }),
   preview: (projectId: number, id: number, count: number = 5) =>

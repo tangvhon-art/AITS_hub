@@ -34,3 +34,16 @@ class ApiResponse(BaseModel, Generic[T]):
     code: int = Field(0, description="业务状态码，0 表示成功")
     message: str = Field("success", description="提示信息")
     data: Optional[T] = Field(None, description="响应数据")
+
+
+class SuccessResponse(ApiResponse[T]):
+    """成功响应，code 固定为 0"""
+    code: int = Field(0, description="业务状态码，0 表示成功")
+    message: str = Field("success", description="提示信息")
+
+
+class ErrorResponse(BaseModel):
+    """错误响应格式"""
+    code: int = Field(..., description="业务错误码，非 0 表示错误")
+    message: str = Field(..., description="面向用户的错误描述")
+    detail: Optional[Any] = Field(None, description="额外详情（字符串、字典或列表）")

@@ -13,7 +13,7 @@
         <a-card title="编排套件" :bordered="false">
           <div class="suite-items">
             <div
-              v-for="suite in suites"
+              v-for="suite in pagedSuites"
               :key="suite.id"
               class="suite-item"
               :class="{ active: currentSuite?.id === suite.id }"
@@ -32,6 +32,15 @@
               <div class="suite-item-time">{{ $formatDateTime(suite.updated_at) }}</div>
             </div>
             <a-empty v-if="suites.length === 0" description="暂无编排套件" />
+          </div>
+          <div class="suite-pagination" v-if="suites.length > suitePageSize">
+            <a-pagination
+              v-model:current="suitePageCurrent"
+              :page-size="suitePageSize"
+              :total="suites.length"
+              size="small"
+              simple
+            />
           </div>
         </a-card>
       </div>
@@ -231,7 +240,7 @@
         :sub-title="`通过 ${runResult.passed_steps || 0} / 失败 ${runResult.failed_steps || 0} / 跳过 ${runResult.skipped_steps || 0}，耗时 ${runResult.total_duration || 0}s`"
       />
       <a-divider>步骤详情</a-divider>
-      <a-table :columns="resultColumns" :data-source="runResults" :pagination="false" size="small" row-key="id">
+      <a-table :columns="resultColumns" :data-source="runResults" :pagination="resultPagination" @change="handleResultTableChange" size="small" row-key="id">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="getRunStatusColor(record.status)">{{ getRunStatusText(record.status) }}</a-tag>
@@ -249,7 +258,8 @@
         :columns="historyColumns"
         :data-source="suiteRuns"
         :loading="loadingHistory"
-        :pagination="{ pageSize: 10 }"
+        :pagination="suiteRunsPagination"
+        @change="handleSuiteRunsTableChange"
         size="small"
         row-key="id"
       >
@@ -281,7 +291,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, PlayCircleOutlined, HistoryOutlined } from '@ant-design/icons-vue'
@@ -300,6 +310,33 @@ const router = useRouter()
 const projectId = Number(route.params.id)
 
 const suites = ref<AutomationSuite[]>([])
+
+const suitePageCurrent = ref(1)
+const suitePageSize = 15
+const pagedSuites = computed(() => {
+  const start = (suitePageCurrent.value - 1) * suitePageSize
+  return suites.value.slice(start, start + suitePageSize)
+})
+
+const resultPagination = reactive({
+  current: 1, pageSize: 10, total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+function handleResultTableChange(pag: any) {
+  resultPagination.current = pag.current
+  resultPagination.pageSize = pag.pageSize
+}
+
+const suiteRunsPagination = reactive({
+  current: 1, pageSize: 10, total: 0,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+function handleSuiteRunsTableChange(pag: any) {
+  suiteRunsPagination.current = pag.current
+  suiteRunsPagination.pageSize = pag.pageSize
+}
 const currentSuite = ref<AutomationSuite | null>(null)
 const steps = ref<SuiteStep[]>([])
 const scriptList = ref<AutomationScript[]>([])
@@ -574,6 +611,7 @@ async function loadRunResult(runId: number) {
   try {
     runResult.value = await getSuiteRun(projectId, runId)
     runResults.value = await getSuiteRunResults(projectId, runId)
+    resultPagination.total = runResults.value.length
     showRunResult.value = true
     await loadSuites()
   } catch (e: any) {
@@ -587,9 +625,11 @@ async function openHistoryModal() {
   loadingHistory.value = true
   try {
     suiteRuns.value = await getSuiteRuns(projectId, currentSuite.value.id!)
+    suiteRunsPagination.total = suiteRuns.value.length
   } catch (e: any) {
     message.error(e.response?.data?.detail || '加载历史记录失败')
     suiteRuns.value = []
+    suiteRunsPagination.total = 0
   } finally {
     loadingHistory.value = false
   }
@@ -683,6 +723,7 @@ async function loadTestPlans() {
 .suite-name { font-weight: 500; font-size: 14px; }
 .suite-item-meta { display: flex; gap: 12px; font-size: 12px; color: #666; margin-bottom: 4px; }
 .suite-item-time { font-size: 11px; color: #999; }
+.suite-pagination { margin-top: 12px; text-align: center; }
 
 .detail-title { display: flex; align-items: center; gap: 8px; }
 

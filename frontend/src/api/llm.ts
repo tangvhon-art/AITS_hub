@@ -1,4 +1,5 @@
 import request from './request'
+import { BaseAPI } from './base'
 
 export interface LLMConfig {
   id: number
@@ -17,11 +18,7 @@ export interface LLMConfig {
   created_at: string
 }
 
-export function getLLMConfigs() {
-  return request.get<LLMConfig[]>('/llm-configs')
-}
-
-export function createLLMConfig(data: {
+export interface LLMConfigCreate {
   name: string
   provider: string
   base_url: string
@@ -34,22 +31,52 @@ export function createLLMConfig(data: {
   status?: string
   priority?: number
   description?: string
-}) {
-  return request.post<LLMConfig>('/llm-configs', data)
 }
 
-export function updateLLMConfig(id: number, data: any) {
-  return request.put<LLMConfig>(`/llm-configs/${id}`, data)
+export interface LLMConfigUpdate {
+  name?: string
+  provider?: string
+  base_url?: string
+  api_key?: string
+  model_name?: string
+  max_tokens?: number
+  temperature?: number
+  streaming?: boolean
+  is_default?: boolean
+  status?: string
+  priority?: number
+  description?: string
 }
 
+/** BaseAPI 实例：全局模型配置资源 */
+export const llmConfigApi = new BaseAPI<LLMConfig, LLMConfigCreate, LLMConfigUpdate>('/llm-configs', { global: true })
+
+/** 获取模型配置列表（非分页，后端返回数组） */
+export function getLLMConfigs() {
+  return request.get<LLMConfig[]>('/llm-configs')
+}
+
+/** 创建模型配置 */
+export function createLLMConfig(data: LLMConfigCreate) {
+  return llmConfigApi.createGlobal(data)
+}
+
+/** 更新模型配置 */
+export function updateLLMConfig(id: number, data: LLMConfigUpdate) {
+  return llmConfigApi.updateGlobal(id, data)
+}
+
+/** 删除模型配置 */
 export function deleteLLMConfig(id: number) {
-  return request.delete(`/llm-configs/${id}`)
+  return llmConfigApi.removeGlobal(id)
 }
 
+/** 测试模型配置连接 */
 export function testLLMConfig(id: number, prompt: string = '你好') {
   return request.post(`/llm-configs/${id}/test`, { prompt })
 }
 
+/** 设置为默认模型 */
 export function setDefaultLLMConfig(id: number) {
   return request.post<LLMConfig>(`/llm-configs/${id}/set-default`)
 }

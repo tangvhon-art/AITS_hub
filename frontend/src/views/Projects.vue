@@ -24,7 +24,7 @@
 
     <a-spin :spinning="loading">
       <a-row :gutter="[24, 24]">
-        <a-col :xs="24" :sm="12" :lg="8" :xl="6" v-for="project in filteredProjects" :key="project.id">
+        <a-col :xs="24" :sm="12" :lg="8" :xl="6" v-for="project in pagedProjects" :key="project.id">
           <a-card class="project-card" hoverable>
             <div class="project-icon" @click="enterProject(project)">
               <FolderOutlined :style="{ fontSize: '32px', color: '#1677ff' }" />
@@ -60,6 +60,18 @@
           <a-empty description="暂无项目，点击右上角创建" />
         </a-col>
       </a-row>
+
+      <div class="pagination-wrapper" v-if="filteredProjects.length > 0">
+        <a-pagination
+          v-model:current="currentPage"
+          v-model:pageSize="pageSize"
+          :total="filteredProjects.length"
+          :page-size-options="['12', '24', '48']"
+          show-size-changer
+          show-quick-jumper
+          :show-total="(total: number) => `共 ${total} 个项目`"
+        />
+      </div>
     </a-spin>
 
     <!-- 创建/编辑项目对话框 -->
@@ -86,7 +98,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
@@ -100,6 +112,8 @@ const loading = ref(false)
 const saving = ref(false)
 const projects = ref<Project[]>([])
 const searchKeyword = ref('')
+const currentPage = ref(1)
+const pageSize = ref(12)
 const showCreateModal = ref(false)
 const editingProject = ref<Project | null>(null)
 
@@ -115,6 +129,16 @@ const filteredProjects = computed(() => {
     p.name?.toLowerCase().includes(kw) ||
     p.description?.toLowerCase().includes(kw)
   )
+})
+
+const pagedProjects = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredProjects.value.slice(start, start + pageSize.value)
+})
+
+// 搜索条件变化时重置到第一页
+watch(searchKeyword, () => {
+  currentPage.value = 1
 })
 
 function handleSearch() {
@@ -257,5 +281,11 @@ onMounted(() => {
 .project-actions {
   display: flex;
   gap: 8px;
+}
+
+.pagination-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
 }
 </style>

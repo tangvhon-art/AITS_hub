@@ -2,7 +2,7 @@
   <div class="versions-page">
     <div class="page-header">
       <h2>版本管理</h2>
-      <a-button type="primary" @click="openCreateModal">
+      <a-button type="primary" @click="openCreate(defaultForm)">
         <template #icon><PlusOutlined /></template>
         新建版本
       </a-button>
@@ -24,9 +24,9 @@
 
       <a-table
         :columns="columns"
-        :data-source="versions"
+        :data-source="list"
         :loading="loading"
-        :pagination="pagination"
+        :pagination="paginationConfig"
         @change="handleTableChange"
         row-key="id"
       >
@@ -39,10 +39,8 @@
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space>
-              <a-button type="link" size="small" @click="openEditModal(record)">编辑</a-button>
-              <a-popconfirm title="确定删除此版本？" @confirm="handleDelete(record.id)">
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" @click="openEdit(record.id, record)">编辑</a-button>
+              <a-button type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
             </a-space>
           </template>
         </template>
@@ -52,9 +50,9 @@
     <!-- 新建/编辑弹窗 -->
     <a-modal
       v-model:open="modalVisible"
-      :title="editingVersion ? '编辑版本' : '新建版本'"
-      @ok="handleSubmit"
-      :confirm-loading="submitting"
+      :title="editingId ? '编辑版本' : '新建版本'"
+      @ok="submit"
+      :confirm-loading="modalLoading"
       width="600px"
     >
       <a-form :model="formData" layout="vertical">
@@ -101,9 +99,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUrlSearch } from '@/composables/useUrlSearch'
+import { useList } from '@/composables/useList'
+import { useCRUD } from '@/composables/useCRUD'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { formatDateTime, formatDate } from '@/utils/date'
@@ -116,15 +116,27 @@ const route = useRoute()
 const projectId = Number(route.params.id)
 const { loadFromUrl, syncToUrl } = useUrlSearch()
 
-const loading = ref(false)
-const submitting = ref(false)
-const versions = ref<ProjectVersion[]>([])
 const filterStatus = ref<string | undefined>(undefined)
-const pagination = ref({ current: 1, pageSize: 50, total: 0 })
 
-const modalVisible = ref(false)
-const editingVersion = ref<ProjectVersion | null>(null)
-const formData = ref<Partial<ProjectVersion>>({})
+// 使用 useList 封装分页列表逻辑
+const { loading, list, total, pagination, loadData: loadVersions, handleTableChange } = useList<ProjectVersion>(
+  async (params) => {
+    syncToUrl({ status: filterStatus.value })
+    return getVersions(projectId, {
+      status: filterStatus.value,
+      ...params,
+    })
+  },
+  { immediate: false },
+)
+
+const paginationConfig = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  total: total.value,
+  showSizeChanger: true,
+  showTotal: (t: number) => `共 ${t} 条`,
+}))
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -146,79 +158,43 @@ function statusText(s?: string) {
   return map[s || ''] || s
 }
 
-async function loadVersions() {
-  syncToUrl({ status: filterStatus.value })
-  loading.value = true
-  try {
-    const res = await getVersions(projectId, {
-      status: filterStatus.value,
-      page: pagination.value.current,
-      page_size: pagination.value.pageSize,
-    })
-    versions.value = res.items
-    pagination.value.total = res.total
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '加载版本列表失败')
-  } finally {
-    loading.value = false
-  }
-}
-
 function handleReset() {
   filterStatus.value = undefined
+  pagination.current = 1
   loadVersions()
 }
 
-function handleTableChange(pag: any) {
-  pagination.value.current = pag.current
-  pagination.value.pageSize = pag.pageSize
-  loadVersions()
+// 新建时的默认表单值
+const defaultForm: Partial<ProjectVersion> = {
+  name: '', description: '', status: 'draft', start_date: null, end_date: null, released_at: null,
 }
 
-function openCreateModal() {
-  editingVersion.value = null
-  formData.value = { name: '', description: '', status: 'draft', start_date: null, end_date: null, released_at: null }
-  modalVisible.value = true
-}
-
-function openEditModal(record: ProjectVersion) {
-  editingVersion.value = record
-  formData.value = { ...record }
-  modalVisible.value = true
-}
-
-async function handleSubmit() {
-  if (!formData.value.name) {
-    message.warning('请输入版本名称')
-    return
-  }
-  submitting.value = true
-  try {
-    if (editingVersion.value?.id) {
-      await updateVersion(projectId, editingVersion.value.id, formData.value)
-      message.success('更新成功')
-    } else {
-      await createVersion(projectId, formData.value as ProjectVersion)
-      message.success('创建成功')
+// 使用 useCRUD 封装新增/编辑/删除逻辑
+const {
+  modalVisible,
+  modalLoading,
+  editingId,
+  formData,
+  openCreate,
+  openEdit,
+  submit,
+  handleDelete,
+} = useCRUD<ProjectVersion>({
+  api: {
+    create: (data) => createVersion(projectId, data as ProjectVersion),
+    update: (id, data) => updateVersion(projectId, id, data),
+    remove: (id) => deleteVersion(projectId, id),
+  },
+  resourceName: '版本',
+  onSuccess: loadVersions,
+  beforeSubmit: () => {
+    if (!formData.name) {
+      message.warning('请输入版本名称')
+      return false
     }
-    modalVisible.value = false
-    loadVersions()
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '操作失败')
-  } finally {
-    submitting.value = false
-  }
-}
-
-async function handleDelete(id: number) {
-  try {
-    await deleteVersion(projectId, id)
-    message.success('删除成功')
-    loadVersions()
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '删除失败')
-  }
-}
+    return true
+  },
+})
 
 onMounted(() => {
   if (projectId) {

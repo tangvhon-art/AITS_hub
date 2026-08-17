@@ -17,7 +17,7 @@
           <a-button @click="handleReset">重置</a-button>
         </a-space>
       </div>
-      <a-table :columns="columns" :data-source="dataSource" :loading="loading" :pagination="pagination" row-key="id" @change="handleTableChange">
+      <a-table :columns="columns" :data-source="list" :loading="loading" :pagination="paginationConfig" row-key="id" @change="handleTableChange">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'data_type'">
             <a-tag :color="typeColor(record.data_type)">{{ typeText(record.data_type) }}</a-tag>
@@ -42,23 +42,42 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { dataPoolsApi, type TestDataPool } from '@/api/dataPools'
 import { useUrlSearch } from '@/composables/useUrlSearch'
+import { useList } from '@/composables/useList'
 
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
 const { loadFromUrl, syncToUrl } = useUrlSearch()
 
-const loading = ref(false)
 const keyword = ref('')
 const typeFilter = ref<string | undefined>(undefined)
-const dataSource = ref<TestDataPool[]>([])
-const pagination = ref({ current: 1, pageSize: 20, total: 0 })
+
+// 使用 useList 封装分页列表逻辑
+const { loading, list, total, pagination, loadData, handleTableChange } = useList<TestDataPool>(
+  async (params) => {
+    syncToUrl({ keyword: keyword.value, type: typeFilter.value })
+    return dataPoolsApi.list(projectId, {
+      ...params,
+      keyword: keyword.value || undefined,
+      data_type: typeFilter.value,
+    })
+  },
+  { immediate: false },
+)
+
+const paginationConfig = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  total: total.value,
+  showSizeChanger: true,
+  showTotal: (t: number) => `共 ${t} 条`,
+}))
 
 const previewVisible = ref(false)
 const previewData = ref<any[]>([])
@@ -77,33 +96,10 @@ const columns = [
 const typeColor = (t: string) => ({ static: 'blue', dynamic: 'green', generated: 'orange' })[t] || 'default'
 const typeText = (t: string) => ({ static: '静态数据', dynamic: '动态生成', generated: '自动生成' })[t] || t
 
-async function loadData() {
-  syncToUrl({ keyword: keyword.value, type: typeFilter.value })
-  loading.value = true
-  try {
-    const res = await dataPoolsApi.list(projectId, {
-      page: pagination.value.current,
-      page_size: pagination.value.pageSize,
-      keyword: keyword.value || undefined,
-      data_type: typeFilter.value,
-    })
-    dataSource.value = res.items
-    pagination.value.total = res.total
-  } catch { } finally {
-    loading.value = false
-  }
-}
-
-function handleTableChange(p: any) {
-  pagination.value.current = p.current
-  pagination.value.pageSize = p.pageSize
-  loadData()
-}
-
 function handleReset() {
   keyword.value = ''
   typeFilter.value = undefined
-  pagination.value.current = 1
+  pagination.current = 1
   loadData()
 }
 
