@@ -10,6 +10,10 @@
           <template #icon><HistoryOutlined /></template>
           历史
         </a-button>
+        <a-button @click="showCurlModal = true">
+          <template #icon><ImportOutlined /></template>
+          cURL 导入
+        </a-button>
         <a-button type="primary" ghost @click="showSaveModal = true">
           <template #icon><SaveOutlined /></template>
           保存为接口
@@ -208,6 +212,31 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- cURL 导入弹窗 -->
+    <a-modal
+      v-model:open="showCurlModal"
+      title="cURL 导入"
+      width="700px"
+      @ok="handleCurlImport"
+    >
+      <a-alert
+        type="info"
+        show-icon
+        message="粘贴 cURL 命令，支持 GET/POST/PUT/DELETE/PATCH，自动解析 URL、Headers、Body"
+        style="margin-bottom: 12px"
+      />
+      <a-textarea
+        v-model:value="curlText"
+        :rows="12"
+        placeholder="粘贴 cURL 命令，例如：
+curl 'http://localhost:5173/api/projects/3/requirements' \
+  -H 'Authorization: Bearer xxx' \
+  -H 'Content-Type: application/json' \
+  --data-raw '{&quot;title&quot;:&quot;测试&quot;}'"
+        style="font-family: monospace; font-size: 12px"
+      />
+    </a-modal>
   </div>
 </template>
 
@@ -215,7 +244,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { HistoryOutlined, SaveOutlined } from '@ant-design/icons-vue'
+import { HistoryOutlined, SaveOutlined, ImportOutlined } from '@ant-design/icons-vue'
 import { apiDebugApi, apiDefinitionsApi } from '@/api/apiTest'
 import { getEnvironments } from '@/api/environments'
 import { formatDateTime } from '@/utils/date'
@@ -236,6 +265,8 @@ const historyList = ref<any[]>([])
 const showSaveModal = ref(false)
 const saving = ref(false)
 const saveForm = ref({ name: '', description: '' })
+const showCurlModal = ref(false)
+const curlText = ref('')
 
 const request = ref<any>({
   method: 'GET',
@@ -309,6 +340,226 @@ const formatSize = (bytes: number) => {
 
 const formatBody = (body: string) => {
   try { return JSON.stringify(JSON.parse(body), null, 2) } catch { return body }
+}
+
+// ===== cURL 导入 =====
+
+function tokenizeCurl(input: string): string[] {
+  const tokens: string[] = []
+  let i = 0
+  const s = input.trim()
+  while (i < s.length) {
+    if (s[i] === ' ' || s[i] === '\t' || s[i] === '\n' || s[i] === '\r') {
+      i++
+      continue
+    }
+    if (s[i] === "'" || s[i] === '"') {
+      const quote = s[i]
+      i++
+      let val = ''
+      while (i < s.length && s[i] !== quote) {
+        if (s[i] === '\\' && quote === '"' && i + 1 < s.length) {
+          const next = s[i + 1]
+          if (next === '"' || next === '\\' || next === 'n' || next === 't') {
+            val += next === 'n' ? '\n' : next === 't' ? '\t' : next
+            i += 2
+            continue
+          }
+        }
+        val += s[i]
+        i++
+      }
+      i++
+      tokens.push(val)
+    } else {
+      let val = ''
+      while (i < s.length && s[i] !== ' ' && s[i] !== '\t' && s[i] !== '\n' && s[i] !== '\r') {
+        val += s[i]
+        i++
+      }
+      tokens.push(val)
+    }
+  }
+  return tokens
+}
+
+function parseCurl(curl: string): {
+  method: string
+  url: string
+  headers: { key: string; value: string; enabled: boolean }[]
+  body_type: string
+  body_content: any
+  query_params: { key: string; value: string; enabled: boolean }[]
+} {
+  // 合并多行（移除行尾反斜杠）
+  const joined = curl.replace(/\\\s*\n\s*/g, ' ').replace(/\\\s*\r\n\s*/g, ' ').trim()
+  const tokens = tokenizeCurl(joined)
+
+  let method = 'GET'
+  let url = ''
+  const headers: { key: string; value: string; enabled: boolean }[] = []
+  let bodyRaw = ''
+  let hasBody = false
+  let cookieStr = ''
+
+  let i = 0
+  // 跳过 curl 命令本身
+  if (tokens[0] && tokens[0].toLowerCase() === 'curl') {
+    i = 1
+  }
+
+  while (i < tokens.length) {
+    const tok = tokens[i]
+
+    if (tok === '-X' || tok === '--request') {
+      method = (tokens[i + 1] || '').toUpperCase()
+      i += 2
+    } else if (tok === '-H' || tok === '--header') {
+      const headerStr = tokens[i + 1] || ''
+      const colonIdx = headerStr.indexOf(':')
+      if (colonIdx > 0) {
+        headers.push({
+          key: headerStr.substring(0, colonIdx).trim(),
+          value: headerStr.substring(colonIdx + 1).trim(),
+          enabled: true,
+        })
+      }
+      i += 2
+    } else if (tok === '--data-raw' || tok === '--data' || tok === '-d' || tok === '--data-binary') {
+      bodyRaw = tokens[i + 1] || ''
+      hasBody = true
+      i += 2
+    } else if (tok === '-b' || tok === '--cookie') {
+      cookieStr = tokens[i + 1] || ''
+      i += 2
+    } else if (tok === '--compressed' || tok === '-k' || tok === '--insecure' || tok === '-L' || tok === '--location' || tok === '-v' || tok === '--verbose' || tok === '-s' || tok === '--silent') {
+      i++
+    } else if (tok.startsWith('-')) {
+      // 跳过未识别的 flag 及其参数
+      i++
+      // 如果下一个 token 不是 flag，可能是该 flag 的参数
+      if (i < tokens.length && !tokens[i].startsWith('-') && !tokens[i].startsWith("'") && !tokens[i].startsWith('"')) {
+        // 检查是否像 URL（包含 :// 或以 / 开头）
+        const nextTok = tokens[i]
+        if (nextTok.includes('://') || nextTok.startsWith('/')) {
+          // 可能是 URL，不跳过
+        } else {
+          i++
+        }
+      }
+    } else {
+      // 非 flag token → URL
+      if (!url && tok) {
+        url = tok
+      }
+      i++
+    }
+  }
+
+  // 如果有 body 但没指定 method，默认 POST
+  if (hasBody && method === 'GET') {
+    method = 'POST'
+  }
+
+  // Cookie 转为 header
+  if (cookieStr) {
+    headers.push({ key: 'Cookie', value: cookieStr, enabled: true })
+  }
+
+  // 解析 URL 中的 query params
+  const query_params: { key: string; value: string; enabled: boolean }[] = []
+  let cleanUrl = url
+  try {
+    const urlObj = new URL(url)
+    const searchParams = urlObj.searchParams
+    searchParams.forEach((val, key) => {
+      query_params.push({ key, value: val, enabled: true })
+    })
+    // URL 去掉 query string
+    cleanUrl = urlObj.origin + urlObj.pathname
+  } catch {
+    // 不是完整 URL，尝试手动解析 query string
+    const qIdx = url.indexOf('?')
+    if (qIdx > 0) {
+      cleanUrl = url.substring(0, qIdx)
+      const queryString = url.substring(qIdx + 1)
+      for (const pair of queryString.split('&')) {
+        const eqIdx = pair.indexOf('=')
+        if (eqIdx > 0) {
+          query_params.push({
+            key: decodeURIComponent(pair.substring(0, eqIdx)),
+            value: decodeURIComponent(pair.substring(eqIdx + 1)),
+            enabled: true,
+          })
+        }
+      }
+    }
+  }
+
+  // 解析 body
+  let body_type = 'none'
+  let body_content: any = null
+  if (hasBody && bodyRaw) {
+    const contentType = headers.find(h => h.key.toLowerCase() === 'content-type')
+    if (contentType?.value.includes('application/json')) {
+      body_type = 'json'
+      try {
+        body_content = JSON.parse(bodyRaw)
+      } catch {
+        body_content = bodyRaw
+      }
+    } else if (contentType?.value.includes('application/x-www-form-urlencoded')) {
+      body_type = 'x-www-form-urlencoded'
+      body_content = []
+      for (const pair of bodyRaw.split('&')) {
+        const eqIdx = pair.indexOf('=')
+        if (eqIdx > 0) {
+          body_content.push({
+            key: decodeURIComponent(pair.substring(0, eqIdx)),
+            value: decodeURIComponent(pair.substring(eqIdx + 1)),
+            enabled: true,
+          })
+        }
+      }
+    } else if (contentType?.value.includes('multipart/form-data')) {
+      body_type = 'form-data'
+      body_content = []
+      // multipart 解析较复杂，简化处理
+      body_content.push({ key: 'raw', value: bodyRaw, enabled: true })
+    } else {
+      body_type = 'raw'
+      body_content = bodyRaw
+    }
+  }
+
+  return { method, url: cleanUrl, headers, body_type, body_content, query_params }
+}
+
+function handleCurlImport() {
+  if (!curlText.value.trim()) {
+    message.warning('请粘贴 cURL 命令')
+    return
+  }
+  try {
+    const parsed = parseCurl(curlText.value)
+    request.value.method = parsed.method
+    request.value.url = parsed.url
+    request.value.headers = parsed.headers
+    request.value.query_params = parsed.query_params
+    request.value.body_type = parsed.body_type
+    request.value.body_content = parsed.body_content
+
+    if ((parsed.body_type === 'form-data' || parsed.body_type === 'x-www-form-urlencoded')
+        && Array.isArray(parsed.body_content)) {
+      bodyParams.value = parsed.body_content
+    }
+
+    showCurlModal.value = false
+    curlText.value = ''
+    message.success(`已导入 ${parsed.method} 请求，${parsed.headers.length} 个 Header，${parsed.query_params.length} 个参数`)
+  } catch (e: any) {
+    message.error('cURL 解析失败: ' + (e.message || '未知错误'))
+  }
 }
 
 const handleSend = async () => {
