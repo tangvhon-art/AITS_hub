@@ -38,6 +38,7 @@ from app.api.data_pools import router as data_pools_router
 from app.api.env_variables import router as env_variables_router
 from app.api.env_variables import compare_router as env_compare_router
 from app.api.prompts import router as prompts_router
+from app.api.notifications import router as notifications_router
 
 __all__ = [
     "auth_router",
@@ -80,4 +81,5 @@ __all__ = [
     "env_variables_router",
     "env_compare_router",
     "prompts_router",
+    "notifications_router",
 ]

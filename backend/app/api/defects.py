@@ -19,8 +19,19 @@ from app.schemas.defect import (
     DefectResponse,
     DefectListResponse,
 )
+from app.services.notification_service import notify_event
 
 router = APIRouter(prefix="/api/projects/{project_id}/defects", tags=["缺陷管理"])
+
+
+def _get_username(db: Session, user_id: Optional[int]) -> str:
+    """获取用户名称"""
+    if not user_id:
+        return "-"
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        return getattr(user, "username", None) or getattr(user, "name", None) or str(user_id)
+    return str(user_id)
 
 @router.get("", response_model=DefectListResponse)
 def list_defects(
@@ -111,6 +122,32 @@ def create_defect(
     )
     db.commit()
     db.refresh(defect)
+
+    # 发送缺陷创建通知
+    try:
+        related = "-"
+        if defect.case_id:
+            related = f"用例#{defect.case_id}"
+        elif defect.run_id:
+            related = f"执行记录#{defect.run_id}"
+        notify_event(
+            project_id,
+            "defect.created",
+            {
+                "defect_id": defect.id,
+                "title": defect.title,
+                "severity": defect.severity or "-",
+                "priority": defect.priority or "-",
+                "module_name": "-",
+                "creator_name": _get_username(db, current_user.id),
+                "related": related,
+            },
+            triggered_by=current_user.id,
+        )
+    except Exception as notify_e:
+        import logging
+        logging.getLogger(__name__).warning(f"发送缺陷创建通知失败: {notify_e}")
+
     return DefectResponse.model_validate(defect)
 
 @router.put("/{defect_id}", response_model=DefectResponse)
@@ -129,6 +166,7 @@ def update_defect(
         raise HTTPException(status_code=404, detail="缺陷不存在")
 
     old_data = {"title": defect.title, "status": defect.status, "severity": defect.severity, "assignee_id": defect.assignee_id}
+    old_assignee_id = defect.assignee_id
     update_data = defect_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(defect, key, value)
@@ -143,6 +181,25 @@ def update_defect(
     )
     db.commit()
     db.refresh(defect)
+
+    # 负责人变更时发送缺陷分配通知
+    try:
+        if "assignee_id" in update_data and old_assignee_id != defect.assignee_id:
+            notify_event(
+                project_id,
+                "defect.assigned",
+                {
+                    "defect_id": defect.id,
+                    "title": defect.title,
+                    "assignee_name": _get_username(db, defect.assignee_id),
+                    "severity": defect.severity or "-",
+                },
+                triggered_by=current_user.id,
+            )
+    except Exception as notify_e:
+        import logging
+        logging.getLogger(__name__).warning(f"发送缺陷分配通知失败: {notify_e}")
+
     return DefectResponse.model_validate(defect)
 
 @router.delete("/{defect_id}")
@@ -202,4 +259,32 @@ def update_defect_status(
     )
     db.commit()
     db.refresh(defect)
+
+    # 状态变更通知（resolved/closed/reopened）
+    try:
+        status_event_map = {
+            "resolved": "defect.resolved",
+            "closed": "defect.closed",
+            "reopened": "defect.reopened",
+        }
+        event_code = status_event_map.get(status)
+        if event_code and old_status != status:
+            notify_event(
+                project_id,
+                event_code,
+                {
+                    "defect_id": defect.id,
+                    "title": defect.title,
+                    "old_status": old_status,
+                    "new_status": status,
+                    "operator_name": _get_username(db, current_user.id),
+                    "severity": defect.severity or "-",
+                    "assignee_name": _get_username(db, defect.assignee_id),
+                },
+                triggered_by=current_user.id,
+            )
+    except Exception as notify_e:
+        import logging
+        logging.getLogger(__name__).warning(f"发送缺陷状态变更通知失败: {notify_e}")
+
     return DefectResponse.model_validate(defect)

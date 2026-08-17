@@ -14,6 +14,7 @@ from app.models.project import Project
 from app.models.api_test import ApiDefinition, ApiModule
 from app.schemas.api_test import ApiImportRequest, ApiImportPreviewResponse
 from app.services.importers import get_importer, get_supported_formats
+from app.services.notification_service import notify_event
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-import", tags=["接口测试-导入"])
 
@@ -145,5 +146,24 @@ async def import_apis(
         detail={"project_id": project_id, "import_type": import_type, "imported_count": imported_count},
     )
     db.commit()
+
+    # 发送接口导入完成通知
+    try:
+        notify_event(
+            project_id,
+            "api.import.completed",
+            {
+                "file_name": file.filename or "导入文件",
+                "import_type": import_type,
+                "created_count": imported_count,
+                "updated_count": 0,
+                "failed_count": max(0, len(imported_apis) - imported_count),
+                "errors": [],
+            },
+            triggered_by=current_user.id,
+        )
+    except Exception as notify_e:
+        import logging
+        logging.getLogger(__name__).warning(f"发送接口导入通知失败: {notify_e}")
 
     return {"success": True, "imported_count": imported_count, "total": len(imported_apis)}

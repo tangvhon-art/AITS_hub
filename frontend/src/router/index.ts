@@ -223,6 +223,24 @@ const routes: RouteRecordRaw[] = [
         name: 'TaskMonitor',
         component: () => import('@/views/TaskMonitor.vue'),
         meta: { title: '任务监控', icon: 'MonitorOutlined' }
+      },
+      {
+        path: 'notification/channels',
+        name: 'NotificationChannels',
+        component: () => import('@/views/notification/NotificationChannels.vue'),
+        meta: { title: '通知渠道', icon: 'BellOutlined' }
+      },
+      {
+        path: 'notification/rules',
+        name: 'NotificationRules',
+        component: () => import('@/views/notification/NotificationRules.vue'),
+        meta: { title: '通知规则', icon: 'BellOutlined' }
+      },
+      {
+        path: 'notification/records',
+        name: 'NotificationRecords',
+        component: () => import('@/views/notification/NotificationRecords.vue'),
+        meta: { title: '通知记录', icon: 'BellOutlined' }
       }
     ]
   }

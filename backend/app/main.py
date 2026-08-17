@@ -46,6 +46,7 @@ from app.api import (
     env_variables_router,
     env_compare_router,
     prompts_router,
+    notifications_router,
 )
 
 logging.basicConfig(
@@ -100,6 +101,7 @@ async def lifespan(app: FastAPI):
         CoverageConfig, CoverageSnapshot,
         TestDataPool, EnvironmentVariableOverride,
         Prompt,
+        NotificationChannel, NotificationRule, NotificationRecord,
     )
     Base.metadata.create_all(bind=engine)
     _auto_migrate(engine)
@@ -168,6 +170,7 @@ app.include_router(data_pools_router)
 app.include_router(env_variables_router)
 app.include_router(env_compare_router)
 app.include_router(prompts_router)
+app.include_router(notifications_router)
 
 
 @app.get("/api/health", tags=["系统"])

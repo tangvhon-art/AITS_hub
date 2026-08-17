@@ -29,6 +29,7 @@ from app.services.variable_engine import VariableEngine
 from app.services.assertion_engine import AssertionEngine, AssertionResult
 from app.services.script_engine import ScriptEngine
 from app.services.scenario_executor import ScenarioExecutor
+from app.services.notification_service import notify_event
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,46 @@ def _run_test_plan_execution(execution_id: int):
             f"skipped={execution.skipped_count}, pass_rate={execution.pass_rate}%, "
             f"stopped_families={stopped_families}"
         )
+
+        # 发送通知（异步，不阻塞）
+        try:
+            env_name = "默认环境"
+            if plan.environment_id:
+                env_obj = db.query(TestEnvironment).filter(TestEnvironment.id == plan.environment_id).first()
+                if env_obj:
+                    env_name = env_obj.name
+            duration = 0.0
+            if execution.started_at and execution.finished_at:
+                duration = round((execution.finished_at - execution.started_at).total_seconds(), 2)
+            failed_nodes = []
+            if execution.failed_count and execution.failed_count > 0:
+                failed_results = db.query(TestPlanExecutionResult).filter(
+                    TestPlanExecutionResult.execution_id == execution_id,
+                    TestPlanExecutionResult.status.in_(["failed", "error"]),
+                ).order_by(TestPlanExecutionResult.sort_order).limit(20).all()
+                failed_nodes = [r.item_name for r in failed_results if r.item_name]
+
+            event_code = "plan.execution.failed" if execution.failed_count and execution.failed_count > 0 else "plan.execution.completed"
+            notify_event(
+                plan.project_id,
+                event_code,
+                {
+                    "plan_id": plan.id,
+                    "plan_name": plan.name,
+                    "execution_id": execution.id,
+                    "environment_name": env_name,
+                    "total_count": total,
+                    "passed_count": execution.passed_count or 0,
+                    "failed_count": execution.failed_count or 0,
+                    "skipped_count": execution.skipped_count or 0,
+                    "pass_rate": execution.pass_rate or 0,
+                    "duration": duration,
+                    "failed_nodes": failed_nodes,
+                },
+                triggered_by=execution.triggered_by,
+            )
+        except Exception as notify_e:
+            logger.warning(f"发送测试计划通知失败（不影响业务）: {notify_e}")
 
     except Exception as e:
         logger.exception(f"测试计划执行异常: {e}")

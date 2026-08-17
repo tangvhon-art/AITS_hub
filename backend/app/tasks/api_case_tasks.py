@@ -11,6 +11,7 @@ from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
 from app.models.api_test import ApiDefinition
 from app.services.api_case_generator import ApiCaseGenerator
+from app.services.notification_service import notify_event, notify_ai_task_failed
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,26 @@ def generate_api_cases_task(self, task_id: int):
 
         logger.info(f"AI生成用例任务完成: task_id={task_id}, count={len(cases_data)}")
 
+        # 发送AI接口用例生成完成通知
+        try:
+            duration = 0.0
+            if task.created_at and task.completed_at:
+                duration = round((task.completed_at - task.created_at).total_seconds(), 2)
+            notify_event(
+                task.project_id,
+                "ai.api_case.generated",
+                {
+                    "source_name": api_def.name if api_def else "接口",
+                    "strategy": strategy,
+                    "success_count": len(cases_data),
+                    "failed_count": 0,
+                    "duration": duration,
+                },
+                triggered_by=task.created_by,
+            )
+        except Exception as notify_e:
+            logger.warning(f"发送接口用例生成通知失败: {notify_e}")
+
     except Exception as e:
         logger.error(f"AI生成用例任务失败: task_id={task_id}, error={e}", exc_info=True)
         try:
@@ -132,6 +153,13 @@ def generate_api_cases_task(self, task_id: int):
                 task.error_message = str(e)[:500]
                 task.completed_at = china_now_naive()
                 db.commit()
+                notify_ai_task_failed(
+                    task.project_id,
+                    task_type="接口用例生成",
+                    error=str(e),
+                    related_object="接口测试用例生成",
+                    triggered_by=task.created_by,
+                )
         except Exception:
             pass
     finally:

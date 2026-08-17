@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: str = "http://localhost:5173"
 
+    # 前端基础地址（用于通知卡片按钮跳转链接）
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
+
     DEFAULT_LLM_PROVIDER: str = "openai_compatible"
     DEFAULT_LLM_BASE_URL: str = "https://api.deepseek.com/v1"
     DEFAULT_LLM_API_KEY: str = ""

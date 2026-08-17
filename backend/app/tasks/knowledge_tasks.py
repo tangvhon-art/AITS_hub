@@ -11,6 +11,7 @@ from app.models.knowledge_doc import KnowledgeDoc
 from app.models.agent_task import AgentTask
 from app.services.knowledge_base import knowledge_base_service
 from app.core.timezone import china_now_naive
+from app.services.notification_service import notify_event, notify_ai_task_failed
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,34 @@ def process_knowledge_doc_task(self, doc_id: int, project_id: int, agent_task_id
                 agent_task.completed_at = china_now_naive()
 
         db.commit()
+
+        # 发送知识库文档处理完成通知
+        try:
+            file_type = getattr(doc, "file_type", None) or "-"
+            file_size = getattr(doc, "file_size", None)
+            file_size_str = f"{round(file_size / 1024, 1)}KB" if file_size else "-"
+            kb_triggered_by = None
+            if agent_task_id:
+                at = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+                if at:
+                    kb_triggered_by = at.created_by
+            notify_event(
+                project_id,
+                "knowledge.doc_processed",
+                {
+                    "doc_id": doc.id,
+                    "doc_name": doc.title,
+                    "file_type": file_type,
+                    "file_size": file_size_str,
+                    "success": bool(result.get("success")),
+                    "chunk_count": result.get("chunk_count", 0),
+                    "error": result.get("error", ""),
+                },
+                triggered_by=kb_triggered_by,
+            )
+        except Exception as notify_e:
+            logger.warning(f"发送知识库处理通知失败: {notify_e}")
+
         return {
             "status": "success" if result.get("success") else "failed",
             "doc_id": doc_id,
@@ -84,6 +113,13 @@ def process_knowledge_doc_task(self, doc_id: int, project_id: int, agent_task_id
                     agent_task.status = "failed"
                     agent_task.error_message = str(e)
                     agent_task.completed_at = china_now_naive()
+                    notify_ai_task_failed(
+                        project_id,
+                        task_type="知识库文档处理",
+                        error=str(e),
+                        related_object=doc.title if doc else "知识库文档",
+                        triggered_by=agent_task.created_by,
+                    )
             db.commit()
         except Exception:
             pass

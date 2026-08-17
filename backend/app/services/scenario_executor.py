@@ -156,7 +156,7 @@ class ScenarioExecutor:
         total = len(self.results)
         pass_rate = (passed / total * 100) if total > 0 else 0
 
-        return {
+        exec_result = {
             "total_steps": total,
             "passed_steps": passed,
             "failed_steps": failed,
@@ -167,6 +167,31 @@ class ScenarioExecutor:
             "status": "passed" if failed == 0 else ("partial" if passed > 0 else "failed"),
             "results": [r.to_dict() for r in self.results],
         }
+
+        # 独立场景执行（非测试计划内）时发送通知
+        project_id = scenario.get("project_id")
+        if project_id:
+            try:
+                from app.services.notification_service import notify_event
+                notify_event(
+                    project_id,
+                    "api.scenario.completed",
+                    {
+                        "scenario_id": scenario.get("id"),
+                        "scenario_name": scenario.get("name", ""),
+                        "execution_id": scenario.get("execution_id"),
+                        "environment_name": scenario.get("environment_name", "默认环境"),
+                        "total_steps": exec_result["total_steps"],
+                        "passed_steps": exec_result["passed_steps"],
+                        "failed_steps": exec_result["failed_steps"],
+                        "total_duration": exec_result["total_duration"],
+                    },
+                    triggered_by=scenario.get("triggered_by"),
+                )
+            except Exception as notify_e:
+                logger.warning(f"发送场景执行通知失败（不影响业务）: {notify_e}")
+
+        return exec_result
 
     async def _execute_step(self, step: Dict[str, Any], index: int) -> StepExecutionResult:
         """执行单个步骤"""

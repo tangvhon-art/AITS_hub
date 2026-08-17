@@ -13,6 +13,7 @@ from app.services.script_runner import (
     apply_headless_mode as _apply_headless_mode,
     execute_script_with_ai_fix,
 )
+from app.services.notification_service import notify_event
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,42 @@ def run_automation_suite_task(self, suite_run_id: int, headless: bool = True):
         executor = SuiteExecutor(suite_run_id, headless=headless)
         asyncio.run(executor.execute())
         logger.info(f"编排任务执行完成: suite_run_id={suite_run_id}")
+
+        # 发送套件完成通知
+        try:
+            db = SessionLocal()
+            try:
+                run = db.query(AutomationSuiteRun).filter(
+                    AutomationSuiteRun.id == suite_run_id
+                ).first()
+                if run:
+                    from app.models.automation_suite import AutomationSuite
+                    suite = db.query(AutomationSuite).filter(
+                        AutomationSuite.id == run.suite_id
+                    ).first()
+                    duration = 0.0
+                    if run.started_at and run.completed_at:
+                        duration = round((run.completed_at - run.started_at).total_seconds(), 2)
+                    notify_event(
+                        run.project_id,
+                        "ui.suite.completed",
+                        {
+                            "suite_id": run.suite_id,
+                            "suite_name": suite.name if suite else "未知套件",
+                            "run_id": run.id,
+                            "total_steps": run.total_steps or 0,
+                            "passed_steps": run.passed_steps or 0,
+                            "failed_steps": run.failed_steps or 0,
+                            "duration": duration,
+                            "ai_fix_count": getattr(run, "ai_fix_count", 0) or 0,
+                        },
+                        triggered_by=getattr(run, "triggered_by", None),
+                    )
+            finally:
+                db.close()
+        except Exception as notify_e:
+            logger.warning(f"发送套件完成通知失败（不影响业务）: {notify_e}")
+
         return {"status": "completed", "suite_run_id": suite_run_id}
     except Exception as e:
         logger.error(f"编排任务执行异常: suite_run_id={suite_run_id}, error={e}", exc_info=True)
@@ -88,6 +125,27 @@ def run_automation_script_task(
                 executor="celery",
             )
         )
+
+        # 单脚本执行失败时发送通知（成功不通知，避免刷屏）
+        try:
+            if result and not result.get("success", False):
+                notify_event(
+                    project_id,
+                    "ui.script.failed",
+                    {
+                        "script_id": script_id,
+                        "script_name": script_name,
+                        "run_id": run_id,
+                        "failed_step": result.get("failed_step", "-"),
+                        "error": result.get("error") or result.get("error_message", "脚本执行失败"),
+                        "ai_fix_triggered": bool(result.get("ai_fix_triggered", False)),
+                        "ai_fix_result": result.get("ai_fix_result", "-"),
+                        "duration": result.get("duration", 0),
+                    },
+                )
+        except Exception as notify_e:
+            logger.warning(f"发送脚本失败通知失败（不影响业务）: {notify_e}")
+
         return result
     except Exception as e:
         logger.error(f"Celery任务执行脚本异常: {e}", exc_info=True)
@@ -99,6 +157,22 @@ def run_automation_script_task(
                 run.error_message = f"任务执行异常: {str(e)}"
                 run.completed_at = china_now_naive()
                 db.commit()
+
+            # 异常也发送失败通知
+            notify_event(
+                project_id,
+                "ui.script.failed",
+                {
+                    "script_id": script_id,
+                    "script_name": script_name,
+                    "run_id": run_id,
+                    "failed_step": "-",
+                    "error": str(e),
+                    "ai_fix_triggered": False,
+                    "ai_fix_result": "-",
+                    "duration": 0,
+                },
+            )
         except Exception:
             pass
         return {"status": "failed", "error": str(e)}

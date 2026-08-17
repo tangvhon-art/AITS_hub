@@ -7,16 +7,28 @@
       </div>
       <a-menu
         v-model:selectedKeys="selectedKeys"
+        v-model:openKeys="openKeys"
         mode="inline"
         @click="handleMenuClick"
         class="sider-menu"
       >
-        <a-menu-item v-for="item in globalMenus" :key="item.key">
-          <template #icon>
-            <component :is="iconMap[item.icon || 'RobotOutlined']" />
-          </template>
-          <span>{{ item.title }}</span>
-        </a-menu-item>
+        <template v-for="item in globalMenus" :key="item.key">
+          <a-sub-menu v-if="item.children && item.children.length" :key="item.key">
+            <template #icon>
+              <component :is="iconMap[item.icon || 'BellOutlined']" />
+            </template>
+            <template #title>{{ item.title }}</template>
+            <a-menu-item v-for="child in item.children" :key="child.key">
+              <span>{{ child.title }}</span>
+            </a-menu-item>
+          </a-sub-menu>
+          <a-menu-item v-else :key="item.key">
+            <template #icon>
+              <component :is="iconMap[item.icon || 'RobotOutlined']" />
+            </template>
+            <span>{{ item.title }}</span>
+          </a-menu-item>
+        </template>
         <a-menu-divider v-if="projectMenus.length > 0" />
         <a-menu-item v-for="item in projectMenus" :key="item.key">
           <template #icon>
@@ -110,7 +122,8 @@ import {
   DatabaseOutlined,
   SafetyCertificateOutlined,
   MessageOutlined,
-  AuditOutlined
+  AuditOutlined,
+  BellOutlined
 } from '@ant-design/icons-vue'
 
 // 图标名 → 组件映射，供路由派生菜单动态渲染
@@ -120,7 +133,7 @@ const iconMap: Record<string, any> = {
   BookOutlined, RobotOutlined, ScheduleOutlined, DashboardOutlined,
   ImportOutlined, FileSearchOutlined, TagOutlined, MonitorOutlined,
   ApiOutlined, ThunderboltOutlined, DatabaseOutlined, SafetyCertificateOutlined,
-  MessageOutlined, AuditOutlined,
+  MessageOutlined, AuditOutlined, BellOutlined,
 }
 
 interface TabItem {
@@ -135,6 +148,7 @@ const userStore = useUserStore()
 
 const collapsed = ref(false)
 const selectedKeys = ref<string[]>([route.path])
+const openKeys = ref<string[]>(route.path.startsWith('/notification/') ? ['/notification'] : [])
 const openTabs = ref<TabItem[]>([])
 
 const currentProjectId = computed(() => route.params.id as string)

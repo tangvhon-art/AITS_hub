@@ -20,10 +20,15 @@ celery_app = Celery(
         "app.tasks.performance_tasks",
         "app.tasks.api_doc_tasks",
         "app.tasks.case_tasks",
+        "app.tasks.notification_tasks",
+        "app.tasks.requirement_tasks",
+        "app.tasks.knowledge_tasks",
+        "app.tasks.report_tasks",
     ],
 )
 
-celery_app.autodiscover_tasks(["app.tasks"])
+# 导入任务包，触发 __init__.py 注册全部任务（worker / FastAPI / 脚本均生效）
+import app.tasks  # noqa: E402
 
 # Celery 配置
 celery_app.conf.update(
@@ -51,6 +56,9 @@ celery_app.conf.update(
     # 日志
     worker_log_format="[%(asctime)s] [%(levelname)s] [%(processName)s] %(message)s",
     worker_task_log_format="[%(asctime)s] [%(levelname)s] [%(task_name)s:%(task_id)s] %(message)s",
+    # 启用事件发送，Flower 依赖事件流检测 worker 和任务状态
+    worker_send_task_events=True,
+    task_send_sent_event=True,
 )
 
 

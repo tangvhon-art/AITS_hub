@@ -35,6 +35,7 @@ from app.models.performance_test import PerformanceTest, PerformanceTestRun
 from app.models.test_coverage import CoverageConfig, CoverageSnapshot
 from app.models.test_data_pool import TestDataPool, EnvironmentVariableOverride
 from app.models.prompt import Prompt
+from app.models.notification import NotificationChannel, NotificationRule, NotificationRecord
 
 __all__ = [
     "User",
@@ -78,4 +79,7 @@ __all__ = [
     "TestDataPool",
     "EnvironmentVariableOverride",
     "Prompt",
+    "NotificationChannel",
+    "NotificationRule",
+    "NotificationRecord",
 ]

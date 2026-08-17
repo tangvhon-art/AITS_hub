@@ -12,6 +12,7 @@ from app.models.test_case import TestCase
 from app.models.project import Project
 from app.models.requirement import TestRequirement
 from app.agents.case_generator import CaseGeneratorAgent
+from app.services.notification_service import notify_event, notify_ai_task_failed
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,27 @@ def generate_cases_task(self, task_id: int):
 
         logger.info(f"用例生成任务完成: task_id={task_id}, saved={cases_saved}")
 
+        # 发送AI用例生成完成通知
+        try:
+            duration = 0.0
+            if task.created_at and task.completed_at:
+                duration = round((task.completed_at - task.created_at).total_seconds(), 2)
+            source_name = requirement_title or "需求"
+            notify_event(
+                project_id,
+                "ai.case.generated",
+                {
+                    "source_name": source_name,
+                    "strategy": input_params.get("strategy", "comprehensive"),
+                    "success_count": cases_saved,
+                    "failed_count": len(save_errors),
+                    "duration": duration,
+                },
+                triggered_by=task.created_by,
+            )
+        except Exception as notify_e:
+            logger.warning(f"发送用例生成通知失败: {notify_e}")
+
     except Exception as e:
         logger.error(f"用例生成任务失败: task_id={task_id}, error={e}", exc_info=True)
         try:
@@ -129,6 +151,13 @@ def generate_cases_task(self, task_id: int):
                 task.error_message = str(e)[:500]
                 task.completed_at = china_now_naive()
                 db.commit()
+                notify_ai_task_failed(
+                    task.project_id,
+                    task_type="功能用例生成",
+                    error=str(e),
+                    related_object="测试用例生成",
+                    triggered_by=task.created_by,
+                )
         except Exception:
             pass
     finally:

@@ -11,6 +11,7 @@ from app.models.report import TestReport
 from app.models.agent_task import AgentTask
 from app.agents.report_generator import ReportGeneratorAgent
 from app.core.timezone import china_now_naive
+from app.services.notification_service import notify_event, notify_ai_task_failed
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,37 @@ def generate_test_report_task(
         db.commit()
         logger.info(f"测试报告生成成功: report_id={report_id}, pass_rate={report.pass_rate}%")
 
+        # 发送AI报告生成完成通知
+        try:
+            version_name = "-"
+            if version_id:
+                from app.models.project_version import ProjectVersion
+                ver = db.query(ProjectVersion).filter(ProjectVersion.id == version_id).first()
+                if ver:
+                    version_name = ver.name
+            type_map = {"daily": "日报", "weekly": "周报", "monthly": "月报", "version": "版本报告"}
+            period = type_map.get(report_type, report_type)
+            report_triggered_by = None
+            if agent_task_id:
+                at = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+                if at:
+                    report_triggered_by = at.created_by
+            notify_event(
+                project_id,
+                "ai.report.generated",
+                {
+                    "report_id": report.id,
+                    "report_name": title,
+                    "version_name": version_name,
+                    "period": period,
+                    "pass_rate": report.pass_rate or 0,
+                    "defect_count": report.total_defects or 0,
+                },
+                triggered_by=report_triggered_by,
+            )
+        except Exception as notify_e:
+            logger.warning(f"发送报告生成通知失败: {notify_e}")
+
         return {
             "status": "success",
             "report_id": report_id,
@@ -121,6 +153,13 @@ def generate_test_report_task(
                     agent_task.status = "failed"
                     agent_task.error_message = str(e)
                     agent_task.completed_at = china_now_naive()
+                    notify_ai_task_failed(
+                        project_id,
+                        task_type="测试报告生成",
+                        error=str(e),
+                        related_object=title,
+                        triggered_by=agent_task.created_by,
+                    )
             db.commit()
         except Exception:
             pass

@@ -18,11 +18,41 @@ export interface MenuItem {
   title: string
   icon?: string
   projectScoped: boolean
+  children?: MenuItem[]
 }
 
 /** 判断路由是否为项目级（路径含动态项目 ID 参数） */
 function isProjectScoped(route: RouteRecordRaw): boolean {
   return route.path.includes(':id') || route.path.includes(':projectId')
+}
+
+/**
+ * 将扁平路由归组为带子菜单的结构。
+ * 目前通知中心（notification/ 前缀）归组为一个父菜单。
+ */
+function groupMenuItems(items: MenuItem[]): MenuItem[] {
+  const result: MenuItem[] = []
+  const notificationChildren: MenuItem[] = []
+
+  for (const item of items) {
+    if (item.key.startsWith('/notification/')) {
+      notificationChildren.push(item)
+    } else {
+      result.push(item)
+    }
+  }
+
+  if (notificationChildren.length > 0) {
+    result.push({
+      key: '/notification',
+      title: '通知中心',
+      icon: 'BellOutlined',
+      projectScoped: false,
+      children: notificationChildren,
+    })
+  }
+
+  return result
 }
 
 /** 从路由配置中提取菜单项 */
@@ -51,7 +81,7 @@ function extractMenuItems(routes: RouteRecordRaw[]): MenuItem[] {
       projectScoped: isProjectScoped(route),
     })
   }
-  return items
+  return groupMenuItems(items)
 }
 
 /**

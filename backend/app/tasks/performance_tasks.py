@@ -1,6 +1,7 @@
 import logging
 from app.celery_app import celery_app
 from app.database import SessionLocal
+from app.services.notification_service import notify_event
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,39 @@ def run_performance_test_task(
             test_data=test_data,
         )
         logger.info(f"性能测试执行完成: run_id={run_id}, status={result.get('status')}")
+
+        # 发送性能测试完成通知
+        try:
+            from app.models.performance_test import PerformanceTest, PerformanceTestRun
+            run = db.query(PerformanceTestRun).filter(PerformanceTestRun.id == run_id).first()
+            if run:
+                test = db.query(PerformanceTest).filter(PerformanceTest.id == run.test_id).first()
+                metrics = run.metrics or {}
+                summary = metrics.get("summary", {}) if isinstance(metrics, dict) else {}
+                duration_s = 0
+                if run.started_at and run.finished_at:
+                    duration_s = round((run.finished_at - run.started_at).total_seconds(), 2)
+                notify_event(
+                    test.project_id if test else None,
+                    "performance.completed",
+                    {
+                        "test_id": run.test_id,
+                        "run_id": run.id,
+                        "test_name": test.name if test else "性能测试",
+                        "virtual_users": test_config.get("virtual_users", test_config.get("vus", 0)),
+                        "duration": test_config.get("duration", test_config.get("hold_seconds", duration_s)),
+                        "total_requests": summary.get("total_requests", metrics.get("total_requests", 0)),
+                        "rps": summary.get("rps", metrics.get("rps", 0)),
+                        "avg_response_time": summary.get("avg_response_time", metrics.get("avg_response_time", 0)),
+                        "p95_response_time": summary.get("p95_response_time", metrics.get("p95_response_time", 0)),
+                        "p99_response_time": summary.get("p99_response_time", metrics.get("p99_response_time", 0)),
+                        "failure_rate": summary.get("failure_rate", metrics.get("failure_rate", 0)),
+                    },
+                    triggered_by=getattr(run, "triggered_by", None),
+                )
+        except Exception as notify_e:
+            logger.warning(f"发送性能测试通知失败（不影响业务）: {notify_e}")
+
         return result
     except Exception as e:
         logger.error(f"性能测试执行失败: run_id={run_id}, error={e}", exc_info=True)

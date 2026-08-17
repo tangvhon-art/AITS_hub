@@ -76,12 +76,57 @@ fi
 
 PIDS=()
 
+# 停止所有 AITS 相关进程（Celery worker/子进程、Flower、uvicorn、vite）
+stop_existing() {
+    echo ">>> 检查并停止已有 AITS 进程..."
+    local found=false
+
+    # Celery worker 及其 fork 子进程
+    if pgrep -f "celery.*app\.celery_app\.celery_app worker" > /dev/null 2>&1; then
+        pkill -f "celery.*app\.celery_app\.celery_app worker" 2>/dev/null || true
+        found=true
+        echo "    已停止 Celery Worker"
+    fi
+
+    # Flower
+    if pgrep -f "celery.*app\.celery_app\.celery_app flower" > /dev/null 2>&1; then
+        pkill -f "celery.*app\.celery_app\.celery_app flower" 2>/dev/null || true
+        found=true
+        echo "    已停止 Flower"
+    fi
+
+    # 后端 uvicorn
+    if pgrep -f "uvicorn app\.main:app" > /dev/null 2>&1; then
+        pkill -f "uvicorn app\.main:app" 2>/dev/null || true
+        found=true
+        echo "    已停止后端 (uvicorn)"
+    fi
+
+    # 前端 vite
+    if pgrep -f "vite" > /dev/null 2>&1; then
+        pkill -f "vite" 2>/dev/null || true
+        found=true
+        echo "    已停止前端 (vite)"
+    fi
+
+    if [ "$found" = true ]; then
+        sleep 2
+        echo "    旧进程已全部终止"
+    else
+        echo "    无残留进程"
+    fi
+}
+
 cleanup() {
     echo ""
     echo "正在停止所有服务..."
     for pid in "${PIDS[@]}"; do
         kill "$pid" 2>/dev/null || true
     done
+    # 确保子进程也被清理
+    pkill -f "celery.*app\.celery_app\.celery_app" 2>/dev/null || true
+    pkill -f "uvicorn app\.main:app" 2>/dev/null || true
+    pkill -f "vite" 2>/dev/null || true
     wait 2>/dev/null
     echo "已停止"
     exit 0
@@ -93,6 +138,9 @@ echo "╔═══════════════════════�
 echo "║    AITS 智能测试管理平台 - 启动中     ║"
 echo "╚═══════════════════════════════════════╝"
 echo ""
+
+# 先停止所有已有进程，避免端口冲突和重复 worker
+stop_existing
 
 # 检查并启动 Redis（Celery 依赖）
 if [ "$START_CELERY" = true ]; then
@@ -114,8 +162,7 @@ fi
 if [ "$START_CELERY" = true ]; then
     echo ">>> 启动 Celery Worker (concurrency=$CELERY_CONCURRENCY)..."
     cd "$SCRIPT_DIR/backend"
-    source venv/bin/activate
-    celery -A app.celery_app.celery_app worker \
+    PYTHONHOME= PYTHONPATH= ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
         --concurrency="$CELERY_CONCURRENCY" \
         --hostname=aits-worker@%h \
@@ -123,21 +170,22 @@ if [ "$START_CELERY" = true ]; then
         --max-tasks-per-child=100 \
         --time-limit=600 &
     PIDS+=($!)
-    deactivate
     cd "$SCRIPT_DIR"
+    # 等待 Worker 连接 Redis 并开始发送事件，Flower 依赖事件流检测 Worker
+    echo "    等待 Worker 初始化..."
+    sleep 5
 fi
 
 # 启动 Flower 监控面板
 if [ "$START_FLOWER" = true ]; then
     echo ">>> 启动 Flower 监控面板 (port=$PORT_FLOWER)..."
     cd "$SCRIPT_DIR/backend"
-    source venv/bin/activate
-    FLOWER_UNAUTHENTICATED_API=true celery -A app.celery_app.celery_app flower \
+    PYTHONHOME= PYTHONPATH= FLOWER_UNAUTHENTICATED_API=true ./venv/bin/celery \
+        -A app.celery_app.celery_app flower \
         --port="$PORT_FLOWER" \
         --conf=flowerconfig.py \
         --auto_refresh=true &
     PIDS+=($!)
-    deactivate
     cd "$SCRIPT_DIR"
 fi
 

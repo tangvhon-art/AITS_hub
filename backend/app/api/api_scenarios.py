@@ -471,6 +471,10 @@ async def run_scenario(
         "name": scenario.name,
         "pre_script": scenario.pre_script,
         "post_script": scenario.post_script,
+        "project_id": project_id,
+        "execution_id": execution.id,
+        "environment_name": environment.name if environment else "默认环境",
+        "triggered_by": current_user.id,
     }
     steps_dict = [
         {

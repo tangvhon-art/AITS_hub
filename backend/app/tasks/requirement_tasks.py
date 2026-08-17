@@ -10,6 +10,7 @@ from app.models.agent_task import AgentTask
 from app.models.requirement import TestRequirement
 from app.models.project import Project
 from app.agents.requirement_generator import RequirementGeneratorAgent
+from app.services.notification_service import notify_event, notify_ai_task_failed
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,32 @@ def generate_requirement_task(self, task_id: int):
 
         logger.info(f"需求生成任务完成: task_id={task_id}, requirement_id={requirement.id}")
 
+        # 发送AI需求生成完成通知
+        try:
+            duration = 0.0
+            if task.created_at and task.completed_at:
+                duration = round((task.completed_at - task.created_at).total_seconds(), 2)
+            version_name = "-"
+            if version_id:
+                from app.models.project_version import ProjectVersion
+                ver = db.query(ProjectVersion).filter(ProjectVersion.id == version_id).first()
+                if ver:
+                    version_name = ver.name
+            notify_event(
+                project_id,
+                "ai.requirement.generated",
+                {
+                    "requirement_id": requirement.id,
+                    "requirement_title": requirement.title,
+                    "version_name": version_name,
+                    "success": True,
+                    "duration": duration,
+                },
+                triggered_by=task.created_by,
+            )
+        except Exception as notify_e:
+            logger.warning(f"发送需求生成通知失败: {notify_e}")
+
     except Exception as e:
         logger.error(f"需求生成任务失败: task_id={task_id}, error={e}", exc_info=True)
         try:
@@ -91,6 +118,14 @@ def generate_requirement_task(self, task_id: int):
                 task.error_message = str(e)[:500]
                 task.completed_at = china_now_naive()
                 db.commit()
+                # 发送AI任务失败通知
+                notify_ai_task_failed(
+                    task.project_id,
+                    task_type="需求生成",
+                    error=str(e),
+                    related_object="需求文档生成",
+                    triggered_by=task.created_by,
+                )
         except Exception:
             pass
     finally:
