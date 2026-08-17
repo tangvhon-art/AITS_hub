@@ -48,14 +48,69 @@ def _repair_json_newlines(candidate: str) -> str:
     return ''.join(repaired)
 
 
+def _repair_array_as_object(candidate: str) -> str:
+    """
+    修复 LLM 常见的把对象花括号 {} 误写为数组方括号 [] 的问题。
+
+    典型场景：LLM 输出 "cases": [["title": "...", ...]] 而非 [{"title": "...", ...}]
+    策略：使用括号匹配算法，当 [ 后紧跟 "key": 模式时，将 [ 及其对应的 ] 替换为 {} 。
+    """
+    result = list(candidate)
+    stack: list = []  # (position, should_convert_to_brace)
+    i = 0
+    n = len(candidate)
+    while i < n:
+        ch = candidate[i]
+        if ch == '"':
+            i += 1
+            while i < n:
+                if candidate[i] == '\\':
+                    i += 2
+                    continue
+                if candidate[i] == '"':
+                    break
+                i += 1
+        elif ch == '[':
+            j = i + 1
+            while j < n and candidate[j] in ' \t\n\r':
+                j += 1
+            if j < n and candidate[j] == '"':
+                result[i] = '{'
+                stack.append((i, True))
+            else:
+                stack.append((i, False))
+        elif ch == ']':
+            if stack:
+                _, converted = stack.pop()
+                if converted:
+                    result[i] = '}'
+        elif ch == '{':
+            stack.append((i, False))
+        elif ch == '}':
+            if stack:
+                stack.pop()
+        i += 1
+    return ''.join(result)
+
+
 def _safe_json_loads(candidate: str) -> Optional[Dict[str, Any]]:
-    """尝试解析 JSON，失败时修复未转义换行符后重试"""
+    """尝试解析 JSON，失败时依次修复未转义换行符、数组误写为对象后重试"""
     try:
         return json.loads(candidate)
     except json.JSONDecodeError:
         pass
     try:
         return json.loads(_repair_json_newlines(candidate))
+    except json.JSONDecodeError:
+        pass
+    try:
+        repaired = _repair_array_as_object(candidate)
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        pass
+    try:
+        repaired = _repair_json_newlines(_repair_array_as_object(candidate))
+        return json.loads(repaired)
     except json.JSONDecodeError:
         return None
 

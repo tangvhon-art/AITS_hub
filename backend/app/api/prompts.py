@@ -141,9 +141,16 @@ def seed_default_prompts(
 
 ## 输出格式（最高优先级，必须严格遵守）
 
-你必须且只能输出一个合法的 JSON 对象，包含以下结构：
+你必须且只能输出一个合法的 JSON 对象，包含以下结构。
 
-{"cases": [{"title": "用例名称", "module": "所属模块", "priority": "P0/P1/P2/P3", "case_type": "functional/performance/security", "preconditions": "前置条件", "steps": [{"action": "操作描述", "expected": "该步骤预期结果"}], "expected_result": "整体预期结果", "bdd_content": "BDD Gherkin 内容（可选）"}]}
+### 关键规则：数组中的每个元素必须是对象，用花括号 {} 包裹，绝对不能用方括号 [] 包裹
+
+正确写法：[{"key": "value"}, {"key": "value"}]
+错误写法：[["key": "value"], ["key": "value"]]  ← 禁止！
+
+### 完整示例
+
+{"cases": [{"title": "用户登录-正确账号密码", "module": "登录模块", "priority": "P0", "case_type": "functional", "preconditions": "已注册账号admin/123456", "steps": [{"action": "打开登录页面", "expected": "登录页面正常显示"}, {"action": "输入用户名admin", "expected": "用户名输入框显示admin"}, {"action": "输入密码123456", "expected": "密码输入框显示掩码"}, {"action": "点击登录按钮", "expected": "页面跳转到首页"}], "expected_result": "成功登录并跳转到首页，显示用户信息", "bdd_content": "Given 用户已注册 When 用户输入正确账号密码并点击登录 Then 系统跳转到首页"}, {"title": "用户登录-密码错误", "module": "登录模块", "priority": "P1", "case_type": "functional", "preconditions": "已注册账号admin", "steps": [{"action": "打开登录页面", "expected": "登录页面正常显示"}, {"action": "输入用户名admin", "expected": "用户名输入框显示admin"}, {"action": "输入错误密码xxx", "expected": "密码输入框显示掩码"}, {"action": "点击登录按钮", "expected": "页面显示错误提示"}], "expected_result": "登录失败，页面提示密码错误", "bdd_content": ""}]}
 
 ### 绝对禁止
 1. 禁止使用 ```json ``` 等 Markdown 代码块包裹输出
@@ -151,6 +158,9 @@ def seed_default_prompts(
 3. 禁止输出思考过程、分析步骤等非 JSON 内容
 4. 输出的第一个字符必须是 {，最后一个字符必须是 }
 5. JSON 字符串内的换行使用 \\n，引号使用 \\"，确保 JSON 合法可解析
+6. steps 数组的元素必须用花括号 {} 包裹，禁止用方括号 []
+7. cases 数组的元素必须用花括号 {} 包裹，禁止用方括号 []
+8. 所有字段名必须用英文：title, module, priority, case_type, preconditions, steps, action, expected, expected_result, bdd_content
 
 ## 用例设计原则
 - 覆盖正向场景、异常场景、边界条件、替代流程
@@ -311,9 +321,16 @@ content 字段应包含以下章节，使用 Markdown 二级标题（##）分隔
 
 ## 输出格式（最高优先级，必须严格遵守）
 
-你必须且只能输出一个合法的 JSON 对象，包含以下结构：
+你必须且只能输出一个合法的 JSON 对象，包含以下结构。
 
-{"cases": [{"name": "用例名称", "priority": "P0/P1/P2/P3", "description": "用例描述", "request": {"headers": {}, "params": {}, "body": {}}, "assertions": [{"type": "status_code/response_json/response_time/header/json_path", "operator": "equals/contains/not_equals/greater_than/less_than", "expected": "期望值", "target": "目标字段路径"}]}]}
+### 关键规则：数组中的每个元素必须是对象，用花括号 {} 包裹，绝对不能用方括号 [] 包裹
+
+正确写法：[{"key": "value"}, {"key": "value"}]
+错误写法：[["key": "value"], ["key": "value"]]  ← 禁止！
+
+### 完整示例
+
+{"cases": [{"name": "获取用户列表-正常请求", "priority": "P0", "description": "验证正常分页查询", "request": {"headers": {"Authorization": "Bearer token"}, "params": {"page": 1, "page_size": 20}, "body": {}}, "assertions": [{"type": "status_code", "operator": "equals", "expected": 200, "target": ""}, {"type": "response_json", "operator": "contains", "expected": "items", "target": "$.data"}]}, {"name": "创建用户-缺少必填字段", "priority": "P1", "description": "验证缺少用户名时返回错误", "request": {"headers": {"Content-Type": "application/json"}, "params": {}, "body": {"email": "test@test.com"}}, "assertions": [{"type": "status_code", "operator": "equals", "expected": 400, "target": ""}]}]}
 
 ### 绝对禁止
 1. 禁止使用 ```json ``` 等 Markdown 代码块包裹输出
@@ -321,6 +338,8 @@ content 字段应包含以下章节，使用 Markdown 二级标题（##）分隔
 3. 禁止输出思考过程、分析步骤等非 JSON 内容
 4. 输出的第一个字符必须是 {，最后一个字符必须是 }
 5. JSON 字符串内的换行使用 \\n，引号使用 \\"，确保 JSON 合法可解析
+6. cases 数组和 assertions 数组的元素必须用花括号 {} 包裹，禁止用方括号 []
+7. 所有字段名必须用英文
 
 ## 用例设计原则
 - 基于接口参数和请求体字段设计测试数据，包括正常值、缺失必填字段、非法类型、边界值
@@ -336,12 +355,28 @@ content 字段应包含以下章节，使用 Markdown 二级标题（##）分隔
         ),
     ]
 
-    # 只插入尚无任何 Prompt 的分类
+    # 插入尚无任何 Prompt 的分类
     to_insert = [p for p in defaults if p.category not in existing_categories]
-    if not to_insert:
-        return {"detail": "所有分类已有 Prompt，跳过初始化", "count": 0}
-
     for p in to_insert:
         db.add(p)
+
+    # 更新已有的默认 Prompt（按 category + is_default 匹配，同步最新的 system_prompt）
+    updated_count = 0
+    default_map = {p.category: p for p in defaults if p.is_default}
+    existing_defaults = db.query(Prompt).filter(
+        Prompt.is_default == True,
+        Prompt.category.in_(list(default_map.keys())),
+        Prompt.is_deleted == False,
+    ).all()
+    for ed in existing_defaults:
+        nd = default_map.get(ed.category)
+        if nd and ed.system_prompt != nd.system_prompt:
+            ed.system_prompt = nd.system_prompt
+            ed.description = nd.description
+            updated_count += 1
+
     db.commit()
-    return {"detail": "初始化完成", "count": len(to_insert)}
+    total = len(to_insert) + updated_count
+    if total == 0:
+        return {"detail": "所有分类已有 Prompt，无需更新", "count": 0}
+    return {"detail": f"初始化完成（新增 {len(to_insert)}，更新 {updated_count}）", "count": total}

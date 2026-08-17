@@ -133,16 +133,13 @@ class ContentExtractor:
                 "preconditions": "", "steps": [], "expected_result": "", "bdd_content": "",
             }
 
-        # steps 可能是 list 或 string
-        steps = raw.get("steps") or raw.get("步骤") or []
-        if isinstance(steps, str):
-            steps = [{"action": steps, "expected": ""}]
+        steps = ContentExtractor._normalize_steps(raw.get("steps") or raw.get("步骤") or [])
 
         priority = raw.get("priority") or raw.get("优先级") or "P2"
         if priority not in ("P0", "P1", "P2", "P3"):
             priority = "P2"
 
-        case_type = raw.get("case_type") or raw.get("用例类型") or "functional"
+        case_type = raw.get("case_type") or raw.get("用例类型") or raw.get("type") or "functional"
         if case_type not in ("functional", "performance", "security"):
             case_type = "functional"
 
@@ -156,6 +153,58 @@ class ContentExtractor:
             "expected_result": str(raw.get("expected_result") or raw.get("预期结果") or ""),
             "bdd_content": str(raw.get("bdd_content") or raw.get("BDD") or ""),
         }
+
+    @staticmethod
+    def _normalize_steps(steps: Any) -> List[Dict[str, str]]:
+        """
+        深度归一化测试步骤数组。
+
+        处理以下异常情况：
+        - steps 为字符串 → 包装为单步骤
+        - steps 为嵌套数组 [[...], [...]] → 展平
+        - 步骤元素为列表/元组而非字典 → 尝试转换为字典
+        - 步骤使用中文键名 → 映射为英文键名
+        - 步骤缺少 action/expected 字段 → 填充默认值
+        """
+        if isinstance(steps, str):
+            return [{"action": steps, "expected": ""}] if steps.strip() else []
+
+        if not isinstance(steps, list):
+            return []
+
+        normalized: List[Dict[str, str]] = []
+        for step in steps:
+            if step is None:
+                continue
+            if isinstance(step, str):
+                normalized.append({"action": step, "expected": ""})
+                continue
+            if isinstance(step, dict):
+                # 映射中文键名到英文
+                action = step.get("action") or step.get("操作") or step.get("操作描述") or step.get("步骤") or ""
+                expected = step.get("expected") or step.get("预期") or step.get("预期结果") or step.get("结果") or ""
+                normalized.append({"action": str(action), "expected": str(expected)})
+                continue
+            if isinstance(step, list):
+                # 嵌套数组，尝试提取 key-value 对
+                action = ""
+                expected = ""
+                for item in step:
+                    if isinstance(item, str):
+                        if not action:
+                            action = item
+                        else:
+                            expected = item
+                    elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                        key, val = str(item[0]), str(item[1])
+                        if "action" in key or "操作" in key:
+                            action = val
+                        elif "expected" in key or "预期" in key:
+                            expected = val
+                if action or expected:
+                    normalized.append({"action": action, "expected": expected})
+                continue
+        return normalized
 
     # ==================== 接口用例提取 ====================
 
