@@ -32,12 +32,37 @@ async def send_debug_request(
     """发送调试请求"""
     get_project(project_id, db, current_user)
 
+    # 查询环境，获取 base_url 和变量
+    from app.models.test_plan import TestEnvironment
+    from app.models.test_data_pool import EnvironmentVariableOverride
+
+    base_url = ""
+    env_vars_dict = data.environment_vars or {}
+
+    if data.environment_id:
+        env = db.query(TestEnvironment).filter(
+            TestEnvironment.id == data.environment_id,
+            TestEnvironment.project_id == project_id,
+        ).first()
+        if env:
+            base_url = env.base_url or ""
+            # 加载环境变量覆盖
+            overrides = db.query(EnvironmentVariableOverride).filter(
+                EnvironmentVariableOverride.environment_id == env.id,
+            ).all()
+            for ov in overrides:
+                env_vars_dict[ov.key] = ov.value
+
     # 变量替换
     var_engine = VariableEngine()
-    if data.environment_vars:
-        var_engine.load_from_dict("environment", data.environment_vars)
+    if env_vars_dict:
+        var_engine.load_from_dict("environment", env_vars_dict)
 
+    # 拼接 base_url
     url = var_engine.replace(data.url)
+    if base_url and not url.startswith(("http://", "https://")):
+        url = base_url.rstrip("/") + "/" + url.lstrip("/")
+
     headers = var_engine.replace_headers(data.headers)
     params = var_engine.replace_params(data.query_params)
     body_content = var_engine.replace_body(data.body_type, data.body_content)
@@ -57,6 +82,8 @@ async def send_debug_request(
         console_log += script_result.output
         # 重新替换变量
         url = var_engine.replace(data.url)
+        if base_url and not url.startswith(("http://", "https://")):
+            url = base_url.rstrip("/") + "/" + url.lstrip("/")
         headers = var_engine.replace_headers(data.headers)
         params = var_engine.replace_params(data.query_params)
         body_content = var_engine.replace_body(data.body_type, data.body_content)

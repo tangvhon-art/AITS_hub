@@ -1,7 +1,6 @@
 import json
-from datetime import datetime
-from app.core.timezone import china_now_naive
-from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
@@ -14,7 +13,8 @@ from app.models.requirement import TestRequirement
 from app.models.agent_task import AgentTask
 from app.schemas.test_case import TestCaseCreate, TestCaseUpdate, TestCaseResponse, TestCaseBatchCreate
 from app.schemas.requirement import CaseGenerateRequest
-from app.agents.case_generator import CaseGeneratorAgent
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/cases", tags=["用例管理"])
 
@@ -200,7 +200,6 @@ def generate_cases(
     project_id: int,
     gen_request: CaseGenerateRequest,
     request: Request,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -208,6 +207,9 @@ def generate_cases(
     AI 生成测试用例（异步执行）
     提交后立即返回任务ID，生成结果可在Agent任务中查看
     """
+    from app.core.rate_limiter import rate_limit
+    rate_limit(request, key_prefix="ai_case", limit=20, window=60)
+
     get_project(project_id, db, current_user)
 
     # 获取需求内容
@@ -232,6 +234,7 @@ def generate_cases(
         agent_type="case_generator",
         status="pending",
         input_params={
+            "content": gen_request.content,
             "content_length": len(requirement_content),
             "count": gen_request.count,
             "requirement_id": req_id,
@@ -252,16 +255,19 @@ def generate_cases(
     db.commit()
     db.refresh(task)
 
-    # 添加后台任务异步执行
-    background_tasks.add_task(
-        _generate_cases_background,
-        task_id=task.id,
-        project_id=project_id,
-        requirement_content=requirement_content,
-        count=gen_request.count,
-        llm_config_id=gen_request.llm_config_id,
-        req_id=req_id,
-    )
+    # 通过 Celery 异步执行
+    try:
+        from app.tasks.case_tasks import generate_cases_task
+        generate_cases_task.delay(task.id)
+    except Exception:
+        logger.warning("Celery 不可用，使用后台线程回退")
+        import threading
+        from app.tasks.case_tasks import generate_cases_task
+
+        def _run():
+            generate_cases_task(task.id)
+
+        threading.Thread(target=_run, daemon=True).start()
 
     return {
         "task_id": task.id,
@@ -269,72 +275,32 @@ def generate_cases(
         "message": "用例生成任务已提交，可在Agent任务中查看进度",
     }
 
-def _generate_cases_background(
-    task_id: int,
+
+@router.get("/generate/{task_id}")
+def generate_cases_status(
     project_id: int,
-    requirement_content: str,
-    count: int,
-    llm_config_id: Optional[int] = None,
-    req_id: Optional[int] = None,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """后台执行用例生成"""
-    from app.database import SessionLocal
-    db = SessionLocal()
-    try:
-        task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
-        if not task:
-            return
+    """查询用例生成任务状态"""
+    get_project(project_id, db, current_user)
 
-        task.status = "running"
-        db.commit()
+    task = db.query(AgentTask).filter(
+        AgentTask.id == task_id,
+        AgentTask.project_id == project_id,
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
 
-        agent = CaseGeneratorAgent(db_session=db, llm_config_id=llm_config_id)
-        result = agent.generate(
-            requirement_content=requirement_content,
-            count=count,
-        )
+    result = {
+        "status": task.status,
+        "case_count": 0,
+        "cases_saved": 0,
+        "error": task.error_message or "",
+    }
+    if task.status == "success" and task.output_result:
+        result["case_count"] = task.output_result.get("case_count", 0)
+        result["cases_saved"] = task.output_result.get("cases_saved", 0)
 
-        # 自动保存生成的用例到数据库
-        cases_saved = 0
-        for case_data in result.get("cases", []):
-            try:
-                case = TestCase(
-                    project_id=project_id,
-                    req_id=req_id,
-                    title=case_data.get("title", ""),
-                    module=case_data.get("module", "默认模块"),
-                    priority=case_data.get("priority", "P2"),
-                    case_type=case_data.get("case_type", "functional"),
-                    preconditions=case_data.get("preconditions", ""),
-                    steps=json.dumps(case_data.get("steps", []), ensure_ascii=False) if isinstance(case_data.get("steps"), list) else case_data.get("steps", "[]"),
-                    expected_result=case_data.get("expected_result", ""),
-                    bdd_content=case_data.get("bdd_content"),
-                    created_by=task.created_by,
-                )
-                db.add(case)
-                cases_saved += 1
-            except Exception:
-                continue
-
-        db.commit()
-
-        task.status = "success"
-        task.output_result = {
-            "case_count": len(result.get("cases", [])),
-            "cases_saved": cases_saved,
-            "cases": result.get("cases", []),
-        }
-        task.llm_config_id = result.get("llm_config_id")
-        task.token_usage = result.get("token_usage", {})
-        task.completed_at = china_now_naive()
-        db.commit()
-
-    except Exception as e:
-        task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
-        if task:
-            task.status = "failed"
-            task.error_message = str(e)
-            task.completed_at = china_now_naive()
-            db.commit()
-    finally:
-        db.close()
+    return result

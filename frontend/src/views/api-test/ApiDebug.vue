@@ -34,6 +34,9 @@
         </a-input>
         <a-button type="primary" :loading="sending" @click="handleSend">发送</a-button>
       </div>
+      <div v-if="fullUrl" class="url-preview">
+        完整请求地址：<span class="url-text">{{ fullUrl }}</span>
+      </div>
 
       <!-- 请求配置 Tab -->
       <a-tabs v-model:activeKey="activeTab" style="margin-top: 16px">
@@ -214,6 +217,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { HistoryOutlined, SaveOutlined } from '@ant-design/icons-vue'
 import { apiDebugApi, apiDefinitionsApi } from '@/api/apiTest'
+import { getEnvironments } from '@/api/environments'
 import { formatDateTime } from '@/utils/date'
 import MockDataInserter from './MockDataInserter.vue'
 
@@ -276,6 +280,21 @@ const paramColumns = [
   { title: '参数值', dataIndex: 'value', key: 'value' },
   { title: '操作', key: 'action', width: 60 },
 ]
+
+const fullUrl = computed(() => {
+  const inputUrl = request.value.url?.trim() || ''
+  if (!inputUrl) return ''
+  if (inputUrl.startsWith('http://') || inputUrl.startsWith('https://')) {
+    return inputUrl
+  }
+  const env = environments.value.find(e => e.id === environmentId.value)
+  if (env?.base_url) {
+    const base = env.base_url.endsWith('/') ? env.base_url.slice(0, -1) : env.base_url
+    const path = inputUrl.startsWith('/') ? inputUrl.slice(1) : inputUrl
+    return base + '/' + path
+  }
+  return inputUrl
+})
 
 const getMethodColor = (method: string) => {
   const colors: Record<string, string> = { GET: 'green', POST: 'blue', PUT: 'orange', DELETE: 'red' }
@@ -393,7 +412,10 @@ const handleSaveAsApi = async () => {
   }
 }
 
-onMounted(() => loadApiFromQuery())
+onMounted(() => {
+  loadApiFromQuery()
+  getEnvironments(projectId).then(data => { environments.value = data }).catch(() => {})
+})
 </script>
 
 <style scoped>
@@ -413,6 +435,19 @@ onMounted(() => loadApiFromQuery())
 .request-line {
   display: flex;
   gap: 8px;
+}
+.url-preview {
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: #f6f8fa;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #666;
+}
+.url-preview .url-text {
+  color: #1677ff;
+  font-family: monospace;
+  word-break: break-all;
 }
 .response-status {
   display: flex;

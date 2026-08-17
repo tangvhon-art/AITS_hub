@@ -37,7 +37,13 @@ export function deleteCase(projectId: number, caseId: number) {
 }
 
 export function generateCases(projectId: number, data: { requirement_id?: number; content: string; count: number; llm_config_id?: number }) {
-  return request.post(`/projects/${projectId}/cases/generate`, data)
+  return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/cases/generate`, data)
+}
+
+export function generateCasesStatus(projectId: number, taskId: number) {
+  return request.get<{ status: string; case_count: number; cases_saved: number; error: string }>(
+    `/projects/${projectId}/cases/generate/${taskId}`,
+  )
 }
 
 // 需求相关

@@ -36,6 +36,11 @@ CASE_GENERATOR_PROMPT = """你是一名资深测试用例设计专家，拥有 1
 
 请根据以下需求描述，生成全面、专业的测试用例。
 
+## 需求信息
+- 需求标题：{requirement_title}
+- 所属项目：{project_name}
+- 已有用例数：{existing_count}
+
 ## 需求描述
 {requirement_content}
 
@@ -53,6 +58,7 @@ CASE_GENERATOR_PROMPT = """你是一名资深测试用例设计专家，拥有 1
 3. 步骤清晰可执行，每步包含操作描述和该步预期
 4. 预期结果明确可验证
 5. 生成 {count} 条用例，确保覆盖全面且不重复
+6. 根据已有用例数避免生成重复场景
 
 ## 输出格式
 {format_instructions}
@@ -76,6 +82,9 @@ class CaseGeneratorAgent(BaseAgent):
         self,
         requirement_content: str,
         count: int = 10,
+        requirement_title: str = "",
+        project_name: str = "",
+        existing_count: int = 0,
     ) -> Dict[str, Any]:
         """
         生成测试用例
@@ -83,6 +92,9 @@ class CaseGeneratorAgent(BaseAgent):
         Args:
             requirement_content: 需求描述文本
             count: 期望生成的用例数量
+            requirement_title: 需求标题
+            project_name: 项目名称
+            existing_count: 已有用例数量
 
         Returns:
             dict: 包含 cases 列表和 token_usage
@@ -99,11 +111,12 @@ class CaseGeneratorAgent(BaseAgent):
             self.db, preferred_config_id=self.llm_config_id
         )
 
-        chain = prompt | llm
-
         messages = prompt.format_messages(
             requirement_content=requirement_content,
             count=count,
+            requirement_title=requirement_title or "未指定",
+            project_name=project_name or "未指定",
+            existing_count=existing_count,
             format_instructions=parser.get_format_instructions(),
         )
 

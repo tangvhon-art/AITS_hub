@@ -19,6 +19,7 @@ celery_app = Celery(
         "app.tasks.test_plan_tasks",
         "app.tasks.performance_tasks",
         "app.tasks.api_doc_tasks",
+        "app.tasks.case_tasks",
     ],
 )
 

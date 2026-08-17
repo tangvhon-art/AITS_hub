@@ -187,7 +187,7 @@ import { ref, reactive, onMounted, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, getRequirements, batchCreateCases } from '@/api/cases'
+import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
@@ -388,23 +388,40 @@ async function doGenerate() {
   }
   generating.value = true
   try {
-    const result: any = await generateCases(projectId, {
+    const result = await generateCases(projectId, {
       requirement_id: selectedReqId.value || undefined,
       content: generateContent.value,
       count: generateCount.value,
       llm_config_id: selectedLLMConfig.value || undefined
     })
-    const generatedCases = result.cases || []
-    if (generatedCases.length > 0) {
-      await batchCreateCases(projectId, generatedCases)
-    }
-    message.success(`成功生成并保存 ${generatedCases.length} 条用例`)
-    showGenerateModal.value = false
-    generateContent.value = ''
-    selectedReqId.value = null
-    fetchCases()
-  } finally {
+    message.info(result.message)
+
+    const taskId = result.task_id
+    const poll = setInterval(async () => {
+      try {
+        const status = await generateCasesStatus(projectId, taskId)
+        if (status.status === 'success') {
+          clearInterval(poll)
+          generating.value = false
+          message.success(`成功生成并保存 ${status.cases_saved} 条用例`)
+          showGenerateModal.value = false
+          generateContent.value = ''
+          selectedReqId.value = null
+          fetchCases()
+        } else if (status.status === 'failed') {
+          clearInterval(poll)
+          generating.value = false
+          message.error('用例生成失败：' + (status.error || '未知错误'))
+        }
+      } catch {
+        clearInterval(poll)
+        generating.value = false
+        message.error('查询生成状态失败')
+      }
+    }, 2000)
+  } catch (e: any) {
     generating.value = false
+    message.error('提交生成任务失败：' + (e.message || '未知错误'))
   }
 }
 
@@ -412,18 +429,6 @@ onMounted(() => {
   fetchCases()
   getRequirements(projectId).then(data => { requirements.value = data })
   getLLMConfigs().then(data => { llmConfigs.value = data })
-
-  const generated = sessionStorage.getItem('generated_cases')
-  if (generated) {
-    sessionStorage.removeItem('generated_cases')
-    const cases = JSON.parse(generated)
-    if (cases.length > 0) {
-      batchCreateCases(projectId, cases).then(() => {
-        message.success(`已保存 ${cases.length} 条生成的用例`)
-        fetchCases()
-      })
-    }
-  }
 })
 </script>
 
