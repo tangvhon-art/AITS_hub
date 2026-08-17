@@ -286,8 +286,11 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
   const history = data.stats_history || []
   const categories = history.map((h: any, i: number) => {
     if (h.timestamp) {
-      const d = new Date(h.timestamp)
-      if (!isNaN(d.getTime())) return d.toLocaleTimeString('zh-CN', { hour12: false })
+      const ts = typeof h.timestamp === 'number' ? h.timestamp : parseFloat(h.timestamp)
+      if (!isNaN(ts)) {
+        const d = new Date(ts * 1000)
+        if (!isNaN(d.getTime())) return d.toLocaleTimeString('zh-CN', { hour12: false })
+      }
     }
     return `${i + 1}s`
   })

@@ -50,4 +50,21 @@ def run_performance_test_task(
             pass
         return {"status": "failed", "error": str(e)}
     finally:
+        # 安全防护：确保测试状态不卡在 running
+        try:
+            from app.models.performance_test import PerformanceTest, PerformanceTestRun
+            run = db.query(PerformanceTestRun).filter(PerformanceTestRun.id == run_id).first()
+            if run and run.test_id:
+                test = db.query(PerformanceTest).filter(PerformanceTest.id == run.test_id).first()
+                if test and test.status == "running":
+                    running_count = db.query(PerformanceTestRun).filter(
+                        PerformanceTestRun.test_id == test.id,
+                        PerformanceTestRun.status == "running",
+                    ).count()
+                    if running_count == 0:
+                        test.status = "completed"
+                        db.commit()
+                        logger.info(f"安全防护：测试 #{test.id} 状态从 running 修正为 completed")
+        except Exception:
+            pass
         db.close()

@@ -133,6 +133,7 @@ class PerformanceTestUser(HttpUser):
                 "-t", f"{duration}s",
                 "--host", host,
                 "--csv", f"/tmp/locust_result_{run_id}",
+                "--csv-full-history",
             ]
 
             logger.info(f"启动 Locust: {' '.join(cmd)}")
@@ -204,6 +205,14 @@ class PerformanceTestUser(HttpUser):
         """从 Locust CSV 输出解析统计数据"""
         import csv
 
+        def safe_float(val, default=0.0):
+            if val is None or val == "" or val == "N/A":
+                return default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+
         stats = {
             "total_requests": 0,
             "total_failures": 0,
@@ -226,15 +235,15 @@ class PerformanceTestUser(HttpUser):
                     reader = csv.DictReader(f)
                     for row in reader:
                         if row.get("Name") == "Aggregated":
-                            stats["total_requests"] = int(float(row.get("Request Count", 0)))
-                            stats["total_failures"] = int(float(row.get("Failure Count", 0)))
-                            stats["avg_response_time"] = float(row.get("Average Response Time", 0))
-                            stats["min_response_time"] = float(row.get("Min Response Time", 0))
-                            stats["max_response_time"] = float(row.get("Max Response Time", 0))
-                            stats["p50_response_time"] = float(row.get("50%", 0) or 0)
-                            stats["p95_response_time"] = float(row.get("95%", 0) or 0)
-                            stats["p99_response_time"] = float(row.get("99%", 0) or 0)
-                            stats["requests_per_second"] = float(row.get("Requests/s", 0))
+                            stats["total_requests"] = int(safe_float(row.get("Request Count", 0)))
+                            stats["total_failures"] = int(safe_float(row.get("Failure Count", 0)))
+                            stats["avg_response_time"] = safe_float(row.get("Average Response Time", 0))
+                            stats["min_response_time"] = safe_float(row.get("Min Response Time", 0))
+                            stats["max_response_time"] = safe_float(row.get("Max Response Time", 0))
+                            stats["p50_response_time"] = safe_float(row.get("50%", 0))
+                            stats["p95_response_time"] = safe_float(row.get("95%", 0))
+                            stats["p99_response_time"] = safe_float(row.get("99%", 0))
+                            stats["requests_per_second"] = safe_float(row.get("Requests/s", 0))
                             total = stats["total_requests"]
                             fails = stats["total_failures"]
                             stats["failure_rate"] = round(fails / total * 100, 2) if total > 0 else 0.0
@@ -267,6 +276,15 @@ class PerformanceTestUser(HttpUser):
             logger.warning(f"stats_history CSV 文件不存在: {history_path}")
             return []
 
+        def safe_float(val, default=0.0):
+            """安全转换浮点数，处理 N/A 等无效值"""
+            if val is None or val == "" or val == "N/A":
+                return default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+
         history = []
         total_rows = 0
         try:
@@ -278,13 +296,13 @@ class PerformanceTestUser(HttpUser):
                         continue
                     history.append({
                         "timestamp": row.get("Timestamp", ""),
-                        "users": int(float(row.get("User Count", 0))),
-                        "rps": float(row.get("Requests/s", 0) or 0),
-                        "failures_per_s": float(row.get("Failures/s", 0) or 0),
-                        "p50": float(row.get("50%", 0) or 0),
-                        "p95": float(row.get("95%", 0) or 0),
-                        "p99": float(row.get("99%", 0) or 0),
-                        "avg": float(row.get("Average Response Time", 0) or 0),
+                        "users": int(safe_float(row.get("User Count", 0))),
+                        "rps": safe_float(row.get("Requests/s", 0)),
+                        "failures_per_s": safe_float(row.get("Failures/s", 0)),
+                        "p50": safe_float(row.get("50%", 0)),
+                        "p95": safe_float(row.get("95%", 0)),
+                        "p99": safe_float(row.get("99%", 0)),
+                        "avg": safe_float(row.get("Average Response Time", 0)),
                     })
         except Exception as e:
             logger.warning(f"解析 stats_history CSV 失败: {e}")
@@ -298,7 +316,7 @@ class PerformanceTestUser(HttpUser):
 
     def _cleanup_csv_files(self, run_id: int):
         """清理 Locust CSV 临时文件"""
-        for suffix in ["_stats.csv", "_failures.csv", "_stats_history.csv"]:
+        for suffix in ["_stats.csv", "_failures.csv", "_stats_history.csv", "_exceptions.csv"]:
             path = f"/tmp/locust_result_{run_id}{suffix}"
             if os.path.exists(path):
                 try:
