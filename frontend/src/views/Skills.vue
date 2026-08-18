@@ -484,8 +484,13 @@ async function handleDelete(record: Skill) {
   loadData()
 }
 
-function handleExport(record: Skill) {
-  window.open(skillsApi.exportUrl(record.id), '_blank')
+async function handleExport(record: Skill) {
+  try {
+    await skillsApi.exportSkill(record.id)
+    message.success('导出成功')
+  } catch (e: any) {
+    message.error(e.message || '导出失败')
+  }
 }
 
 function openFileViewer(record: Skill) {

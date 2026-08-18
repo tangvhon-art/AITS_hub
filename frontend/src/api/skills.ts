@@ -62,5 +62,22 @@ export const skillsApi = {
       '/skills/import-text', { content }
     ),
 
-  exportUrl: (id: number) => `/skills/${id}/export`,
+  exportSkill: async (id: number) => {
+    const token = localStorage.getItem('token')
+    const resp = await fetch(`/api/skills/${id}/export`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!resp.ok) throw new Error(`导出失败: ${resp.status}`)
+    const blob = await resp.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const cd = resp.headers.get('Content-Disposition') || ''
+    const nameMatch = cd.match(/filename=(.+)/)
+    a.download = nameMatch ? nameMatch[1].replace(/['"]/g, '') : `skill-${id}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  },
 }
