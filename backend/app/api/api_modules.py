@@ -54,8 +54,23 @@ def create_module(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建目录"""
+    """创建目录（最多三级：全部接口为第一级）"""
     get_project(project_id, db, current_user)
+
+    # 层级校验：最多三级
+    # parent_id=null → 二级分组（全部接口下）→ OK
+    # parent_id=X 且 X.parent_id=null → 三级分组 → OK
+    # parent_id=X 且 X.parent_id 不为 null → 超过三级 → 拒绝
+    if data.parent_id is not None:
+        parent = db.query(ApiModule).filter(
+            ApiModule.id == data.parent_id,
+            ApiModule.project_id == project_id,
+        ).first()
+        if not parent:
+            raise HTTPException(status_code=400, detail="父分组不存在")
+        if parent.parent_id is not None:
+            raise HTTPException(status_code=400, detail="接口分组最多支持三级，不允许在三级分组下创建子分组")
+
     module = ApiModule(
         project_id=project_id,
         parent_id=data.parent_id,

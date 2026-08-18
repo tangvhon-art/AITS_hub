@@ -4,31 +4,42 @@
     <div class="module-sidebar">
       <div class="sidebar-header">
         <span class="sidebar-title">接口分组</span>
-        <a-button type="text" size="small" @click="handleAddRootGroup">
-          <template #icon><PlusOutlined /></template>
-        </a-button>
+        <div class="add-btn" @click="handleAddRootGroup" title="新建分组">+</div>
       </div>
-      <div class="module-tree-wrap">
-        <div
-          class="tree-node-item"
-          :class="{ active: selectedModuleId === undefined }"
-          @click="selectModule(undefined)"
-        >
-          <span class="expand-icon placeholder"></span>
-          <FolderOutlined style="color: #faad14; margin-right: 6px" />
-          <span class="node-name">全部接口</span>
-          <span class="node-count">{{ pagination.total }}</span>
+      <div class="tree-wrap">
+        <!-- 根节点：全部接口 -->
+        <div class="tree-node">
+          <div
+            class="tree-node__item"
+            :class="{ active: selectedModuleId === undefined }"
+            @click="selectModule(undefined)"
+          >
+            <span class="tree-expand-icon" @click.stop="rootExpanded = !rootExpanded">
+              {{ rootExpanded ? '▼' : '▶' }}
+            </span>
+            <FolderOutlined class="folder-icon" />
+            <span class="node-name">全部接口</span>
+            <span class="count-badge">{{ pagination.total }}</span>
+            <span class="action-group">
+              <span class="action-btn" title="新增子分组" @click.stop="handleAddRootGroup">
+                <PlusOutlined />
+              </span>
+            </span>
+          </div>
+          <!-- 子分组 -->
+          <div v-show="rootExpanded" class="tree-children">
+            <template v-for="node in moduleTree" :key="node.id">
+              <ModuleTreeNode
+                :node="node"
+                :selected-id="selectedModuleId"
+                @select="selectModule"
+                @add-child="handleAddChildGroup"
+                @rename="handleRenameGroup"
+                @delete-group="handleDeleteGroup"
+              />
+            </template>
+          </div>
         </div>
-        <template v-for="node in moduleTree" :key="node.id">
-          <ModuleTreeNode
-            :node="node"
-            :selected-id="selectedModuleId"
-            @select="selectModule"
-            @add-child="handleAddChildGroup"
-            @rename="handleRenameGroup"
-            @delete-group="handleDeleteGroup"
-          />
-        </template>
         <div v-if="moduleTree.length === 0" class="empty-tip">暂无分组，点击上方 + 创建</div>
       </div>
     </div>
@@ -167,6 +178,7 @@ const importing = ref(false)
 // ====== 分组树 ======
 const moduleTree = ref<ApiModule[]>([])
 const selectedModuleId = ref<number | undefined>(undefined)
+const rootExpanded = ref(true)
 
 // ====== 分组弹窗 ======
 const showGroupModal = ref(false)
@@ -399,66 +411,65 @@ const ModuleTreeNode = defineComponent({
   props: {
     node: { type: Object, required: true },
     selectedId: { type: Number, default: null },
-    depth: { type: Number, default: 0 },
+    depth: { type: Number, default: 2 },
   },
   emits: ['select', 'add-child', 'rename', 'delete-group'],
   setup(props, { emit }) {
-    const showActions = ref(false)
     const expanded = ref(true)
 
     return () => {
       const node = props.node as any
       const isActive = props.selectedId === node.id
       const children = node.children || []
+      const canAddChild = props.depth < 3
 
-      return h('div', { class: 'module-node-group' }, [
+      return h('div', { class: 'tree-node' }, [
         h('div', {
-          class: ['tree-node-item', { active: isActive }],
-          style: { paddingLeft: `${12 + props.depth * 16}px` },
+          class: ['tree-node__item', { active: isActive }],
           onClick: () => emit('select', node.id),
-          onMouseenter: () => { showActions.value = true },
-          onMouseleave: () => { showActions.value = false },
         }, [
           children.length > 0
             ? h('span', {
-                class: 'expand-icon',
+                class: 'tree-expand-icon',
                 onClick: (e: Event) => { e.stopPropagation(); expanded.value = !expanded.value },
-              }, expanded.value ? '▾' : '▸')
-            : h('span', { class: 'expand-icon placeholder' }),
-          h(FolderOutlined, { style: { color: '#faad14', marginRight: '6px' } }),
+              }, expanded.value ? '▼' : '▶')
+            : h('span', { class: 'tree-expand-icon' }),
+          h(FolderOutlined, { class: 'folder-icon' }),
           h('span', { class: 'node-name' }, node.name),
-          showActions.value
-            ? h('span', { class: ['node-actions', { 'actions-active': isActive }] }, [
-                h('span', {
+          h('span', { class: 'action-group' }, [
+            canAddChild
+              ? h('span', {
                   class: 'action-btn',
-                  title: '新建子分组',
+                  title: '新增子分组',
                   onClick: (e: Event) => { e.stopPropagation(); emit('add-child', node.id) },
-                }, [h(PlusOutlined)]),
-                h('span', {
-                  class: 'action-btn',
-                  title: '重命名',
-                  onClick: (e: Event) => { e.stopPropagation(); emit('rename', node.id, node.name) },
-                }, [h(EditOutlined)]),
-                h('span', {
-                  class: 'action-btn danger',
-                  title: '删除分组',
-                  onClick: (e: Event) => { e.stopPropagation(); emit('delete-group', node.id) },
-                }, [h(DeleteOutlined)]),
-              ])
-            : null,
+                }, [h(PlusOutlined)])
+              : null,
+            h('span', {
+              class: 'action-btn',
+              title: '编辑',
+              onClick: (e: Event) => { e.stopPropagation(); emit('rename', node.id, node.name) },
+            }, [h(EditOutlined)]),
+            h('span', {
+              class: 'action-btn del',
+              title: '删除',
+              onClick: (e: Event) => { e.stopPropagation(); emit('delete-group', node.id) },
+            }, [h(DeleteOutlined)]),
+          ]),
         ]),
         expanded.value && children.length > 0
-          ? children.map((child: any) =>
-              h(ModuleTreeNode, {
-                key: child.id,
-                node: child,
-                selectedId: props.selectedId,
-                depth: props.depth + 1,
-                onSelect: (id: number) => emit('select', id),
-                onAddChild: (id: number) => emit('add-child', id),
-                onRename: (id: number, name: string) => emit('rename', id, name),
-                onDeleteGroup: (id: number) => emit('delete-group', id),
-              })
+          ? h('div', { class: 'tree-children' },
+              children.map((child: any) =>
+                h(ModuleTreeNode, {
+                  key: child.id,
+                  node: child,
+                  selectedId: props.selectedId,
+                  depth: props.depth + 1,
+                  onSelect: (id: number) => emit('select', id),
+                  onAddChild: (id: number) => emit('add-child', id),
+                  onRename: (id: number, name: string) => emit('rename', id, name),
+                  onDeleteGroup: (id: number) => emit('delete-group', id),
+                })
+              )
             )
           : null,
       ])
@@ -485,29 +496,55 @@ onMounted(() => {
 
 /* 左侧分组树 */
 .module-sidebar {
-  width: 240px;
-  min-width: 240px;
-  border-right: 1px solid #f0f0f0;
+  width: 300px;
+  min-width: 300px;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
-  background: #fafafa;
+  background: #fff;
 }
 .sidebar-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 16px 20px;
+  border: 1px solid #e5e7eb;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: #fff;
 }
 .sidebar-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
-  color: #262626;
+  color: #1f2329;
 }
-.module-tree-wrap {
+.add-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #1677ff;
+  line-height: 1;
+  transition: all 0.15s;
+}
+.add-btn:hover {
+  background-color: #f0f7ff;
+  border-color: #1677ff;
+}
+.tree-wrap {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-top: none;
+  border-radius: 0 0 10px 10px;
 }
 .empty-tip {
   padding: 24px 16px;
@@ -516,127 +553,89 @@ onMounted(() => {
   text-align: center;
 }
 
-/* 树节点 */
-.tree-node-item {
+/* 树节点 — 使用 :deep() 确保样式穿透到 ModuleTreeNode 子组件 */
+:deep(.tree-node) {
+  position: relative;
+}
+:deep(.tree-node__item) {
   display: flex;
   align-items: center;
-  padding: 6px 12px 6px 0;
+  padding: 10px 16px;
   cursor: pointer;
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.65);
-  transition: all 0.15s;
-  position: relative;
+  gap: 8px;
+  font-size: 14px;
+  color: #1f2329;
+  transition: background-color 0.15s;
   user-select: none;
-  border-radius: 4px;
-  margin: 1px 4px;
-}
-.tree-node-item:hover {
-  background: #f0f5ff;
-}
-.tree-node-item.active {
-  background: #e6f4ff;
-  color: #1677ff;
-  font-weight: 500;
-}
-.module-node-group {
   position: relative;
 }
-.module-node-group::before {
-  content: '';
-  position: absolute;
-  left: 20px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: #e8e8e8;
+:deep(.tree-node__item:hover) {
+  background-color: #f3f7ff;
 }
-.module-node-group > .tree-node-item::before {
-  content: '';
-  position: absolute;
-  left: 20px;
-  top: 50%;
-  width: 8px;
-  height: 1px;
-  background: #e8e8e8;
+:deep(.tree-node__item.active) {
+  background-color: #e8f3ff;
 }
-.expand-icon {
-  width: 18px;
-  height: 18px;
-  font-size: 10px;
-  color: #8c8c8c;
-  cursor: pointer;
-  text-align: center;
+:deep(.tree-expand-icon) {
+  width: 14px;
+  font-size: 12px;
+  color: #777;
   flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 2px;
-  transition: all 0.15s;
-  z-index: 1;
-  background: #fafafa;
+  text-align: center;
+  cursor: pointer;
 }
-.expand-icon:hover {
-  background: #e6f4ff;
-  color: #1677ff;
+:deep(.folder-icon) {
+  font-size: 16px;
+  color: #faad14;
+  flex-shrink: 0;
 }
-.expand-icon.placeholder {
-  width: 18px;
-  background: transparent;
-}
-.node-name {
+:deep(.node-name) {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-left: 4px;
+  font-size: 14px;
 }
-.node-count {
-  font-size: 11px;
-  color: #bfbfbf;
-  margin-left: auto;
+:deep(.count-badge) {
+  background: #cce2ff;
+  color: #3377dd;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 10px;
   flex-shrink: 0;
-  background: #f0f0f0;
-  padding: 0 6px;
-  border-radius: 8px;
-  min-width: 18px;
+  min-width: 20px;
   text-align: center;
 }
-.node-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
+:deep(.tree-children) {
+  padding-left: 28px;
+}
+:deep(.action-group) {
+  display: none;
+  gap: 4px;
   flex-shrink: 0;
-  padding-left: 8px;
-  opacity: 0;
-  transition: opacity 0.15s;
+  margin-left: 4px;
 }
-.tree-node-item:hover .node-actions {
-  opacity: 1;
+:deep(.tree-node__item:hover .action-group) {
+  display: flex;
 }
-.node-actions.actions-active {
-  opacity: 1;
-}
-.action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+:deep(.action-btn) {
   width: 22px;
   height: 22px;
   border-radius: 4px;
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  color: #555;
+  font-size: 13px;
   transition: all 0.15s;
 }
-.action-btn:hover {
-  background: #fff;
+:deep(.action-btn:hover) {
+  background: #ddeaff;
   color: #1677ff;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
-.action-btn.danger:hover {
-  background: #fff1f0;
-  color: #ff4d4f;
+:deep(.action-btn.del:hover) {
+  background: #ffe9e9;
+  color: #f53f3f;
 }
 
 /* 右侧接口列表 */
