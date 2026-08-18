@@ -13,6 +13,7 @@ export interface Skill {
   skill_config: Record<string, any>
   prompts: Record<string, string>
   scripts: Record<string, string>
+  files: Record<string, string>
   icon_path: string
   is_active: boolean
   is_builtin: boolean

@@ -77,6 +77,7 @@ def _auto_migrate(engine):
         ("llm_configs", "tool_call_strategy", "VARCHAR(20) DEFAULT 'auto'"),
         ("llm_configs", "api_format", "VARCHAR(30) DEFAULT 'chat_completions'"),
         ("llm_configs", "capabilities", "JSON"),
+        ("skills", "files", "JSON"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:

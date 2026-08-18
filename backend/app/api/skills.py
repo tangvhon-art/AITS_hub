@@ -152,8 +152,7 @@ async def import_skill(file: UploadFile = File(...), db: Session = Depends(get_d
 
         existing = db.query(Skill).filter(Skill.package_hash == package_hash, Skill.is_deleted == False).first()
         if existing:
-            return {"success": False, "name": existing.name, "title": existing.title, "version": existing.version,
-                    "warnings": [], "message": f"该包已导入过（id={existing.id}）"}
+            warnings.append(f"该包已导入过（id={existing.id}），将更新内容")
 
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             names = zf.namelist()
@@ -182,12 +181,18 @@ async def import_skill(file: UploadFile = File(...), db: Session = Depends(get_d
         if not title:
             title = name
 
-        existing_name = db.query(Skill).filter(Skill.name == name, Skill.is_deleted == False).first()
+        # 不排除软删除记录：唯一约束在 name 字段上，软删除的同名记录也会阻止插入
+        existing_name = db.query(Skill).filter(Skill.name == name).first()
         if existing_name:
             if existing_name.is_builtin:
                 return {"success": False, "name": name, "title": title, "version": config.get("version", ""),
                         "warnings": [], "message": "不能覆盖内置 Skill"}
             skill = existing_name
+            # 如果之前被软删除，恢复它
+            if skill.is_deleted:
+                skill.is_deleted = False
+                skill.deleted_at = None
+                warnings.append("已恢复之前删除的同名 Skill")
             skill.source = "imported"
             skill.version = config.get("version", "1.0.0")
             skill.author = config.get("author", "")
@@ -208,29 +213,54 @@ async def import_skill(file: UploadFile = File(...), db: Session = Depends(get_d
         skill.trigger_config = config.get("trigger", {})
         prompts_data = {}
         scripts_data = {}
+        files_data = {}  # 完整文件树 {相对路径: 内容}
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             for n in zf.namelist():
-                # 跳过 __MACOSX 等系统文件
-                if n.startswith("__MACOSX") or n.startswith("."):
+                # 跳过 __MACOSX、隐藏文件和目录
+                if n.startswith("__MACOSX") or n.startswith(".") or n.endswith("/"):
                     continue
                 rel_path = n[len(base_dir):] if base_dir and n.startswith(base_dir) else n
+                if not rel_path:
+                    continue
+                # 读取文件内容（文本文件）
+                try:
+                    raw = zf.read(n)
+                    # 二进制文件（图片等）只记录元信息，不存内容
+                    if rel_path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.pdf', '.zip')):
+                        files_data[rel_path] = f"[二进制文件, {len(raw)} bytes]"
+                        continue
+                    text_content = raw.decode("utf-8")
+                except (UnicodeDecodeError, Exception):
+                    files_data[rel_path] = f"[二进制文件, {len(raw)} bytes]"
+                    continue
+
+                # 存入完整文件树（限制单文件 64KB）
+                if len(text_content) <= 64 * 1024:
+                    files_data[rel_path] = text_content
+                else:
+                    files_data[rel_path] = text_content[:64 * 1024] + "\n... [文件过大已截断]"
+                    warnings.append(f"文件 {rel_path} 超过 64KB，已截断存储")
+
+                # 兼容旧字段：prompts/ 和 scripts/
                 if rel_path.startswith("prompts/") and rel_path.endswith((".md", ".txt")):
-                    prompts_data[os.path.basename(rel_path)] = zf.read(n).decode("utf-8")
+                    prompts_data[os.path.basename(rel_path)] = text_content
                 elif rel_path.startswith("scripts/") and rel_path.endswith(".py"):
-                    sc = zf.read(n)
-                    if len(sc) <= 32 * 1024:
-                        scripts_data[os.path.basename(rel_path)] = sc.decode("utf-8")
+                    if len(text_content) <= 32 * 1024:
+                        scripts_data[os.path.basename(rel_path)] = text_content
                     else:
                         warnings.append(f"脚本 {os.path.basename(rel_path)} 超过 32KB，已跳过")
                 elif rel_path in ("icon.png", "icon.jpg"):
                     os.makedirs(SKILL_STATIC_DIR, exist_ok=True)
                     icon_path = f"{SKILL_STATIC_DIR}/{skill.id or 'new'}_{rel_path}"
                     with open(icon_path, "wb") as f:
-                        f.write(zf.read(n))
+                        f.write(raw)
                     skill.icon_path = icon_path
 
+        skill.files = files_data
         skill.prompts = prompts_data
         skill.scripts = scripts_data
+        if files_data:
+            warnings.append(f"已导入 {len(files_data)} 个文件")
         if scripts_data:
             warnings.append("脚本需审核后才能执行")
 
@@ -304,12 +334,16 @@ def _import_legacy_yaml(content: bytes, package_hash: str, db: Session, current_
                 "warnings": warnings, "message": "skill.yaml 缺少必填字段 name"}
     if not title:
         title = name
-    existing_name = db.query(Skill).filter(Skill.name == name, Skill.is_deleted == False).first()
+    existing_name = db.query(Skill).filter(Skill.name == name).first()
     if existing_name:
         if existing_name.is_builtin:
             return {"success": False, "name": name, "title": title, "version": config.get("version", ""),
                     "warnings": warnings, "message": "不能覆盖内置 Skill"}
         skill = existing_name
+        if skill.is_deleted:
+            skill.is_deleted = False
+            skill.deleted_at = None
+            warnings.append("已恢复之前删除的同名 Skill")
         skill.source = "imported"
         skill.version = config.get("version", "1.0.0")
         skill.author = config.get("author", "")
@@ -415,26 +449,32 @@ def export_skill(skill_id: int, db: Session = Depends(get_db), current_user=Depe
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # 生成 skill.md（frontmatter + 正文）
-        cfg = skill.skill_config or {}
-        system_prompt = cfg.get("system_prompt", "")
-        fm = {
-            "name": skill.name, "title": skill.title, "description": skill.description or "",
-            "version": skill.version or "1.0.0", "author": skill.author or "",
-            "category": skill.category or "other",
-            "trigger": skill.trigger_config or {},
-            "config": {k: v for k, v in cfg.items() if k != "system_prompt"},
-        }
-        md_content = f"---\n{yaml.dump(fm, allow_unicode=True, default_flow_style=False)}---\n\n{system_prompt}\n"
-        zf.writestr("skill.md", md_content)
-        # prompts
-        if skill.prompts:
-            for fname, content in skill.prompts.items():
-                zf.writestr(f"prompts/{fname}", content)
-        # scripts
-        if skill.scripts:
-            for fname, content in skill.scripts.items():
-                zf.writestr(f"scripts/{fname}", content)
+        # 优先使用 files 字段（完整文件树），兼容旧数据用 prompts/scripts
+        if skill.files:
+            # 导出完整文件树（保持原始目录结构）
+            for fpath, content in skill.files.items():
+                if content.startswith("[二进制文件"):
+                    continue  # 跳过二进制文件占位
+                zf.writestr(fpath, content)
+        else:
+            # 兼容旧数据：生成 skill.md + prompts/ + scripts/
+            cfg = skill.skill_config or {}
+            system_prompt = cfg.get("system_prompt", "")
+            fm = {
+                "name": skill.name, "title": skill.title, "description": skill.description or "",
+                "version": skill.version or "1.0.0", "author": skill.author or "",
+                "category": skill.category or "other",
+                "trigger": skill.trigger_config or {},
+                "config": {k: v for k, v in cfg.items() if k != "system_prompt"},
+            }
+            md_content = f"---\n{yaml.dump(fm, allow_unicode=True, default_flow_style=False)}---\n\n{system_prompt}\n"
+            zf.writestr("skill.md", md_content)
+            if skill.prompts:
+                for fname, content in skill.prompts.items():
+                    zf.writestr(f"prompts/{fname}", content)
+            if skill.scripts:
+                for fname, content in skill.scripts.items():
+                    zf.writestr(f"scripts/{fname}", content)
         # icon
         if skill.icon_path and os.path.exists(skill.icon_path):
             with open(skill.icon_path, "rb") as f:

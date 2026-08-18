@@ -21,6 +21,7 @@ class Skill(Base):
     skill_config = Column(JSON, comment="执行配置 {system_prompt, allowed_tools, max_tool_calls, ...}")
     prompts = Column(JSON, comment="附加提示词文件 {filename: content}")
     scripts = Column(JSON, comment="附加脚本 {filename: content}")
+    files = Column(JSON, comment="完整文件树 {相对路径: 文件内容}，包含多级目录所有文件")
     icon_path = Column(String(500), comment="图标存储路径")
     raw_yaml = Column(Text, comment="原始 skill.yaml 内容")
     package_hash = Column(String(64), comment="zip 包 SHA256 哈希")

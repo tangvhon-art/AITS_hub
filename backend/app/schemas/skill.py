@@ -28,6 +28,7 @@ class SkillUpdate(BaseModel):
     skill_config: Optional[Dict[str, Any]] = None
     prompts: Optional[Dict[str, str]] = None
     scripts: Optional[Dict[str, str]] = None
+    files: Optional[Dict[str, str]] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
 
@@ -45,6 +46,7 @@ class SkillResponse(BaseModel):
     skill_config: Optional[Dict[str, Any]] = None
     prompts: Optional[Dict[str, str]] = None
     scripts: Optional[Dict[str, str]] = None
+    files: Optional[Dict[str, str]] = None
     icon_path: Optional[str] = ""
     is_active: bool = True
     is_builtin: bool = False

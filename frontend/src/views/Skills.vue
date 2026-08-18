@@ -48,6 +48,7 @@
           <a-button type="link" size="small" @click="openEdit(record)">编辑</a-button>
           <a-button type="link" size="small" @click="handleExport(record)">导出</a-button>
           <a-button type="link" size="small" @click="testMatch(record)">匹配测试</a-button>
+          <a-button type="link" size="small" @click="openFileViewer(record)" :disabled="!record.files || Object.keys(record.files).length === 0">文件</a-button>
           <a-popconfirm v-if="!record.is_builtin" title="确认删除？" @confirm="handleDelete(record)">
             <a-button type="link" size="small" danger>删除</a-button>
           </a-popconfirm>
@@ -216,13 +217,57 @@
         </div>
       </div>
     </a-modal>
+
+    <!-- 文件查看器弹窗 -->
+    <a-modal v-model:open="fileViewerVisible" :title="`文件浏览 - ${fileViewerSkill?.title || ''}`" width="800px" :footer="null">
+      <div class="file-viewer">
+        <div class="file-tree-panel">
+          <div class="file-tree-header">文件列表 ({{ fileCount }} 个文件)</div>
+          <div class="file-tree">
+            <template v-for="item in visibleTreeItems" :key="item.key">
+              <div
+                class="file-tree-item"
+                :class="{ active: selectedFile === item.path, folder: item.type === 'folder' }"
+                :style="{ paddingLeft: (item.depth * 16 + 14) + 'px' }"
+                @click="onTreeItemClick(item)"
+              >
+                <span class="tree-expand">
+                  <CaretRightOutlined v-if="item.type === 'folder' && !item.expanded" />
+                  <CaretDownOutlined v-else-if="item.type === 'folder' && item.expanded" />
+                  <span v-else style="display:inline-block;width:10px"></span>
+                </span>
+                <span class="file-icon" :class="item.type === 'folder' ? 'icon-folder' : getFileIconClass(item.path)">
+                  <FolderOutlined v-if="item.type === 'folder'" />
+                  <FileTextOutlined v-else-if="item.path.endsWith('.md')" />
+                  <CodeOutlined v-else-if="item.path.endsWith('.py') || item.path.endsWith('.js') || item.path.endsWith('.ts') || item.path.endsWith('.json') || item.path.endsWith('.yaml') || item.path.endsWith('.yml')" />
+                  <FileOutlined v-else />
+                </span>
+                <span class="file-name">{{ item.name }}</span>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="file-content-panel">
+          <div class="file-content-header">
+            <span>{{ selectedFile || '选择文件查看内容' }}</span>
+          </div>
+          <div class="file-content-body" v-if="selectedFile">
+            <pre class="file-content-text">{{ fileViewerSkill?.files?.[selectedFile] || '(空文件)' }}</pre>
+          </div>
+          <div class="file-content-empty" v-else>
+            <FileTextOutlined style="font-size: 48px; color: #d9d9d9" />
+            <p>点击左侧文件查看内容</p>
+          </div>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { message } from 'ant-design-vue'
-import { InboxOutlined, SearchOutlined, FileZipOutlined, LoadingOutlined, CloseCircleOutlined, CheckCircleOutlined } from '@ant-design/icons-vue'
+import { InboxOutlined, SearchOutlined, FileZipOutlined, LoadingOutlined, CloseCircleOutlined, CheckCircleOutlined, FolderOutlined, FileTextOutlined, CodeOutlined, FileOutlined, CaretRightOutlined, CaretDownOutlined } from '@ant-design/icons-vue'
 import JSZip from 'jszip'
 import { skillsApi, type Skill } from '@/api/skills'
 import { mcpApi } from '@/api/mcp'
@@ -235,6 +280,111 @@ const matchLoading = ref(false)
 const matchMessage = ref('')
 const matchResult = ref<any>(null)
 const matchRecord = ref<Skill | null>(null)
+const fileViewerVisible = ref(false)
+const fileViewerSkill = ref<Skill | null>(null)
+const selectedFile = ref('')
+const expandedFolders = ref<Set<string>>(new Set())
+
+interface TreeNode {
+  key: string
+  name: string
+  type: 'folder' | 'file'
+  path: string
+  depth: number
+  expanded: boolean
+}
+
+const fileCount = computed(() => Object.keys(fileViewerSkill.value?.files || {}).length)
+
+// 构建树结构（文件夹 + 文件，按层级排序）
+const visibleTreeItems = computed<TreeNode[]>(() => {
+  const files = fileViewerSkill.value?.files || {}
+  const paths = Object.keys(files).sort()
+  const items: TreeNode[] = []
+  const folderSet = new Set<string>()
+
+  for (const path of paths) {
+    const parts = path.split('/')
+    // 为每一级文件夹创建节点
+    for (let i = 1; i < parts.length; i++) {
+      const folderPath = parts.slice(0, i).join('/')
+      if (!folderSet.has(folderPath)) {
+        folderSet.add(folderPath)
+        items.push({
+          key: 'folder:' + folderPath,
+          name: parts[i - 1],
+          type: 'folder',
+          path: folderPath,
+          depth: i - 1,
+          expanded: expandedFolders.value.has(folderPath),
+        })
+      }
+    }
+    // 文件节点
+    items.push({
+      key: 'file:' + path,
+      name: parts[parts.length - 1],
+      type: 'file',
+      path,
+      depth: parts.length - 1,
+      expanded: false,
+    })
+  }
+
+  // 过滤收起的文件夹内容
+  const result: TreeNode[] = []
+  for (const item of items) {
+    if (item.type === 'file') {
+      // 检查文件的所有父文件夹是否都展开
+      const parts = item.path.split('/')
+      let hidden = false
+      for (let i = 1; i < parts.length; i++) {
+        const parentPath = parts.slice(0, i).join('/')
+        if (!expandedFolders.value.has(parentPath)) {
+          hidden = true
+          break
+        }
+      }
+      if (!hidden) result.push(item)
+    } else {
+      // 文件夹：检查父文件夹是否展开
+      const parts = item.path.split('/')
+      let hidden = false
+      for (let i = 1; i < parts.length; i++) {
+        const parentPath = parts.slice(0, i).join('/')
+        if (!expandedFolders.value.has(parentPath)) {
+          hidden = true
+          break
+        }
+      }
+      if (!hidden) result.push(item)
+    }
+  }
+  return result
+})
+
+function onTreeItemClick(item: TreeNode) {
+  if (item.type === 'folder') {
+    if (expandedFolders.value.has(item.path)) {
+      expandedFolders.value.delete(item.path)
+    } else {
+      expandedFolders.value.add(item.path)
+    }
+  } else {
+    selectedFile.value = item.path
+  }
+}
+
+function getFileIconClass(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() || ''
+  if (['md', 'markdown'].includes(ext)) return 'icon-md'
+  if (['py'].includes(ext)) return 'icon-py'
+  if (['js', 'jsx', 'ts', 'tsx'].includes(ext)) return 'icon-js'
+  if (['json'].includes(ext)) return 'icon-json'
+  if (['yaml', 'yml'].includes(ext)) return 'icon-yaml'
+  if (['txt'].includes(ext)) return 'icon-txt'
+  return 'icon-other'
+}
 const list = ref<Skill[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0, showSizeChanger: true })
 const filterSource = ref<string>()
@@ -369,6 +519,21 @@ async function handleDelete(record: Skill) {
 
 function handleExport(record: Skill) {
   window.open(skillsApi.exportUrl(record.id), '_blank')
+}
+
+function openFileViewer(record: Skill) {
+  fileViewerSkill.value = record
+  selectedFile.value = ''
+  expandedFolders.value = new Set()
+  // 默认展开第一级文件夹
+  const files = record.files || {}
+  const topFolders = new Set<string>()
+  for (const path of Object.keys(files)) {
+    const parts = path.split('/')
+    if (parts.length > 1) topFolders.add(parts[0])
+  }
+  topFolders.forEach(f => expandedFolders.value.add(f))
+  fileViewerVisible.value = true
 }
 
 function testMatch(record: Skill) {
@@ -541,4 +706,28 @@ onMounted(() => { loadData(); loadTools() })
 .result-icon { font-size: 16px; }
 .result-detail { font-size: 13px; color: #4e5969; line-height: 1.8; }
 .result-detail .label { color: #86909c; }
+.file-viewer { display: flex; height: 500px; border: 1px solid #e8e8e8; border-radius: 8px; overflow: hidden; }
+.file-tree-panel { width: 240px; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; background: #fafafa; }
+.file-tree-header { padding: 10px 14px; font-size: 13px; font-weight: 600; color: #1f2329; border-bottom: 1px solid #e8e8e8; background: #fff; }
+.file-tree { flex: 1; overflow-y: auto; padding: 6px 0; }
+.file-tree-item { display: flex; align-items: center; gap: 5px; padding: 5px 12px; cursor: pointer; font-size: 12px; color: #4e5969; transition: background 0.15s; border-radius: 4px; margin: 1px 4px; }
+.file-tree-item:hover { background: #f0f7ff; }
+.file-tree-item.active { background: #e8f3ff; color: #1677ff; font-weight: 500; }
+.file-tree-item.folder { font-weight: 500; color: #1f2329; }
+.tree-expand { width: 10px; display: flex; justify-content: center; font-size: 9px; color: #a9aeb8; flex-shrink: 0; }
+.file-tree-item .file-icon { width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 13px; }
+.file-tree-item .file-icon.icon-folder { color: #faad14; }
+.file-tree-item .file-icon.icon-md { color: #519aba; }
+.file-tree-item .file-icon.icon-py { color: #3572A5; }
+.file-tree-item .file-icon.icon-js { color: #f0a020; }
+.file-tree-item .file-icon.icon-json { color: #cbcb41; }
+.file-tree-item .file-icon.icon-yaml { color: #cb171e; }
+.file-tree-item .file-icon.icon-txt { color: #86909c; }
+.file-tree-item .file-icon.icon-other { color: #a9aeb8; }
+.file-tree-item .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-content-panel { flex: 1; display: flex; flex-direction: column; background: #fff; }
+.file-content-header { padding: 10px 16px; font-size: 13px; font-weight: 500; color: #1f2329; border-bottom: 1px solid #e8e8e8; background: #fafafa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-content-body { flex: 1; overflow: auto; padding: 0; }
+.file-content-text { margin: 0; padding: 16px; font-size: 12px; line-height: 1.6; color: #1f2329; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; white-space: pre-wrap; word-break: break-all; }
+.file-content-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #86909c; font-size: 14px; }
 </style>
