@@ -198,7 +198,7 @@ class ScriptGenerator(BaseAgent):
         if project_id:
             try:
                 from app.services.knowledge_base import knowledge_base_service
-                docs = knowledge_base_service.search(project_id, f"脚本生成 {description[:200]}", top_k=3)
+                docs = knowledge_base_service.search(db=db_session, project_id=project_id, query=f"脚本生成 {description[:200]}", top_k=3)
                 if docs:
                     parts = ["以下是从项目知识库中检索到的相关内容，请参考："]
                     for i, doc in enumerate(docs, 1):

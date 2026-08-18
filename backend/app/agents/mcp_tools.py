@@ -255,7 +255,7 @@ async def tool_search_knowledge(args: Dict[str, Any], db: Session, project_id: O
         return {"error": "查询内容不能为空"}
 
     try:
-        results = knowledge_base_service.search(project_id=project_id, query=query, top_k=top_k)
+        results = knowledge_base_service.search(db=db, project_id=project_id, query=query, top_k=top_k)
     except Exception as e:
         return {"error": f"知识库检索失败: {str(e)}"}
 

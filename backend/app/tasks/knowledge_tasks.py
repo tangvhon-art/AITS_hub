@@ -46,6 +46,7 @@ class KnowledgeDocTask(BaseTask):
 
         # 调用知识库服务处理
         result = knowledge_base_service.add_document(
+            db=db,
             project_id=project_id,
             doc_id=doc.id,
             title=doc.title,

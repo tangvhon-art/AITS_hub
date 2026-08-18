@@ -15,6 +15,12 @@
           </template>
           AI生成需求
         </a-button>
+        <a-button @click="syncAllToKnowledge" :loading="syncingKb" style="margin-right: 8px">
+          <template #icon>
+            <CloudUploadOutlined />
+          </template>
+          同步到知识库
+        </a-button>
         <a-button type="primary" @click="showCreateModal = true">
           <template #icon>
             <PlusOutlined />
@@ -66,6 +72,7 @@
           <template v-else-if="column.key === 'action'">
             <a-button type="link" size="small" @click="editRequirement(record)">编辑</a-button>
             <a-button type="link" size="small" @click="generateCases(record)">生成用例</a-button>
+            <a-button type="link" size="small" @click="syncOneToKnowledge(record)">同步知识库</a-button>
             <a-button type="link" size="small" danger @click="deleteReq(record)">删除</a-button>
           </template>
         </template>
@@ -209,8 +216,9 @@ import { formatDateTime } from '@/utils/date'
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, UploadOutlined, InboxOutlined, RobotOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, UploadOutlined, InboxOutlined, RobotOutlined, CloudUploadOutlined } from '@ant-design/icons-vue'
 import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateCases as generateCasesApi, generateRequirement as generateRequirementApi, generateRequirementStatus } from '@/api/cases'
+import { syncRequirementsToKnowledge } from '@/api/knowledge'
 import { getLLMConfigs } from '@/api/llm'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { promptsApi, type Prompt } from '@/api/prompts'
@@ -221,6 +229,7 @@ const projectId = Number(route.params.id)
 const loading = ref(false)
 const saving = ref(false)
 const uploading = ref(false)
+const syncingKb = ref(false)
 const requirements = ref<any[]>([])
 const showCreateModal = ref(false)
 const showUploadModal = ref(false)
@@ -269,7 +278,7 @@ const columns = [
   { title: '来源', dataIndex: 'source', key: 'source', width: 100 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 220, fixed: 'right' }
+  { title: '操作', key: 'action', width: 280, fixed: 'right' }
 ]
 
 function getVersionName(versionId?: number | null) {
@@ -422,6 +431,27 @@ function deleteReq(row: any) {
       fetchRequirements()
     }
   })
+}
+
+async function syncAllToKnowledge() {
+  syncingKb.value = true
+  try {
+    const res = await syncRequirementsToKnowledge(projectId)
+    message.success(res.message || `已同步 ${res.synced} 条需求到知识库`)
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '同步失败')
+  } finally {
+    syncingKb.value = false
+  }
+}
+
+async function syncOneToKnowledge(row: any) {
+  try {
+    const res = await syncRequirementsToKnowledge(projectId, [row.id])
+    message.success(res.message || '同步成功，正在生成向量切片')
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '同步失败')
+  }
 }
 
 function generateCases(row: any) {

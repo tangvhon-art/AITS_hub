@@ -7,12 +7,36 @@ export interface KnowledgeDoc {
   content?: string
   file_type?: string
   file_path?: string
+  file_size?: number
+  source_type?: string
+  source_id?: number
   chunk_count?: number
+  chunk_strategy?: string
+  chunk_size?: number
+  overlap?: number
   status?: string
   error_message?: string
   created_by?: number
   created_at?: string
   updated_at?: string
+}
+
+export interface KnowledgeChunk {
+  id: number
+  doc_id: number
+  project_id?: number
+  chunk_index: number
+  content: string
+  token_count: number
+  doc_title: string
+  created_at?: string
+}
+
+export interface KnowledgeChunkListResponse {
+  total: number
+  page: number
+  page_size: number
+  items: KnowledgeChunk[]
 }
 
 export interface KnowledgeDocListResponse {
@@ -41,8 +65,19 @@ export interface KnowledgeStats {
   total_chunks: number
 }
 
-export function getKnowledgeDocs(projectId: number, params?: { page?: number; page_size?: number }) {
-  return request.post<KnowledgeDocListResponse>(`/projects/${projectId}/knowledge/search`, params)
+export function getKnowledgeDocs(projectId: number, params?: { page?: number; page_size?: number; keyword?: string; source_type?: string }) {
+  return request.post<KnowledgeDocListResponse>(`/projects/${projectId}/knowledge/docs/search`, params)
+}
+
+export function getKnowledgeChunks(projectId: number, params: { page?: number; page_size?: number; keyword?: string; doc_id?: number }) {
+  return request.post<KnowledgeChunkListResponse>(`/projects/${projectId}/knowledge/chunks/search`, params)
+}
+
+export function syncRequirementsToKnowledge(projectId: number, requirementIds?: number[]) {
+  return request.post<{ synced: number; doc_ids: number[]; message: string }>(
+    `/projects/${projectId}/knowledge/sync-requirements`,
+    requirementIds?.length ? requirementIds : [],
+  )
 }
 
 export function getKnowledgeDoc(projectId: number, docId: number) {
@@ -63,6 +98,12 @@ export function uploadKnowledgeDoc(projectId: number, file: File) {
 
 export function deleteKnowledgeDoc(projectId: number, docId: number) {
   return request.delete(`/projects/${projectId}/knowledge/${docId}`)
+}
+
+export function generateChunks(projectId: number, docId: number) {
+  return request.post<{ doc_id: number; status: string; message: string }>(
+    `/projects/${projectId}/knowledge/${docId}/generate-chunks`,
+  )
 }
 
 export function searchKnowledge(projectId: number, query: string, topK = 5) {

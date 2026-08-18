@@ -217,12 +217,18 @@
                   <a-tag>{{ record.issue_type }}</a-tag>
                 </template>
                 <template v-else-if="column.key === 'description'">
-                  <a-tooltip :title="record.description" placement="topLeft">
+                  <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '500px' }">
+                    <template #title>
+                      <div style="white-space: pre-wrap">{{ record.description }}</div>
+                    </template>
                     <span class="cell-ellipsis">{{ record.description }}</span>
                   </a-tooltip>
                 </template>
                 <template v-else-if="column.key === 'suggestion'">
-                  <a-tooltip :title="record.suggestion" placement="topLeft">
+                  <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '500px' }">
+                    <template #title>
+                      <div style="white-space: pre-wrap">{{ record.suggestion }}</div>
+                    </template>
                     <span class="cell-ellipsis">{{ record.suggestion }}</span>
                   </a-tooltip>
                 </template>

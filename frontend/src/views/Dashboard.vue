@@ -437,6 +437,12 @@ async function sendMessage() {
         }
         scrollToBottom()
       },
+      onKnowledge: (results) => {
+        if (results.length > 0) {
+          messages.value[aiIndex].knowledge_results = results
+          scrollToBottom()
+        }
+      },
     },
     abortController.value.signal,
   )

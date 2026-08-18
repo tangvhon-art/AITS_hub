@@ -20,7 +20,13 @@ class KnowledgeDocResponse(KnowledgeDocBase):
     id: int
     project_id: int
     file_path: str = ""
+    file_size: int = 0
+    source_type: str = "manual"
+    source_id: Optional[int] = None
     chunk_count: int = 0
+    chunk_strategy: str = "fixed"
+    chunk_size: int = 500
+    overlap: int = 50
     status: str
     error_message: str = ""
     created_by: Optional[int] = None
@@ -38,9 +44,43 @@ class KnowledgeDocListResponse(BaseModel):
     items: List[KnowledgeDocResponse]
 
 
+class KnowledgeChunkResponse(BaseModel):
+    """切片响应"""
+    id: int
+    doc_id: int
+    project_id: int = 0
+    chunk_index: int
+    content: str
+    token_count: int = 0
+    doc_title: str = ""
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class KnowledgeChunkListResponse(BaseModel):
+    """切片列表响应"""
+    total: int
+    page: int
+    page_size: int
+    items: List[KnowledgeChunkResponse]
+
+
 class KnowledgeSearchRequest(BaseModel):
     query: str
     top_k: int = Field(default=5, ge=1, le=20)
+
+
+class KnowledgeSearchResult(BaseModel):
+    """单条检索结果"""
+    doc_id: int
+    chunk_id: int
+    title: str = ""
+    content: str
+    chunk_index: int = 0
+    score: float = 0.0
+    similarity: float = 0.0
 
 
 class KnowledgeSearchResponse(BaseModel):

@@ -130,7 +130,7 @@ class BaseAgent(ABC):
             logger.warning("search_knowledge: 缺少 project_id，跳过检索")
             return []
         try:
-            results = knowledge_base_service.search(pid, query, top_k=top_k)
+            results = knowledge_base_service.search(db=self.db, project_id=pid, query=query, top_k=top_k)
             self._log_step("knowledge_search", {"query": query[:100], "results": len(results)}, "success")
             return results
         except Exception as e:

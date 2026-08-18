@@ -69,6 +69,8 @@ def _auto_migrate(engine):
         ("performance_tests", "data_pool_id", "INTEGER"),
         ("api_test_cases", "data_pool_id", "INTEGER"),
         ("api_scenarios", "data_pool_id", "INTEGER"),
+        ("knowledge_docs", "source_type", "VARCHAR(30) DEFAULT 'manual'"),
+        ("knowledge_docs", "source_id", "INTEGER"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:

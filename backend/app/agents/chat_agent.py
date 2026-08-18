@@ -134,6 +134,7 @@ class ChatAgent(BaseAgent):
             return []
         try:
             results = knowledge_base_service.search(
+                db=self.db,
                 project_id=self.project_id,
                 query=query,
                 top_k=top_k,
@@ -210,6 +211,19 @@ class ChatAgent(BaseAgent):
         knowledge_results = []
         if use_knowledge and self.project_id and not need_tool:
             knowledge_results = self.search_knowledge(message)
+            if knowledge_results:
+                yield {
+                    "type": "knowledge",
+                    "results": [
+                        {
+                            "title": r.get("title", ""),
+                            "content": r.get("content", "")[:300],
+                            "doc_id": r.get("doc_id"),
+                            "similarity": round(r.get("similarity", 0), 4),
+                        }
+                        for r in knowledge_results[:5]
+                    ],
+                }
 
         # 3. 构建消息
         knowledge_context = self._build_knowledge_context(knowledge_results)

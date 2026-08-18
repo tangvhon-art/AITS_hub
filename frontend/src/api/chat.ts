@@ -54,6 +54,7 @@ export async function chatStream(
     onMetadata?: (metadata: any) => void
     onToolCall?: (toolCall: ToolCall) => void
     onToolResult?: (toolCall: ToolCall) => void
+    onKnowledge?: (results: KnowledgeResult[]) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -71,6 +72,8 @@ export async function chatStream(
             callbacks.onToolCall?.(data.tool_call)
           } else if (data.type === 'tool_result') {
             callbacks.onToolResult?.(data.tool_call)
+          } else if (data.type === 'knowledge') {
+            callbacks.onKnowledge?.(data.results || [])
           }
         },
         onError: (err) => {

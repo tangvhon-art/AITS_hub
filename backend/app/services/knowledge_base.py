@@ -1,18 +1,17 @@
 """
 RAG 知识库服务
 
-文档上传 → 切分 → Embedding → FAISS 存储 → 检索
+文档上传 → 切分 → Embedding → 存入数据库 → 内存 FAISS 检索
+
+切片和向量存储在 knowledge_chunks 表中，文档全量内容存储在 knowledge_docs 表中。
+按 project_id 维护内存 FAISS 索引缓存，增删文档后自动失效重建。
 """
-import os
 import json
 import logging
-import pickle
+import threading
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
 
 import numpy as np
-
-from app.core.timezone import china_now_naive
 
 logger = logging.getLogger(__name__)
 
@@ -33,29 +32,21 @@ def _get_embedding_model():
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        # 使用轻量中文模型
         _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
     return _model
 
 
 class KnowledgeBaseService:
-    """知识库服务"""
+    """知识库服务（数据库存储切片 + 内存 FAISS 缓存）"""
 
-    def __init__(self, storage_dir: str = "data/knowledge_base"):
-        self.storage_dir = storage_dir
-        os.makedirs(storage_dir, exist_ok=True)
+    # 默认切片参数
+    DEFAULT_CHUNK_SIZE = 500
+    DEFAULT_CHUNK_OVERLAP = 50
 
-    def _get_project_dir(self, project_id: int) -> str:
-        """获取项目知识库目录"""
-        project_dir = os.path.join(self.storage_dir, f"project_{project_id}")
-        os.makedirs(project_dir, exist_ok=True)
-        return project_dir
-
-    def _get_index_path(self, project_id: int) -> str:
-        return os.path.join(self._get_project_dir(project_id), "faiss.index")
-
-    def _get_chunks_path(self, project_id: int) -> str:
-        return os.path.join(self._get_project_dir(project_id), "chunks.json")
+    def __init__(self):
+        # 按 project_id 缓存 FAISS 索引和 chunk 元数据
+        self._index_cache: Dict[int, Dict[str, Any]] = {}
+        self._cache_lock = threading.Lock()
 
     def split_text(
         self,
@@ -63,17 +54,7 @@ class KnowledgeBaseService:
         chunk_size: int = 500,
         chunk_overlap: int = 50,
     ) -> List[str]:
-        """
-        文本切分
-
-        Args:
-            text: 原始文本
-            chunk_size: 每块大小（字符数）
-            chunk_overlap: 重叠大小
-
-        Returns:
-            文本块列表
-        """
+        """文本切分（按字符数，在句号/换行处断句）"""
         if not text.strip():
             return []
 
@@ -84,12 +65,10 @@ class KnowledgeBaseService:
         while start < text_len:
             end = min(start + chunk_size, text_len)
 
-            # 尝试在句号、换行处切分
             if end < text_len:
-                # 向前找最近的句号或换行
                 search_end = max(start + chunk_size // 2, end - 100)
                 for i in range(end, search_end, -1):
-                    if text[i-1] in "。！？\n":
+                    if text[i - 1] in "。！？\n":
                         end = i
                         break
 
@@ -103,28 +82,92 @@ class KnowledgeBaseService:
 
         return chunks
 
+    def _invalidate_cache(self, project_id: int):
+        """使某个项目的 FAISS 缓存失效"""
+        with self._cache_lock:
+            self._index_cache.pop(project_id, None)
+
+    def _build_index(self, db, project_id: int) -> Optional[Dict[str, Any]]:
+        """从数据库加载切片向量，构建内存 FAISS 索引"""
+        from app.models.knowledge_doc import KnowledgeChunk
+
+        chunks = db.query(KnowledgeChunk).filter(
+            KnowledgeChunk.project_id == project_id
+        ).all()
+
+        if not chunks:
+            return None
+
+        # 收集有效向量
+        vectors = []
+        chunk_meta = []
+        for c in chunks:
+            if c.embedding:
+                vectors.append(c.embedding)
+                chunk_meta.append({
+                    "chunk_id": c.id,
+                    "doc_id": c.doc_id,
+                    "chunk_index": c.chunk_index,
+                    "content": c.content,
+                    "token_count": c.token_count,
+                })
+
+        if not vectors:
+            return None
+
+        vectors_np = np.array(vectors, dtype=np.float32)
+        dimension = vectors_np.shape[1]
+        faiss = _get_faiss()
+        index = faiss.IndexFlatL2(dimension)
+        index.add(vectors_np)
+
+        return {"index": index, "chunks": chunk_meta}
+
+    def _get_index(self, db, project_id: int) -> Optional[Dict[str, Any]]:
+        """获取项目的 FAISS 索引（带缓存）"""
+        with self._cache_lock:
+            if project_id in self._index_cache:
+                return self._index_cache[project_id]
+
+        # 缓存未命中，构建
+        result = self._build_index(db, project_id)
+        with self._cache_lock:
+            self._index_cache[project_id] = result
+        return result
+
     def add_document(
         self,
+        db,
         project_id: int,
         doc_id: int,
         title: str,
         content: str,
+        chunk_size: int = None,
+        chunk_overlap: int = None,
     ) -> Dict[str, Any]:
         """
-        添加文档到知识库
+        添加文档到知识库：切分 → 向量化 → 存入数据库
 
         Args:
+            db: 数据库会话
             project_id: 项目ID
             doc_id: 文档ID
             title: 文档标题
             content: 文档内容
+            chunk_size: 切片大小
+            chunk_overlap: 重叠大小
 
         Returns:
             处理结果
         """
         try:
+            from app.models.knowledge_doc import KnowledgeChunk, KnowledgeDoc
+
+            cs = chunk_size or self.DEFAULT_CHUNK_SIZE
+            co = chunk_overlap or self.DEFAULT_CHUNK_OVERLAP
+
             # 1. 切分
-            chunks = self.split_text(content)
+            chunks = self.split_text(content, chunk_size=cs, chunk_overlap=co)
             if not chunks:
                 return {"success": False, "error": "文档内容为空", "chunk_count": 0}
 
@@ -132,59 +175,60 @@ class KnowledgeBaseService:
             model = _get_embedding_model()
             embeddings = model.encode(chunks, show_progress_bar=False)
 
-            # 3. 加载或创建 FAISS 索引
-            faiss = _get_faiss()
-            index_path = self._get_index_path(project_id)
-            chunks_path = self._get_chunks_path(project_id)
+            # 3. 删除旧切片（如有）
+            db.query(KnowledgeChunk).filter(
+                KnowledgeChunk.doc_id == doc_id
+            ).delete()
 
-            dimension = embeddings.shape[1]
-            if os.path.exists(index_path):
-                index = faiss.read_index(index_path)
-                # 加载现有 chunks
-                with open(chunks_path, "r", encoding="utf-8") as f:
-                    all_chunks = json.load(f)
-            else:
-                index = faiss.IndexFlatL2(dimension)
-                all_chunks = []
-
-            # 4. 添加向量
-            index.add(np.array(embeddings, dtype=np.float32))
-
-            # 5. 保存 chunk 元数据
+            # 4. 存入数据库
             for i, chunk in enumerate(chunks):
-                all_chunks.append({
-                    "doc_id": doc_id,
-                    "title": title,
-                    "content": chunk,
-                    "chunk_index": i,
-                    "added_at": china_now_naive().isoformat(),
-                })
+                emb = embeddings[i]
+                db_chunk = KnowledgeChunk(
+                    doc_id=doc_id,
+                    project_id=project_id,
+                    chunk_index=i,
+                    content=chunk,
+                    token_count=len(chunk),
+                    embedding=emb.tolist() if hasattr(emb, "tolist") else list(emb),
+                )
+                db.add(db_chunk)
 
-            # 6. 保存
-            faiss.write_index(index, index_path)
-            with open(chunks_path, "w", encoding="utf-8") as f:
-                json.dump(all_chunks, f, ensure_ascii=False, indent=2)
+            # 5. 更新文档切片数和策略
+            doc = db.query(KnowledgeDoc).filter(KnowledgeDoc.id == doc_id).first()
+            if doc:
+                doc.chunk_count = len(chunks)
+                doc.chunk_strategy = "fixed"
+                doc.chunk_size = cs
+                doc.overlap = co
+                doc.status = "ready"
+
+            db.commit()
+
+            # 6. 使缓存失效
+            self._invalidate_cache(project_id)
 
             return {
                 "success": True,
                 "chunk_count": len(chunks),
-                "total_chunks": len(all_chunks),
             }
 
         except Exception as e:
+            db.rollback()
             logger.error(f"添加文档到知识库失败: {e}")
             return {"success": False, "error": str(e), "chunk_count": 0}
 
     def search(
         self,
+        db,
         project_id: int,
         query: str,
         top_k: int = 5,
     ) -> List[Dict[str, Any]]:
         """
-        检索相关文档
+        检索相关文档块
 
         Args:
+            db: 数据库会话
             project_id: 项目ID
             query: 查询文本
             top_k: 返回数量
@@ -193,17 +237,12 @@ class KnowledgeBaseService:
             相关文档块列表
         """
         try:
-            index_path = self._get_index_path(project_id)
-            chunks_path = self._get_chunks_path(project_id)
-
-            if not os.path.exists(index_path):
+            cached = self._get_index(db, project_id)
+            if not cached:
                 return []
 
-            # 加载索引和 chunks
-            faiss = _get_faiss()
-            index = faiss.read_index(index_path)
-            with open(chunks_path, "r", encoding="utf-8") as f:
-                all_chunks = json.load(f)
+            index = cached["index"]
+            chunk_meta = cached["chunks"]
 
             # 生成查询向量
             model = _get_embedding_model()
@@ -211,19 +250,32 @@ class KnowledgeBaseService:
 
             # 检索
             distances, indices = index.search(
-                np.array(query_vector, dtype=np.float32), min(top_k, len(all_chunks))
+                np.array(query_vector, dtype=np.float32), min(top_k, len(chunk_meta))
             )
 
             # 组装结果
             results = []
             for i, idx in enumerate(indices[0]):
-                if idx >= 0 and idx < len(all_chunks):
-                    chunk = all_chunks[idx]
+                if 0 <= idx < len(chunk_meta):
+                    chunk = chunk_meta[idx]
                     results.append({
-                        **chunk,
+                        "doc_id": chunk["doc_id"],
+                        "chunk_id": chunk["chunk_id"],
+                        "title": "",
+                        "content": chunk["content"],
+                        "chunk_index": chunk["chunk_index"],
                         "score": float(distances[0][i]),
                         "similarity": float(1 / (1 + distances[0][i])),
                     })
+
+            # 补充文档标题
+            if results:
+                from app.models.knowledge_doc import KnowledgeDoc
+                doc_ids = set(r["doc_id"] for r in results)
+                docs = db.query(KnowledgeDoc).filter(KnowledgeDoc.id.in_(doc_ids)).all()
+                title_map = {d.id: d.title for d in docs}
+                for r in results:
+                    r["title"] = title_map.get(r["doc_id"], "")
 
             return results
 
@@ -231,11 +283,12 @@ class KnowledgeBaseService:
             logger.error(f"知识库检索失败: {e}")
             return []
 
-    def delete_document(self, project_id: int, doc_id: int) -> Dict[str, Any]:
+    def delete_document(self, db, project_id: int, doc_id: int) -> Dict[str, Any]:
         """
-        删除文档（重建索引）
+        删除文档的所有切片
 
         Args:
+            db: 数据库会话
             project_id: 项目ID
             doc_id: 文档ID
 
@@ -243,61 +296,45 @@ class KnowledgeBaseService:
             删除结果
         """
         try:
-            index_path = self._get_index_path(project_id)
-            chunks_path = self._get_chunks_path(project_id)
+            from app.models.knowledge_doc import KnowledgeChunk
 
-            if not os.path.exists(chunks_path):
-                return {"success": True, "deleted_chunks": 0}
+            deleted = db.query(KnowledgeChunk).filter(
+                KnowledgeChunk.doc_id == doc_id
+            ).delete()
+            db.commit()
 
-            with open(chunks_path, "r", encoding="utf-8") as f:
-                all_chunks = json.load(f)
+            # 使缓存失效
+            self._invalidate_cache(project_id)
 
-            # 过滤掉要删除的文档
-            remaining = [c for c in all_chunks if c.get("doc_id") != doc_id]
-            deleted_count = len(all_chunks) - len(remaining)
-
-            if not remaining:
-                # 删除索引文件
-                if os.path.exists(index_path):
-                    os.remove(index_path)
-                with open(chunks_path, "w", encoding="utf-8") as f:
-                    json.dump([], f)
-                return {"success": True, "deleted_chunks": deleted_count}
-
-            # 重建索引
-            faiss = _get_faiss()
-            model = _get_embedding_model()
-            texts = [c["content"] for c in remaining]
-            embeddings = model.encode(texts, show_progress_bar=False)
-
-            dimension = embeddings.shape[1]
-            index = faiss.IndexFlatL2(dimension)
-            index.add(np.array(embeddings, dtype=np.float32))
-
-            faiss.write_index(index, index_path)
-            with open(chunks_path, "w", encoding="utf-8") as f:
-                json.dump(remaining, f, ensure_ascii=False, indent=2)
-
-            return {"success": True, "deleted_chunks": deleted_count}
+            return {"success": True, "deleted_chunks": deleted}
 
         except Exception as e:
+            db.rollback()
             logger.error(f"删除知识库文档失败: {e}")
             return {"success": False, "error": str(e)}
 
-    def get_stats(self, project_id: int) -> Dict[str, Any]:
+    def get_stats(self, db, project_id: int) -> Dict[str, Any]:
         """获取知识库统计信息"""
-        chunks_path = self._get_chunks_path(project_id)
-        if not os.path.exists(chunks_path):
+        try:
+            from app.models.knowledge_doc import KnowledgeDoc, KnowledgeChunk
+
+            total_docs = db.query(KnowledgeDoc).filter(
+                KnowledgeDoc.project_id == project_id,
+                KnowledgeDoc.is_deleted == False,
+            ).count()
+
+            total_chunks = db.query(KnowledgeChunk).filter(
+                KnowledgeChunk.project_id == project_id
+            ).count()
+
+            return {
+                "total_docs": total_docs,
+                "total_chunks": total_chunks,
+            }
+
+        except Exception as e:
+            logger.error(f"获取知识库统计失败: {e}")
             return {"total_docs": 0, "total_chunks": 0}
-
-        with open(chunks_path, "r", encoding="utf-8") as f:
-            all_chunks = json.load(f)
-
-        doc_ids = set(c.get("doc_id") for c in all_chunks)
-        return {
-            "total_docs": len(doc_ids),
-            "total_chunks": len(all_chunks),
-        }
 
 
 # 全局单例
