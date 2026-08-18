@@ -262,9 +262,9 @@ def set_default_llm_config(
 
 
 @router.get("/{config_id}/capabilities")
-async def get_llm_capabilities(config_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_llm_capabilities(config_id: int, force: bool = False, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    探测模型能力（缓存24小时）
+    探测模型能力（缓存24小时，可用 ?force=true 强制重新探测）
 
     检测方式：
     1. Function Calling：发一个带 tools 的实际请求，检查响应是否包含 tool_calls
@@ -276,9 +276,12 @@ async def get_llm_capabilities(config_id: int, db: Session = Depends(get_db), cu
     if not config:
         raise HTTPException(404, "模型配置不存在")
     now = time.time()
-    if config.capabilities and isinstance(config.capabilities, dict):
+    # 缓存逻辑：成功结果缓存24小时，失败结果只缓存5分钟，force 参数跳过缓存
+    if not force and config.capabilities and isinstance(config.capabilities, dict):
         detected_at = config.capabilities.get("detected_at", 0)
-        if now - detected_at < 86400:
+        is_failed = config.capabilities.get("probe_error") or not config.capabilities.get("function_calling", False)
+        cache_ttl = 300 if is_failed else 86400
+        if now - detected_at < cache_ttl:
             return config.capabilities
 
     capabilities = {
@@ -291,10 +294,22 @@ async def get_llm_capabilities(config_id: int, db: Session = Depends(get_db), cu
     }
 
     try:
-        from app.agents.llm_factory import llm_factory
+        from app.agents.llm_factory import llm_factory, decrypt_api_key
         from langchain_core.messages import HumanMessage, SystemMessage
+        import asyncio
 
-        llm = llm_factory.create_llm(config)
+        # 从 ORM 对象构建配置字典（get_llm_from_config 需要字典）
+        llm_config_dict = {
+            "provider": config.provider,
+            "model_name": config.model_name,
+            "base_url": config.base_url,
+            "api_key": config.api_key,
+            "max_tokens": config.max_tokens or 4096,
+            "temperature": config.temperature if config.temperature is not None else 0.7,
+            "streaming": config.streaming or False,
+            "api_format": getattr(config, "api_format", "chat_completions"),
+        }
+        llm = llm_factory.get_llm_from_config(llm_config_dict)
 
         # ---- 1. 探测 Function Calling ----
         # 发一个带 tools 的实际请求，使用 tool_choice="required" 强制模型调用工具
@@ -311,7 +326,9 @@ async def get_llm_capabilities(config_id: int, db: Session = Depends(get_db), cu
             try:
                 llm_forced = llm.bind_tools([test_tool], tool_choice="required")
                 messages = [HumanMessage(content="Please ping now.")]
-                response = await llm_forced.ainvoke(messages)
+                response = await asyncio.wait_for(llm_forced.ainvoke(messages), timeout=20)
+            except asyncio.TimeoutError:
+                raise Exception("FC探测超时(20s)")
             except Exception:
                 # 部分 provider 不支持 tool_choice 参数，降级为普通 bind_tools
                 llm_forced = llm.bind_tools([test_tool])
@@ -319,7 +336,7 @@ async def get_llm_capabilities(config_id: int, db: Session = Depends(get_db), cu
                     SystemMessage(content="You MUST call the ping tool. Do not answer with text."),
                     HumanMessage(content="Ping."),
                 ]
-                response = await llm_forced.ainvoke(messages)
+                response = await asyncio.wait_for(llm_forced.ainvoke(messages), timeout=20)
 
             # 兼容提取工具调用（同 ChatAgent 的逻辑）
             from app.agents.chat_agent import ChatAgent

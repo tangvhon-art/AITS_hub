@@ -19,6 +19,9 @@
         >
           <a-select-option v-for="c in llmConfigs" :key="c.id" :value="c.id">{{ c.name }}</a-select-option>
         </a-select>
+        <a-button type="text" size="small" :loading="probingCaps" @click="reprobeCapabilities" title="重新检测模型能力">
+          <ReloadOutlined />
+        </a-button>
         <a-checkbox v-model:checked="useKnowledge" class="knowledge-checkbox">知识库</a-checkbox>
       </div>
       <div class="top-bar-right">
@@ -133,7 +136,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
-import { SendOutlined, StopOutlined, PlusOutlined, WarningOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons-vue'
+import { SendOutlined, StopOutlined, PlusOutlined, WarningOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { chatStream, type ChatMessage, type KnowledgeResult, type ToolCall } from '@/api/chat'
 import { getProjects, type Project } from '@/api/projects'
 import { getLLMConfigs, type LLMConfig } from '@/api/llm'
@@ -158,6 +161,7 @@ const isLoading = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const abortController = ref<AbortController | null>(null)
 const degradeWarning = ref('')
+const probingCaps = ref(false)
 const showModelSelector = ref(false)
 
 const toolNameMap: Record<string, string> = {
@@ -193,9 +197,9 @@ async function loadLLMConfigs() {
   } catch (e) { console.error('加载模型失败', e) }
 }
 
-async function checkModelCapabilities(configId: number) {
+async function checkModelCapabilities(configId: number, force = false) {
   try {
-    const caps: ModelCapabilities = await llmCapabilitiesApi.get(configId)
+    const caps: ModelCapabilities = await llmCapabilitiesApi.get(configId, force)
     const warnings: string[] = []
     if (!caps.function_calling) warnings.push('Function Calling')
     if (!caps.skill_supported) warnings.push('Skill')
@@ -207,6 +211,17 @@ async function checkModelCapabilities(configId: number) {
     }
   } catch (e) {
     console.error('模型能力检测失败', e)
+  }
+}
+
+async function reprobeCapabilities() {
+  if (!selectedLlmConfigId.value) return
+  probingCaps.value = true
+  try {
+    await checkModelCapabilities(selectedLlmConfigId.value, true)
+    message.success('模型能力重新检测完成')
+  } finally {
+    probingCaps.value = false
   }
 }
 

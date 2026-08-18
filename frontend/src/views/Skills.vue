@@ -47,7 +47,6 @@
         <template v-else-if="column.key === 'action'">
           <a-button type="link" size="small" @click="openEdit(record)">编辑</a-button>
           <a-button type="link" size="small" @click="handleExport(record)">导出</a-button>
-          <a-button type="link" size="small" @click="testMatch(record)">匹配测试</a-button>
           <a-button type="link" size="small" @click="openFileViewer(record)" :disabled="!record.files || Object.keys(record.files).length === 0">文件</a-button>
           <a-popconfirm v-if="!record.is_builtin" title="确认删除？" @confirm="handleDelete(record)">
             <a-button type="link" size="small" danger>删除</a-button>
@@ -191,33 +190,6 @@
       </div>
     </a-modal>
 
-    <!-- 匹配测试弹窗 -->
-    <a-modal v-model:open="matchVisible" title="Skill 匹配测试" @ok="handleMatchTest" :confirm-loading="matchLoading" width="520px" okText="测试匹配" cancelText="关闭">
-      <div class="match-test-form">
-        <div class="match-test-label">测试消息</div>
-        <a-textarea
-          v-model:value="matchMessage"
-          placeholder="输入用户消息，测试是否能匹配到此 Skill..."
-          :rows="3"
-          :disabled="matchLoading"
-        />
-        <div v-if="matchResult" class="match-test-result" :class="matchResult.matched ? 'success' : 'fail'">
-          <div class="result-title">
-            <CheckCircleOutlined v-if="matchResult.matched" class="result-icon success" />
-            <CloseCircleOutlined v-else class="result-icon fail" />
-            <span>{{ matchResult.matched ? '匹配成功' : '未匹配' }}</span>
-          </div>
-          <div v-if="matchResult.matched && matchResult.skill" class="result-detail">
-            <div><span class="label">匹配 Skill：</span>{{ matchResult.skill.title }}</div>
-            <div v-if="matchResult.reason"><span class="label">匹配原因：</span>{{ matchResult.reason }}</div>
-          </div>
-          <div v-else class="result-detail">
-            <div><span class="label">原因：</span>{{ matchResult.reason || '当前消息未匹配到任何 Skill' }}</div>
-          </div>
-        </div>
-      </div>
-    </a-modal>
-
     <!-- 文件查看器弹窗 -->
     <a-modal v-model:open="fileViewerVisible" :title="`文件浏览 - ${fileViewerSkill?.title || ''}`" width="800px" :footer="null">
       <div class="file-viewer">
@@ -267,7 +239,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { message } from 'ant-design-vue'
-import { InboxOutlined, SearchOutlined, FileZipOutlined, LoadingOutlined, CloseCircleOutlined, CheckCircleOutlined, FolderOutlined, FileTextOutlined, CodeOutlined, FileOutlined, CaretRightOutlined, CaretDownOutlined } from '@ant-design/icons-vue'
+import { InboxOutlined, SearchOutlined, FileZipOutlined, LoadingOutlined, FolderOutlined, FileTextOutlined, CodeOutlined, FileOutlined, CaretRightOutlined, CaretDownOutlined } from '@ant-design/icons-vue'
 import JSZip from 'jszip'
 import { skillsApi, type Skill } from '@/api/skills'
 import { mcpApi } from '@/api/mcp'
@@ -275,11 +247,6 @@ import { mcpApi } from '@/api/mcp'
 const loading = ref(false)
 const saving = ref(false)
 const importing = ref(false)
-const matchVisible = ref(false)
-const matchLoading = ref(false)
-const matchMessage = ref('')
-const matchResult = ref<any>(null)
-const matchRecord = ref<Skill | null>(null)
 const fileViewerVisible = ref(false)
 const fileViewerSkill = ref<Skill | null>(null)
 const selectedFile = ref('')
@@ -536,35 +503,6 @@ function openFileViewer(record: Skill) {
   fileViewerVisible.value = true
 }
 
-function testMatch(record: Skill) {
-  matchRecord.value = record
-  matchMessage.value = ''
-  matchResult.value = null
-  matchVisible.value = true
-}
-
-async function handleMatchTest() {
-  if (!matchMessage.value.trim()) {
-    message.warning('请输入测试消息')
-    return
-  }
-  matchLoading.value = true
-  matchResult.value = null
-  try {
-    const res = await skillsApi.match(matchMessage.value)
-    const isCurrentSkill = res.matched && res.skill?.id === matchRecord.value?.id
-    matchResult.value = {
-      matched: isCurrentSkill,
-      skill: res.skill,
-      reason: isCurrentSkill ? '成功匹配到当前 Skill' : (res.reason || '未匹配到此 Skill'),
-    }
-  } catch (e: any) {
-    matchResult.value = { matched: false, reason: `测试失败: ${e.message}` }
-  } finally {
-    matchLoading.value = false
-  }
-}
-
 function openImport() {
   importFile.value = null
   importResult.value = null
@@ -695,17 +633,6 @@ onMounted(() => { loadData(); loadTools() })
 .preview-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #4e5969; margin-bottom: 8px; }
 .preview-body { font-size: 12px; color: #4e5969; background: #fff; padding: 8px; border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; margin-bottom: 8px; }
 .preview-files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: #86909c; }
-.match-test-form { display: flex; flex-direction: column; gap: 16px; }
-.match-test-label { font-size: 14px; font-weight: 500; color: #1f2329; margin-bottom: 4px; }
-.match-test-result { padding: 12px 16px; border-radius: 8px; background: #f7f8fa; }
-.match-test-result.success { background: #e8ffea; border: 1px solid #b7eb8f; }
-.match-test-result.fail { background: #fff2f0; border: 1px solid #ffccc7; }
-.result-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
-.result-title.success { color: #389e0d; }
-.result-title.fail { color: #cf1322; }
-.result-icon { font-size: 16px; }
-.result-detail { font-size: 13px; color: #4e5969; line-height: 1.8; }
-.result-detail .label { color: #86909c; }
 .file-viewer { display: flex; height: 500px; border: 1px solid #e8e8e8; border-radius: 8px; overflow: hidden; }
 .file-tree-panel { width: 240px; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; background: #fafafa; }
 .file-tree-header { padding: 10px 14px; font-size: 13px; font-weight: 600; color: #1f2329; border-bottom: 1px solid #e8e8e8; background: #fff; }

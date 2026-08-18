@@ -10,6 +10,6 @@ export interface ModelCapabilities {
 }
 
 export const llmCapabilitiesApi = {
-  get: (configId: number) =>
-    request.get<ModelCapabilities>(`/llm-configs/${configId}/capabilities`),
+  get: (configId: number, force = false) =>
+    request.get<ModelCapabilities>(`/llm-configs/${configId}/capabilities${force ? '?force=true' : ''}`),
 }
