@@ -255,7 +255,15 @@
 
           <!-- 优化用例按钮 -->
           <div style="text-align: center; padding: 8px 0">
-            <a-button type="primary" size="large" @click="openOptimizeModal">
+            <template v-if="currentDetail.output_result?.optimized">
+              <a-alert
+                message="用例已优化，请前往用例管理中检查或重新创建评审"
+                type="success"
+                show-icon
+                style="max-width: 480px; margin: 0 auto"
+              />
+            </template>
+            <a-button v-else type="primary" size="large" @click="openOptimizeModal">
               <template #icon><ThunderboltOutlined /></template>
               根据评审结果优化/补充用例
             </a-button>
@@ -335,7 +343,7 @@
           <a-result
             :status="optimizeResult.error ? 'error' : 'success'"
             :title="optimizeResult.error ? '生成失败' : '用例优化完成'"
-            :sub-title="optimizeResult.error || `成功生成 ${optimizeResult.case_count} 条用例，已保存 ${optimizeResult.cases_saved} 条`"
+            :sub-title="optimizeResult.error || `优化 ${optimizeResult.optimized_count || 0} 条用例，新增 ${optimizeResult.created_count || 0} 条用例`"
           >
             <template #extra v-if="!optimizeResult.error">
               <a-space>
@@ -533,6 +541,7 @@ async function handleReview() {
   try {
     await reviewCases(projectId, {
       cases: selectedCases.value.map(c => ({
+        id: c.id,
         title: c.title,
         module: c.module,
         priority: c.priority,
@@ -605,7 +614,7 @@ async function viewDetail(record: CaseReviewItem) {
 // ===== 评审优化用例 =====
 const optimizeVisible = ref(false)
 const optimizing = ref(false)
-const optimizeResult = ref<{ case_count: number; cases_saved: number; error?: string } | null>(null)
+const optimizeResult = ref<{ optimized_count: number; created_count: number; error?: string } | null>(null)
 const caseGenPrompts = ref<Prompt[]>([])
 const optimizeForm = ref({
   optimize_mode: 'both' as 'both' | 'optimize' | 'supplement',
@@ -637,7 +646,8 @@ async function handleOptimize() {
       optimize_mode: optimizeForm.value.optimize_mode,
     })
     optimizeTaskId = res.task_id
-    message.success('优化任务已提交，正在生成中...')
+    optimizeVisible.value = false
+    message.success('优化任务已提交，正在后台生成中...')
     startOptimizePolling()
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '提交优化任务失败')
@@ -653,12 +663,21 @@ function startOptimizePolling() {
       const task = await getAgentTask(optimizeTaskId)
       if (task.status === 'success') {
         const r = task.output_result || {}
-        optimizeResult.value = { case_count: r.case_count || 0, cases_saved: r.cases_saved || 0 }
+        optimizeResult.value = {
+          optimized_count: r.optimized_count || 0,
+          created_count: r.created_count || 0,
+        }
         optimizing.value = false
         stopOptimizePolling()
-        message.success(`用例优化完成，已保存 ${r.cases_saved || 0} 条用例`)
+        message.success(`用例优化完成：优化 ${r.optimized_count || 0} 条，新增 ${r.created_count || 0} 条`)
+        // 刷新评审详情，标记已优化后隐藏按钮
+        if (currentDetail.value) {
+          try {
+            currentDetail.value = await getCaseReviewDetail(projectId, currentDetail.value.id)
+          } catch { /* ignore */ }
+        }
       } else if (task.status === 'failed') {
-        optimizeResult.value = { case_count: 0, cases_saved: 0, error: task.error_message || '生成失败' }
+        optimizeResult.value = { optimized_count: 0, created_count: 0, error: task.error_message || '生成失败' }
         optimizing.value = false
         stopOptimizePolling()
       }

@@ -169,7 +169,7 @@ const loadLlmConfigs = async () => {
 
 const loadPrompts = async () => {
   try {
-    apiTestPrompts.value = await promptsApi.list('api_test')
+    apiTestPrompts.value = await promptsApi.list('api_case_generation')
   } catch {}
 }
 

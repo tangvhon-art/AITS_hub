@@ -16,7 +16,7 @@ SYSTEM_PROMPT = """你是一位专业的 API 文档工程师，擅长根据接�
 请使用 Markdown 格式输出，包含完整的请求/响应说明、参数表格、示例等。"""
 
 
-def build_doc_prompt(api_definition: Dict[str, Any]) -> str:
+def build_doc_prompt(api_definition: Dict[str, Any], supplement_info: str = "") -> str:
     """构建 AI 生成接口文档的提示词"""
 
     # 请求头
@@ -78,7 +78,15 @@ def build_doc_prompt(api_definition: Dict[str, Any]) -> str:
 
 ## 响应示例
 {response_section}
+"""
 
+    if supplement_info and supplement_info.strip():
+        prompt += f"""
+## 补充说明（请在生成文档时重点参考）
+{supplement_info.strip()}
+"""
+
+    prompt += """
 ---
 
 请根据以上信息生成完整的接口文档，要求：
@@ -108,12 +116,12 @@ class ApiDocGenerator:
         self.db = db_session
         self.llm_config_id = llm_config_id
 
-    async def generate(self, api_definition: Dict[str, Any], system_prompt: str = "") -> Tuple[str, Dict[str, int], Optional[int]]:
+    async def generate(self, api_definition: Dict[str, Any], system_prompt: str = "", supplement_info: str = "") -> Tuple[str, Dict[str, int], Optional[int]]:
         """
         生成接口文档
         返回 (markdown_content, token_usage, used_config_id)
         """
-        prompt = build_doc_prompt(api_definition)
+        prompt = build_doc_prompt(api_definition, supplement_info=supplement_info)
 
         effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else SYSTEM_PROMPT
 

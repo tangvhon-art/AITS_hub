@@ -157,7 +157,7 @@
     <a-modal
       v-model:open="showAiDocModal"
       title="AI 生成接口文档"
-      width="700px"
+      width="500px"
       :footer="null"
     >
       <a-form layout="vertical">
@@ -174,24 +174,25 @@
             :options="apiDocPrompts.map(p => ({ label: p.name, value: p.id }))"
           />
         </a-form-item>
-        <a-form-item label="接口描述（AI 生成）">
+        <a-form-item label="补充信息（可选）">
           <a-textarea
-            v-model:value="aiDocResult"
-            :rows="10"
-            placeholder="点击下方按钮生成接口文档..."
-            style="font-family: monospace"
+            v-model:value="aiDocConfig.supplement_info"
+            :rows="4"
+            placeholder="输入需要补充说明的信息，如业务背景、特殊逻辑、注意事项等，AI 将结合接口定义和补充信息生成文档"
           />
         </a-form-item>
+        <a-alert
+          message="点击生成后弹窗将关闭，文档将在后台异步生成，完成后自动写入接口描述字段。"
+          type="info"
+          show-icon
+        />
       </a-form>
-      <div style="display: flex; justify-content: space-between">
-        <a-button :loading="aiGenerating" @click="handleAiGenerateDoc">
+      <div style="text-align: right; margin-top: 16px">
+        <a-button @click="showAiDocModal = false">取消</a-button>
+        <a-button type="primary" style="margin-left: 8px" :loading="aiGenerating" @click="handleAiGenerateDoc">
           <template #icon><RobotOutlined /></template>
           生成文档
         </a-button>
-        <div>
-          <a-button @click="showAiDocModal = false">取消</a-button>
-          <a-button type="primary" style="margin-left: 8px" @click="handleApplyAiDoc">应用到接口</a-button>
-        </div>
       </div>
     </a-modal>
   </div>
@@ -220,8 +221,7 @@ const showAiDocModal = ref(false)
 const aiGenerating = ref(false)
 const llmConfigs = ref<any[]>([])
 const apiDocPrompts = ref<Prompt[]>([])
-const aiDocResult = ref('')
-const aiDocConfig = ref({ llm_config_id: null as number | null, prompt_id: null as number | null })
+const aiDocConfig = ref({ llm_config_id: null as number | null, prompt_id: null as number | null, supplement_info: '' })
 
 const form = ref<any>({
   name: '',
@@ -297,51 +297,39 @@ const handleAiGenerateDoc = async () => {
     return
   }
   aiGenerating.value = true
-  aiDocResult.value = ''
   try {
     const res = await apiDefinitionsApi.aiGenerateDoc(
       projectId,
       Number(apiId),
       aiDocConfig.value.llm_config_id || undefined,
       aiDocConfig.value.prompt_id || undefined,
+      aiDocConfig.value.supplement_info || undefined,
     )
     const taskId = res.task_id
-    message.info('AI 文档生成中...')
+    showAiDocModal.value = false
+    aiDocConfig.value.supplement_info = ''
+    aiGenerating.value = false
+    message.info('文档生成中，完成后将自动写入接口描述...')
 
     const poll = setInterval(async () => {
       try {
         const status = await apiDefinitionsApi.aiGenerateDocStatus(projectId, Number(apiId), taskId)
         if (status.status === 'success') {
           clearInterval(poll)
-          aiDocResult.value = status.documentation
           form.value.description = status.documentation
-          aiGenerating.value = false
-          message.success('文档已生成并写入接口描述')
+          message.success('接口文档已生成并写入描述字段')
         } else if (status.status === 'failed') {
           clearInterval(poll)
-          aiGenerating.value = false
           message.error('文档生成失败：' + (status.error || '未知错误'))
         }
       } catch {
-        clearInterval(poll)
-        aiGenerating.value = false
-        message.error('查询生成状态失败')
+        // 轮询中忽略错误
       }
     }, 2000)
   } catch (e: any) {
     aiGenerating.value = false
     message.error('启动文档生成失败：' + (e.message || '未知错误'))
   }
-}
-
-const handleApplyAiDoc = () => {
-  if (!aiDocResult.value) {
-    message.warning('请先生成文档')
-    return
-  }
-  form.value.description = aiDocResult.value
-  message.success('已应用到接口描述')
-  showAiDocModal.value = false
 }
 
 const loadData = async () => {
@@ -370,7 +358,7 @@ onMounted(() => {
   loadModules()
   loadData()
   loadLlmConfigs()
-  promptsApi.list('api_test').then(data => { apiDocPrompts.value = data }).catch(() => {})
+  promptsApi.list('api_doc_generation').then(data => { apiDocPrompts.value = data }).catch(() => {})
   // 新建时从 query 参数读取默认分组
   if (!isEdit.value && route.query.module_id) {
     form.value.module_id = Number(route.query.module_id)

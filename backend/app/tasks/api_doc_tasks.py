@@ -50,6 +50,7 @@ def generate_api_doc_task(self, task_id: int):
         input_params = task.input_params or {}
         api_id = input_params.get("api_id")
         prompt_id = input_params.get("prompt_id")
+        supplement_info = input_params.get("supplement_info", "")
 
         api_def = db.query(ApiDefinition).filter(ApiDefinition.id == api_id).first() if api_id else None
         if not api_def:
@@ -78,7 +79,7 @@ def generate_api_doc_task(self, task_id: int):
             asyncio.set_event_loop(new_loop)
             try:
                 result_container["result"] = new_loop.run_until_complete(
-                    generator.generate(api_dict, system_prompt=system_prompt)
+                    generator.generate(api_dict, system_prompt=system_prompt, supplement_info=supplement_info)
                 )
             except Exception as e:
                 result_container["error"] = str(e)
@@ -94,17 +95,28 @@ def generate_api_doc_task(self, task_id: int):
 
         markdown_content, token_usage, used_config_id = result_container.get("result", ("", {}, None))
 
+        if not markdown_content:
+            raise ValueError("AI 返回的文档内容为空")
+
+        # 跨线程后重新查询，确保 session 对象状态正常
+        db.expire_all()
+        api_def = db.query(ApiDefinition).filter(ApiDefinition.id == api_id).first()
+        if not api_def:
+            raise ValueError("接口定义不存在")
+
         # 回写到接口描述字段
         api_def.description = markdown_content
         api_def.updated_at = china_now_naive()
 
+        task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
         task.status = "success"
         task.output_result = {"documentation": markdown_content}
         task.token_usage = token_usage
         task.completed_at = china_now_naive()
         db.commit()
+        db.refresh(api_def)
 
-        logger.info(f"AI生成接口文档任务完成: task_id={task_id}")
+        logger.info(f"AI生成接口文档任务完成: task_id={task_id}, desc_len={len(markdown_content)}, saved_desc={api_def.description is not None}")
 
         # 发送AI接口文档生成完成通知
         try:

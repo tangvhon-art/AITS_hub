@@ -340,11 +340,11 @@ content 字段应包含以下章节，使用 Markdown 二级标题（##）分隔
             status="active",
             created_by=current_user.id,
         ),
-        # ---- API 测试 ----
+        # ---- API 文档生成 ----
         Prompt(
             name="API 文档生成 - 标准模板",
             description="根据接口定义生成接口文档",
-            category="api_test",
+            category="api_doc_generation",
             system_prompt="你是一名 API 文档专家，请根据接口定义信息生成清晰、完整的接口文档，包含接口说明、请求参数、响应示例等内容。",
             user_prompt_template="",
             variables=["api_definition"],
@@ -352,10 +352,11 @@ content 字段应包含以下章节，使用 Markdown 二级标题（##）分隔
             status="active",
             created_by=current_user.id,
         ),
+        # ---- API 用例生成 ----
         Prompt(
             name="API 用例生成 - 标准模板",
             description="根据接口定义生成接口测试用例",
-            category="api_test",
+            category="api_case_generation",
             system_prompt="""你是一名资深接口测试工程师，拥有丰富的 API 测试用例设计经验。你的任务是根据接口定义生成高质量、全覆盖的接口测试用例。
 
 ## 输出格式（最高优先级，必须严格遵守）

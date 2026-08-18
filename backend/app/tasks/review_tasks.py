@@ -113,7 +113,37 @@ OPTIMIZE_CASES_SYSTEM_PROMPT = """你是一名资深软件测试工程师。请�
 
 你必须且只能输出一个合法的 JSON 对象，包含以下结构：
 
-{"cases": [{"title": "用例标题", "module": "所属模块", "priority": "P0/P1/P2/P3", "case_type": "functional/exception/boundary/performance/security", "preconditions": "前置条件", "steps": [{"action": "操作步骤", "expected": "预期结果"}], "expected_result": "最终预期结果", "bdd_content": ""}]}
+{
+  "optimized_cases": [
+    {
+      "original_case_id": 1,
+      "title": "优化后的用例标题",
+      "module": "所属模块",
+      "priority": "P0/P1/P2/P3",
+      "case_type": "functional/exception/boundary/performance/security",
+      "preconditions": "前置条件",
+      "steps": [{"action": "操作步骤", "expected": "预期结果"}],
+      "expected_result": "最终预期结果",
+      "bdd_content": ""
+    }
+  ],
+  "new_cases": [
+    {
+      "title": "新增用例标题",
+      "module": "所属模块",
+      "priority": "P0/P1/P2/P3",
+      "case_type": "functional/exception/boundary/performance/security",
+      "preconditions": "前置条件",
+      "steps": [{"action": "操作步骤", "expected": "预期结果"}],
+      "expected_result": "最终预期结果",
+      "bdd_content": ""
+    }
+  ]
+}
+
+### 字段说明
+- optimized_cases：需要**更新**的原有问题用例，必须包含 original_case_id（对应现有用例的ID），仅输出评审中发现有问题的用例
+- new_cases：需要**新增**的补充用例，不需要 original_case_id，根据改进建议补充缺失的测试场景
 
 ### 绝对禁止
 1. 禁止使用 ```json ``` 等 Markdown 代码块包裹输出
@@ -121,10 +151,11 @@ OPTIMIZE_CASES_SYSTEM_PROMPT = """你是一名资深软件测试工程师。请�
 3. 输出的第一个字符必须是 {，最后一个字符必须是 }
 4. 所有内容使用中文
 5. steps 数组中每个元素必须包含 action 和 expected 字段
+6. optimized_cases 中每条必须包含 original_case_id 且为现有用例的真实ID
 
 ## 优化原则
-- 针对评审报告中的每个问题，修正对应用例的不足
-- 根据整体改进建议，补充缺失的测试场景（边界值、异常流程、安全等）
+- optimized_cases：针对评审报告中的每个问题，找到对应的原有用例并修正其不足（标题、步骤、预期结果等）
+- new_cases：根据整体改进建议，补充缺失的测试场景（边界值、异常流程、安全等），这些是原有用例中不存在的
 - 优化后的用例步骤必须清晰可执行，预期结果必须明确可验证
 - 保持与原有用例相同的模块归属
 - 优先级根据问题严重程度调整：high 问题对应的用例设为 P0/P1"""
@@ -135,7 +166,7 @@ OPTIMIZE_CASES_USER_PROMPT = """## 原始需求
 ## 模块范围
 {module_info}
 
-## 现有测试用例
+## 现有测试用例（每条包含 id 字段，optimized_cases 中的 original_case_id 必须引用这些 id）
 {cases_json}
 
 ## 评审发现的问题
@@ -147,7 +178,9 @@ OPTIMIZE_CASES_USER_PROMPT = """## 原始需求
 ## 优化模式
 {mode_desc}
 
-请根据以上评审结果，输出优化和补充后的完整测试用例列表（包含修正后的原有问题用例和新增的补充用例）。"""
+请根据以上评审结果输出：
+- optimized_cases：仅包含评审中发现有问题的用例，更新其内容，必须带 original_case_id
+- new_cases：根据改进建议补充的全新用例，不需要 original_case_id"""
 
 
 @celery_app.task(bind=True, name="optimize_cases_from_review", max_retries=0)
@@ -233,47 +266,98 @@ def optimize_cases_from_review_task(
         # 解析用例
         from app.agents.utils import extract_json
         parsed = extract_json(raw_content)
-        cases = []
+        optimized_cases = []
+        new_cases = []
         if parsed and isinstance(parsed, dict):
-            cases = parsed.get("cases", [])
-        if not cases:
-            cases = ContentExtractor.extract_test_cases(raw_content)
+            optimized_cases = parsed.get("optimized_cases", [])
+            new_cases = parsed.get("new_cases", [])
+            # 兼容旧格式：如果只有 cases 数组，全部视为新增
+            if not optimized_cases and not new_cases:
+                new_cases = parsed.get("cases", [])
 
-        if not cases:
+        if not optimized_cases and not new_cases:
             raise ValueError("未能从 AI 返回中解析出有效用例")
 
         # 如果指定了模块筛选，确保所有用例归属该模块
         if module_filter:
-            for c in cases:
+            for c in optimized_cases + new_cases:
                 if not c.get("module"):
                     c["module"] = module_filter
 
-        # 保存用例
+        # 1. 更新优化用例（原有问题用例）
+        from app.models.test_case import TestCase
+        updated_count = 0
+        updated_case_ids = []
+        for c in optimized_cases:
+            original_id = c.get("original_case_id")
+            if not original_id:
+                continue
+            existing = db.query(TestCase).filter(
+                TestCase.id == original_id,
+                TestCase.project_id == project_id,
+                TestCase.is_deleted == False,
+            ).first()
+            if not existing:
+                continue
+            if c.get("title"):
+                existing.title = c["title"]
+            if c.get("module") is not None:
+                existing.module = c["module"]
+            if c.get("priority"):
+                existing.priority = c["priority"]
+            if c.get("case_type"):
+                existing.case_type = c["case_type"]
+            if c.get("preconditions") is not None:
+                existing.preconditions = c["preconditions"]
+            if c.get("steps") is not None:
+                import json as _json
+                existing.steps = _json.dumps(c["steps"], ensure_ascii=False) if isinstance(c["steps"], list) else str(c["steps"])
+            if c.get("expected_result") is not None:
+                existing.expected_result = c["expected_result"]
+            if c.get("bdd_content") is not None:
+                existing.bdd_content = c["bdd_content"]
+            existing.needs_update = False
+            existing.updated_at = china_now_naive()
+            updated_count += 1
+            updated_case_ids.append(original_id)
+
+        # 2. 创建补充用例（新增缺失场景）
         from app.services.ai_creation_service import AICreationService
-        created_cases = AICreationService.create_test_cases(
-            db,
-            project_id=project_id,
-            cases=cases,
-            requirement_id=requirement_id,
-            created_by=opt_task.created_by,
-        )
+        created_cases = []
+        if new_cases:
+            created_cases = AICreationService.create_test_cases(
+                db,
+                project_id=project_id,
+                cases=new_cases,
+                requirement_id=requirement_id,
+                created_by=opt_task.created_by,
+            )
+
+        # 标记评审任务已优化
+        review_output = review_task.output_result or {}
+        review_output["optimized"] = True
+        review_output["optimize_task_id"] = optimize_task_id
+        review_output["optimized_at"] = china_now_naive().isoformat()
+        review_task.output_result = review_output
 
         opt_task.status = "success"
         opt_task.output_result = {
             "review_task_id": review_task_id,
             "optimize_mode": optimize_mode,
-            "case_count": len(cases),
-            "cases_saved": len(created_cases),
+            "optimized_count": updated_count,
+            "created_count": len(created_cases),
+            "total_count": updated_count + len(created_cases),
             "requirement_id": requirement_id,
             "module": module_filter,
-            "saved_case_ids": [c.id for c in created_cases],
+            "updated_case_ids": updated_case_ids,
+            "created_case_ids": [c.id for c in created_cases],
         }
         opt_task.completed_at = china_now_naive()
         db.commit()
 
         logger.info(
             f"评审优化用例完成: review={review_task_id}, "
-            f"generated={len(cases)}, saved={len(created_cases)}"
+            f"updated={updated_count}, created={len(created_cases)}"
         )
 
         # 发送通知
@@ -287,8 +371,8 @@ def optimize_cases_from_review_task(
                 {
                     "source_name": "评审优化",
                     "strategy": optimize_mode,
-                    "success_count": len(created_cases),
-                    "failed_count": len(cases) - len(created_cases),
+                    "success_count": updated_count + len(created_cases),
+                    "failed_count": 0,
                     "duration": duration,
                 },
                 triggered_by=opt_task.created_by,

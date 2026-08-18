@@ -16,7 +16,8 @@
         <a-select v-model:value="filterCategory" allow-clear placeholder="全部分类" style="width: 150px">
           <a-select-option value="case_generation">用例生成</a-select-option>
           <a-select-option value="case_review">用例评审</a-select-option>
-          <a-select-option value="api_test">API 测试</a-select-option>
+          <a-select-option value="api_doc_generation">接口文档生成</a-select-option>
+          <a-select-option value="api_case_generation">接口用例生成</a-select-option>
           <a-select-option value="requirement_generation">需求生成</a-select-option>
           <a-select-option value="report_generation">报告生成</a-select-option>
           <a-select-option value="script_generation">脚本生成</a-select-option>
@@ -85,7 +86,8 @@
           <a-select v-model:value="formData.category" style="width: 100%">
             <a-select-option value="case_generation">用例生成</a-select-option>
             <a-select-option value="case_review">用例评审</a-select-option>
-            <a-select-option value="api_test">API 测试</a-select-option>
+            <a-select-option value="api_doc_generation">接口文档生成</a-select-option>
+          <a-select-option value="api_case_generation">接口用例生成</a-select-option>
             <a-select-option value="requirement_generation">需求生成</a-select-option>
             <a-select-option value="report_generation">报告生成</a-select-option>
             <a-select-option value="script_generation">脚本生成</a-select-option>
@@ -180,7 +182,8 @@ const columns = [
 const categoryText = (c: string) => ({
   case_generation: '用例生成',
   case_review: '用例评审',
-  api_test: 'API 测试',
+  api_doc_generation: '接口文档生成',
+  api_case_generation: '接口用例生成',
   requirement_generation: '需求生成',
   report_generation: '报告生成',
   script_generation: '脚本生成',

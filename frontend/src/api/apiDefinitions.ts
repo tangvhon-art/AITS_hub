@@ -36,13 +36,13 @@ export const apiDefinitionsApi = {
     request.put<ApiDefinition>(`/projects/${projectId}/api-definitions/${id}`, data),
   delete: (projectId: number, id: number) =>
     request.delete(`/projects/${projectId}/api-definitions/${id}`),
-  aiGenerateDoc: (projectId: number, definitionId: number, llmConfigId?: number, promptId?: number) => {
+  aiGenerateDoc: (projectId: number, definitionId: number, llmConfigId?: number, promptId?: number, supplementInfo?: string) => {
     const params: Record<string, number> = {}
     if (llmConfigId) params.llm_config_id = llmConfigId
     if (promptId) params.prompt_id = promptId
     return request.post<{ task_id: number; status: string }>(
       `/projects/${projectId}/api-definitions/${definitionId}/ai-generate-doc`,
-      null,
+      supplementInfo || null,
       { params },
     )
   },
