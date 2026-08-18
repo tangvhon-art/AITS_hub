@@ -1,23 +1,24 @@
 # AITS 智能测试管理平台
 
-基于 LangChain + Agent 的下一代智能测试管理平台，覆盖测试全流程：**需求解析 → 用例生成 → UI 自动化执行 → 接口自动化测试 → 性能测试 → 测试计划编排 → 缺陷分析 → 报告生成 → 质量看板**。
+基于 LangChain + Agent 的下一代智能测试管理平台，覆盖测试全流程：**需求解析 → 用例生成 → 用例评审与优化 → UI 自动化执行 → 接口自动化测试 → 性能测试 → 测试计划编排 → 缺陷分析 → 报告生成 → 质量看板 → 事件通知**。
 
 ## 功能概览
 
 | 模块 | 功能 | 说明 |
 |------|------|------|
-| 项目管理 | 创建/编辑/删除项目 | 数据按项目隔离，支持多项目管理 |
+| 项目管理 | 创建/编辑/删除项目 | 数据按项目隔离，支持多项目管理，卡片式列表分页 |
 | 版本管理 | 版本生命周期管理 | draft → active → released → archived |
-| 需求管理 | 手动创建 + 文档上传 + 变更传导 | 支持 Word/PDF/TXT/MD 自动解析，需求变更标记关联用例 |
+| 需求管理 | 手动创建 + 文档上传 + 变更传导 + 同步知识库 | 支持 Word/PDF/TXT/MD 自动解析，需求变更标记关联用例，一键同步到知识库向量检索 |
 | 用例管理 | CRUD + AI 生成 + 批量操作 | 基于需求自动生成结构化测试用例（P0-P3），支持覆盖率统计 |
+| 用例评审 | AI 评审 + 优化补充 | 多维度评审（完整性/覆盖率/可执行性/规范性/冗余性），基于评审报告一键优化/补充用例，自动关联原需求和模块 |
 | 测试计划 | 混合编排 + 异步执行 + 完整报告 | 接口用例与 UI 场景混合编排，Celery 异步执行，自动生成测试报告 |
 | UI 自动化 | Playwright + Agent 驱动执行 | SSE 实时日志流、截图记录、步骤转指令、AI 自动修复 |
-| 自动化脚本 | 脚本库管理 + 单步执行 | 自动保存执行成功的脚本，支持版本追溯与 AI 自动修复 |
-| 自动化编排 | 套件管理 + 批量执行 | 编排多脚本/用例顺序执行，支持重试、AI 自动修复、无头模式 |
-| 接口管理 | 接口目录 + 接口定义 | 接口模块化管理、CRUD 维护、AI 生成接口文档 |
-| 接口调试 | 在线调试 + 历史记录 | 发送请求调试，支持 Pre-request/Tests 脚本、Mock 数据、保存历史 |
-| 接口用例 | 用例 CRUD + AI 生成 | 关联接口自动获取 URL，断言管理，多策略 AI 生成（正常/异常/边界/全面） |
-| 接口场景 | 场景编排 + 变量提取 | 6 种步骤类型（API/用例/脚本/等待/条件/循环），可视化变量提取与传递 |
+| 自动化脚本 | 脚本库管理 + 单步执行 | 自动保存执行成功的脚本，支持版本追溯与 AI 自动修复，脚本列表分页 |
+| 自动化编排 | 套件管理 + 批量执行 | 编排多脚本/用例顺序执行，支持重试、AI 自动修复、无头模式，套件列表分页 |
+| 接口管理 | 接口目录 + 接口定义 | 接口模块化管理、CRUD 维护、AI 生成接口文档、树形分组 |
+| 接口调试 | 在线调试 + 历史记录 | 发送请求调试，支持 Pre-request/Tests JS 脚本（AI 生成）、Mock 数据、保存历史 |
+| 接口用例 | 用例 CRUD + AI 生成 | 关联接口自动获取 URL，断言管理（9 种类型），多策略 AI 生成（正常/异常/边界/全面） |
+| 接口场景 | 场景编排 + 变量提取 | 6 种步骤类型（API/用例/脚本/等待/条件/循环），可视化变量提取与传递，条件分支/循环遍历 |
 | 接口执行 | 批量执行 + 执行记录 | 按步骤展示请求、响应、断言结果与耗时 |
 | Mock 服务 | Mock 期望 + 数据生成 | 按请求匹配返回 Mock 数据，支持 13 种 `{{$function()}}` 动态数据生成 |
 | 接口导入 | 多格式导入 | Postman / Swagger / JMeter / HAR / Apifox 五种格式 |
@@ -28,8 +29,10 @@
 | 缺陷管理 | 缺陷全生命周期 | 状态流转、严重程度/根因分类、版本关联、执行失败自动创建 |
 | 测试报告 | AI 生成 + 版本关联 + 多源聚合 | 按版本聚合 UI/接口/计划执行数据，支持 HTML/JUnit 导出 |
 | 质量看板 | 核心指标 + 趋势图表 + 风险预警 | 通过率/缺陷分布/模块覆盖率，纳入接口测试数据，AI 洞察 |
-| 知识库 | RAG 向量检索 | FAISS + Sentence-Transformer，辅助用例生成与 AI 回答 |
-| 智能助手 | AI 对话 + 工具调用 | SSE 流式对话，18+ MCP 工具覆盖全模块数据查询 |
+| 知识库 | RAG 向量检索 + 内容管理 + 需求同步 | FAISS + Sentence-Transformer，文档管理 + 知识内容（切片）列表页，需求一键同步，辅助用例生成与 AI 回答 |
+| 智能助手 | AI 对话 + 工具调用 + 知识库引用 | SSE 流式对话，18+ MCP 工具覆盖全模块数据查询，开启知识库后展示引用来源 |
+| 事件通知 | 飞书机器人 + 多事件触发 | 全局公共模块，18 种事件（测试执行/AI任务/缺陷协作/数据处理），19 种卡片模板，HMAC-SHA256 验签，异步发送+重试 |
+| Prompt 管理 | System Prompt 模板库 | 按场景分类管理（用例生成/评审/接口文档等），各 AI 功能可选择模板 |
 | 模型配置 | 多 LLM 接入 + 自动降级 | DeepSeek / Claude / vLLM / Ollama，按 Agent 类型路由模型 |
 | Agent 任务 | 异步任务监控 | 查看任务状态、日志、Token 消耗 |
 | 审计日志 | 操作审计追踪 | 记录关键操作日志 |
@@ -41,9 +44,11 @@
 前端  Vue 3.4 + TypeScript 5.5 + Ant Design Vue 4.x + Pinia + Vite 5 + ECharts 5.5
 后端  FastAPI 0.115 + Python 3.13+ + SQLAlchemy 2.0 + Pydantic v2
 数据  MySQL 8.0 + Redis 7（Celery 消息队列 + 缓存）
-异步  Celery 5.6 + Redis（异步任务队列，脚本/编排/计划/性能测试执行）
+异步  Celery 5.6 + Redis（异步任务队列，脚本/编排/计划/性能测试/通知执行）
 Agent LangChain 0.3 + LangGraph 0.3 + Playwright 1.49
+向量  FAISS + sentence-transformers（知识库 RAG 向量检索）
 压测  Locust（性能测试执行引擎）
+通知  飞书机器人 Webhook（HMAC-SHA256 验签）
 AI    DeepSeek / Claude / vLLM-TGI / Ollama（4 种接入模式，自动降级 + 模型路由）
 ```
 
@@ -108,7 +113,7 @@ AITS_hub/
 ├── backend/                          # 后端服务
 │   ├── app/
 │   │   ├── agents/                   # AI Agent 实现（15 个）
-│   │   │   ├── base_agent.py         #   Agent 基类（LLM调用/日志/RAG/模型路由）
+│   │   │   ├── base_agent.py         #   Agent 基类（LLM调用/日志/RAG/模型路由/知识库检索）
 │   │   │   ├── llm_factory.py        #   LLM 统一抽象层
 │   │   │   ├── model_router.py       #   模型路由与降级策略
 │   │   │   ├── utils.py              #   Agent 公共工具（JSON解析等）
@@ -121,10 +126,10 @@ AITS_hub/
 │   │   │   ├── defect_analyzer.py    #   缺陷分析 Agent
 │   │   │   ├── report_generator.py   #   报告生成 Agent
 │   │   │   ├── notification_agent.py #   通知 Agent
-│   │   │   ├── chat_agent.py         #   智能助手 Agent（SSE 流式对话）
+│   │   │   ├── chat_agent.py         #   智能助手 Agent（SSE 流式对话 + 知识库检索）
 │   │   │   ├── mcp_tools.py          #   Agent 工具集（18+ MCP 工具）
 │   │   │   └── supervisor.py         #   Supervisor 多 Agent 编排
-│   │   ├── api/                      # API 路由（30 个模块）
+│   │   ├── api/                      # API 路由（30+ 个模块）
 │   │   │   ├── auth.py               #   用户认证（注册/登录/JWT）
 │   │   │   ├── projects.py           #   项目管理
 │   │   │   ├── project_versions.py   #   版本管理
@@ -137,11 +142,13 @@ AITS_hub/
 │   │   │   ├── defects.py            #   缺陷管理
 │   │   │   ├── reports.py            #   测试报告
 │   │   │   ├── quality.py            #   质量看板（UI+接口数据聚合）
-│   │   │   ├── knowledge.py          #   知识库（RAG）
-│   │   │   ├── agent_tasks.py        #   Agent 任务
+│   │   │   ├── knowledge.py          #   知识库（RAG + 切片列表 + 需求同步）
+│   │   │   ├── notifications.py      #   事件通知（渠道/规则/记录）
+│   │   │   ├── agent_tasks.py        #   Agent 任务 + 用例评审 + 评审优化
 │   │   │   ├── audit_logs.py         #   审计日志
 │   │   │   ├── import_export.py      #   数据导入导出
 │   │   │   ├── llm_configs.py        #   LLM 模型配置
+│   │   │   ├── prompts.py            #   Prompt 模板管理
 │   │   │   ├── chat.py               #   智能助手（SSE）
 │   │   │   ├── coverage.py           #   覆盖率分析
 │   │   │   ├── data_pools.py         #   数据池管理
@@ -157,25 +164,34 @@ AITS_hub/
 │   │   │       ├── api_executions.py #     执行记录
 │   │   │       ├── api_mock.py       #     Mock 服务
 │   │   │       └── api_import.py     #     多格式导入
-│   │   ├── models/                   # SQLAlchemy 数据模型（40 张表）
+│   │   ├── models/                   # SQLAlchemy 数据模型（43 张表）
 │   │   │   ├── api_test.py           #   接口测试（11 张表）
 │   │   │   ├── test_plan.py          #   测试计划（4 张表）
 │   │   │   ├── automation_suite.py   #   自动化编排（5 张表）
 │   │   │   ├── performance_test.py   #   性能测试（2 张表）
 │   │   │   ├── test_coverage.py      #   覆盖率（2 张表）
 │   │   │   ├── test_data_pool.py     #   数据池（2 张表）
+│   │   │   ├── knowledge_doc.py      #   知识库（文档+切片 2 张表）
+│   │   │   ├── notification.py       #   事件通知（渠道/规则/记录 3 张表）
+│   │   │   ├── prompt.py             #   Prompt 模板
 │   │   │   └── execution_base.py     #   执行记录公共基类
 │   │   ├── schemas/                  # Pydantic 请求/响应模型
-│   │   │   └── common.py             #   通用分页响应（泛型）
+│   │   │   ├── common.py             #   通用分页响应（泛型）
+│   │   │   ├── notification.py       #   通知模块 Schema
+│   │   │   └── knowledge.py          #   知识库 Schema
 │   │   ├── core/                     # 核心模块
 │   │   │   ├── security.py           #   密码哈希/JWT
 │   │   │   ├── deps.py               #   依赖注入（统一权限校验）
-│   │   │   ├── audit.py              #   审计日志（便捷封装）
+│   │   │   ├── audit.py              #   审计日志（便捷封装 + 装饰器）
 │   │   │   ├── pagination.py         #   分页工具
+│   │   │   ├── crud.py               #   CRUDBase 泛型基类
+│   │   │   ├── query_builder.py      #   QueryBuilder 查询构建器
+│   │   │   ├── task_base.py          #   BaseTask 任务基类
+│   │   │   ├── file_handler.py       #   FileHandler 文件处理
 │   │   │   ├── tasks.py              #   统一任务分发降级
 │   │   │   ├── exceptions.py         #   业务异常
 │   │   │   └── timezone.py           #   中国时区
-│   │   ├── services/                 # 业务服务（15 个）
+│   │   ├── services/                 # 业务服务（15+ 个）
 │   │   │   ├── http_client.py        #   HTTP 请求客户端（httpx）
 │   │   │   ├── variable_engine.py    #   变量引擎（4 级作用域）
 │   │   │   ├── assertion_engine.py   #   断言引擎（9 种类型）
@@ -189,60 +205,106 @@ AITS_hub/
 │   │   │   ├── data_factory.py       #   测试数据工厂
 │   │   │   ├── environment_manager.py#   环境变量管理器
 │   │   │   ├── defect_helper.py      #   缺陷自动创建
-│   │   │   ├── knowledge_base.py     #   知识库 RAG
+│   │   │   ├── knowledge_base.py     #   知识库 RAG（FAISS 向量检索）
+│   │   │   ├── feishu_bot.py         #   飞书机器人客户端（HMAC-SHA256 验签）
+│   │   │   ├── card_builder.py       #   通知卡片构建器（19 种模板）
+│   │   │   ├── notification_service.py#  通知服务（规则匹配+异步派发）
+│   │   │   ├── ai_creation_service.py#  AI 用例批量创建服务
 │   │   │   └── importers/            #   接口导入解析器（5 种格式）
-│   │   ├── tasks/                    # Celery 异步任务（7 个）
+│   │   ├── tasks/                    # Celery 异步任务（10 个）
 │   │   │   ├── script_tasks.py       #   脚本/编排执行
 │   │   │   ├── test_plan_tasks.py    #   测试计划异步执行
 │   │   │   ├── api_case_tasks.py     #   AI 生成用例
 │   │   │   ├── performance_tasks.py  #   性能测试执行
 │   │   │   ├── report_tasks.py       #   报告生成
-│   │   │   └── knowledge_tasks.py    #   知识库处理
+│   │   │   ├── knowledge_tasks.py    #   知识库处理
+│   │   │   ├── review_tasks.py       #   用例评审 + 评审优化用例
+│   │   │   ├── requirement_tasks.py  #   AI 需求生成
+│   │   │   ├── api_doc_tasks.py      #   AI 接口文档生成
+│   │   │   └── notification_tasks.py #   通知异步发送（重试2次）
 │   │   ├── config.py                 # Pydantic Settings 配置
-│   │   ├── database.py               # 数据库连接 + Mixin（SoftDelete/Timestamp）
+│   │   ├── database.py               # 数据库连接 + Mixin（SoftDelete/Timestamp/ProjectScoped/CreatedBy）
 │   │   ├── celery_app.py             # Celery 实例
-│   │   └── main.py                   # FastAPI 入口（自动建表+迁移）
+│   │   └── main.py                   # FastAPI 入口（自动建表+迁移，247 路由）
 │   ├── start_celery_worker.sh
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/                         # 前端应用
 │   ├── src/
-│   │   ├── views/                    # 页面组件
+│   │   ├── views/                    # 页面组件（50+ 页面）
 │   │   │   ├── Layout.vue            #   主布局（菜单从路由派生+多标签页）
 │   │   │   ├── Login.vue             #   登录/注册
-│   │   │   ├── Dashboard.vue         #   智能助手
-│   │   │   ├── Projects.vue          #   项目管理
-│   │   │   ├── Requirements.vue      #   需求管理
+│   │   │   ├── Dashboard.vue         #   智能助手（知识库开关+引用展示）
+│   │   │   ├── Projects.vue          #   项目管理（卡片分页）
+│   │   │   ├── Requirements.vue      #   需求管理（同步知识库）
 │   │   │   ├── Cases.vue             #   用例管理
+│   │   │   ├── CaseReviews.vue       #   用例评审（评审报告+优化用例）
 │   │   │   ├── TestPlans.vue         #   测试计划列表
 │   │   │   ├── TestPlanEdit.vue      #   计划编排（左右分栏节点编排）
 │   │   │   ├── TestPlanRun.vue       #   计划执行进度
 │   │   │   ├── TestPlanReport.vue    #   计划测试报告
-│   │   │   ├── Scripts.vue           #   自动化脚本库
-│   │   │   ├── AutomationSuites.vue  #   自动化编排
-│   │   │   ├── Execution.vue         #   UI 自动化执行
+│   │   │   ├── Scripts.vue           #   自动化脚本库（列表+历史分页）
+│   │   │   ├── AutomationSuites.vue  #   自动化编排（套件+历史分页）
+│   │   │   ├── Execution.vue         #   UI 自动化执行（历史记录分页）
 │   │   │   ├── Defects.vue           #   缺陷管理
 │   │   │   ├── Reports.vue           #   测试报告
 │   │   │   ├── QualityDashboard.vue  #   质量看板
-│   │   │   ├── Knowledge.vue         #   知识库
+│   │   │   ├── Knowledge.vue         #   知识库（文档管理+知识内容Tab）
+│   │   │   ├── LLMConfig.vue         #   模型配置（分页）
+│   │   │   ├── Prompts.vue           #   Prompt 模板管理
 │   │   │   ├── performance/          #   性能测试页面
 │   │   │   ├── data/                 #   数据池页面
+│   │   │   ├── notification/         #   事件通知（3 个页面）
+│   │   │   │   ├── NotificationChannels.vue
+│   │   │   │   ├── NotificationRules.vue
+│   │   │   │   └── NotificationRecords.vue
 │   │   │   └── api-test/             #   接口测试（14 个页面）
+│   │   │       ├── ApiTestLayout.vue #     布局（子菜单收起展开）
+│   │   │       ├── ApiDefinitions.vue#     接口管理（树形分组）
+│   │   │       ├── ApiDefinitionEdit.vue
+│   │   │       ├── ApiDebug.vue      #     接口调试
+│   │   │       ├── ApiCases.vue      #     接口用例
+│   │   │       ├── ApiCaseEdit.vue
+│   │   │       ├── AiGenerateCasesModal.vue
+│   │   │       ├── ApiScenarios.vue  #     场景编排
+│   │   │       ├── ApiScenarioEdit.vue
+│   │   │       ├── ApiExecutions.vue #     执行记录
+│   │   │       ├── ApiExecutionDetail.vue
+│   │   │       ├── ApiMock.vue       #     Mock 服务
+│   │   │       ├── ApiEnvironments.vue#    环境变量
+│   │   │       └── MockDataInserter.vue
 │   │   ├── components/               # 公共组件
 │   │   │   ├── DataTable.vue         #   数据表格（分页+loading封装）
+│   │   │   ├── FormModal.vue         #   表单弹窗
+│   │   │   ├── SearchBar.vue         #   搜索栏
+│   │   │   ├── DetailDrawer.vue      #   详情抽屉
 │   │   │   ├── PageHeader.vue        #   页头
 │   │   │   ├── StatusTag.vue         #   状态标签
 │   │   │   └── ConfirmDelete.vue     #   删除确认
-│   │   ├── api/                      # API 封装（按资源拆分，30 个模块）
+│   │   ├── api/                      # API 封装（按资源拆分，30+ 模块）
+│   │   │   ├── base.ts               #   BaseAPI 泛型基类
+│   │   │   ├── types.ts              #   共享类型定义
+│   │   │   ├── knowledge.ts          #   知识库 API
+│   │   │   ├── notifications.ts      #   通知 API
+│   │   │   ├── caseReviews.ts        #   用例评审 API
+│   │   │   ├── agentTasks.ts         #   Agent 任务 API
+│   │   │   └── ...
 │   │   ├── stores/                   # Pinia 状态管理
 │   │   │   ├── project.ts            #   项目全局状态
 │   │   │   └── user.ts               #   用户状态
 │   │   ├── composables/
-│   │   │   └── useMenu.ts            #   路由派生菜单
+│   │   │   ├── useMenu.ts            #   路由派生菜单
+│   │   │   ├── useList.ts            #   列表数据 composable（分页+搜索）
+│   │   │   ├── useCRUD.ts            #   CRUD 操作 composable
+│   │   │   └── useUrlSearch.ts       #   URL 参数同步
 │   │   ├── utils/
 │   │   │   ├── date.ts               #   日期格式化
-│   │   │   └── sse.ts                #   SSE 统一封装
-│   │   ├── router/index.ts           # Vue Router（53 条路由）
+│   │   │   ├── sse.ts                #   SSE 统一封装
+│   │   │   ├── format.ts             #   格式化工具
+│   │   │   ├── download.ts           #   下载工具
+│   │   │   └── copy.ts               #   复制工具
+│   │   ├── constants/index.ts        #   枚举常量
+│   │   ├── router/index.ts           # Vue Router（60+ 条路由）
 │   │   └── main.ts
 │   ├── package.json
 │   └── vite.config.ts
@@ -259,14 +321,34 @@ AITS_hub/
 用户请求 → API 层 → Agent 调度 → LLM 抽象层 → 大模型 API
                             ↓
                      Playwright（UI 自动化）
+                            ↓
+                     FAISS 向量检索（知识库 RAG）
 ```
 
 - **LLM 统一抽象层**：封装 OpenAI/Claude/Ollama 等协议，统一调用接口
 - **模型路由**：按 Agent 类型和数据敏感度路由模型，主模型失败自动降级
-- **BaseAgent 基类**：所有 Agent 统一继承，复用 LLM 调用、日志、token 统计、RAG 检索
+- **BaseAgent 基类**：所有 Agent 统一继承，复用 LLM 调用、日志、token 统计、RAG 检索、知识库搜索
 - **15 个专业 Agent**：用例生成、用例评审、UI 执行、脚本生成、缺陷分析、报告生成、智能助手等
 - **Supervisor 编排**：多 Agent 流水线协作
 - **MCP 工具集**：智能助手可调用 18+ 工具查询全模块数据
+
+### 用例评审与优化
+
+```
+选择需求/模块 → 获取用例 → AI 多维度评审 → 评审报告（评分+问题列表+改进建议）
+                                                          ↓
+                                              点击「优化/补充用例」
+                                                          ↓
+                                    选择模式/模型/Prompt → AI 生成优化用例
+                                                          ↓
+                                    自动关联原需求和模块 → 批量入库
+```
+
+- **评审维度**：完整性、覆盖率、可执行性、规范性、冗余性
+- **评分标准**：90+ 优秀，80-89 良好，70-79 合格，<70 不合格
+- **优化模式**：优化问题用例 + 补充缺失用例 / 仅优化 / 仅补充
+- **Prompt 模板**：可选择用例生成 Prompt 模板或自定义 System Prompt
+- **自动关联**：生成的用例自动继承评审时选择的需求 ID 和模块
 
 ### 测试计划（混合编排 + 异步执行）
 
@@ -289,12 +371,39 @@ Celery 异步执行 → 逐节点执行 → 实时记录结果
 覆盖接口测试全流程：**接口管理 → 调试 → 用例 → 场景编排 → 执行 → Mock**
 
 - **接口管理**：目录树管理，AI 生成接口文档
-- **接口调试**：Postman 风格工作台，支持 Pre-request/Tests JS 脚本、Mock 数据插入
+- **接口调试**：Postman 风格工作台，支持 Pre-request/Tests JS 脚本（AI 生成）、Mock 数据插入
 - **接口用例**：关联接口自动获取 URL，无需重复输入路径；AI 多策略生成用例
 - **场景编排**：6 种步骤类型，可视化变量提取（`${var}` 语法），条件分支和循环遍历
 - **Mock 服务**：按请求匹配返回，13 种动态数据函数（手机号/UUID/随机数/邮箱/身份证等）
 - **环境变量**：4 级变量优先级（用例 > 场景 > 环境 > 全局）
 - **5 种格式导入**：Postman / Swagger / JMeter / HAR / Apifox
+
+### 知识库与 RAG
+
+```
+文档上传/需求同步 → 文本切分（500字符+50重叠）→ Sentence-Transformer 向量化
+        ↓
+    存入 MySQL（JSON 向量）→ 内存 FAISS 索引
+        ↓
+智能助手提问 → FAISS 相似度检索 Top-5 → 注入 System Prompt → LLM 基于知识库回答
+```
+
+- **文档管理**：手动创建 / 文件上传（md/txt/docx/pdf）/ 需求一键同步
+- **知识内容页**：Tab 切换查看所有向量切片，支持关键词搜索、按文档筛选、分页、查看全文
+- **需求同步**：需求管理页一键同步到知识库，自动创建文档并后台生成向量切片
+- **智能助手集成**：开启知识库开关后，对话中展示引用的知识库来源文档和内容片段
+- **向量模型**：paraphrase-multilingual-MiniLM-L12-v2（384 维，支持中英文）
+
+### 事件通知
+
+全局公共模块，支持飞书机器人通知：
+
+- **通知渠道**：飞书机器人（Webhook + HMAC-SHA256 验签），支持启用/禁用
+- **通知规则**：按事件类型、渠道、条件（仅失败/最小失败数/严重程度/项目限定）配置
+- **18 种事件**：测试执行完成/失败、AI 任务完成/失败、缺陷创建/分配/状态变更、知识库处理完成、接口导入完成等
+- **19 种卡片模板**：统一 header + column_set + markdown + hr + action 结构
+- **异步发送**：Celery 任务，失败重试 2 次（10s/30s 间隔），通知失败不影响业务主流程
+- **通知记录**：完整记录发送状态、响应内容，支持失败重试
 
 ### 性能测试
 
@@ -369,6 +478,9 @@ REDIS_URL=redis://localhost:6379/0
 # CORS
 CORS_ORIGINS=http://localhost:5173
 
+# 前端基础 URL（通知卡片跳转链接）
+FRONTEND_BASE_URL=http://localhost:5173
+
 # 默认 LLM（可在界面修改）
 DEFAULT_LLM_PROVIDER=openai_compatible
 DEFAULT_LLM_BASE_URL=https://api.deepseek.com/v1
@@ -380,7 +492,7 @@ DEFAULT_LLM_MODEL=deepseek-chat
 
 - 后端启动时通过 `Base.metadata.create_all()` 自动创建新表
 - 新增字段通过 main.py 中的轻量自动迁移逻辑（ALTER TABLE ADD COLUMN IF NOT EXISTS）
-- 40 张数据表覆盖全部业务模块
+- 43 张数据表覆盖全部业务模块
 - 所有表包含软删除字段（`is_deleted`/`deleted_at`）和时间戳
 
 ## 常见问题
@@ -408,6 +520,12 @@ playwright install-deps chromium  # Linux
 
 **Q: 接口测试执行时 URL 不正确？**
 测试用例关联接口后自动使用接口的 URL，无需在用例中输入路径。请确保环境变量中配置了正确的 base_url。
+
+**Q: 知识库向量检索不生效？**
+确保文档已点击「生成切片」且状态为「就绪」。智能助手需选择项目并开启「知识库」开关。首次使用需下载 sentence-transformers 模型（约 470MB）。
+
+**Q: 飞书通知发送失败？**
+检查渠道 Webhook 地址是否正确，如开启验签需确认密钥与飞书机器人配置一致。可在通知记录中查看失败原因并重试。
 
 ## 许可证
 

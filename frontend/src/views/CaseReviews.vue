@@ -237,7 +237,7 @@
           </a-card>
 
           <!-- 改进建议 -->
-          <a-card size="small" title="整体改进建议">
+          <a-card size="small" title="整体改进建议" style="margin-bottom: 16px">
             <a-empty v-if="!currentDetail.output_result?.overall_suggestions?.length" description="无建议" />
             <a-list v-else size="small" :data-source="currentDetail.output_result.overall_suggestions">
               <template #renderItem="{ item, index }">
@@ -252,24 +252,118 @@
               </template>
             </a-list>
           </a-card>
+
+          <!-- 优化用例按钮 -->
+          <div style="text-align: center; padding: 8px 0">
+            <a-button type="primary" size="large" @click="openOptimizeModal">
+              <template #icon><ThunderboltOutlined /></template>
+              根据评审结果优化/补充用例
+            </a-button>
+          </div>
         </div>
       </a-spin>
     </a-drawer>
+
+    <!-- 优化用例弹窗 -->
+    <a-modal
+      v-model:open="optimizeVisible"
+      title="根据评审结果优化/补充用例"
+      width="680px"
+      :footer="null"
+    >
+      <a-spin :spinning="optimizing">
+        <a-alert
+          v-if="!optimizeResult"
+          message="将根据评审报告中的问题列表和整体改进建议，AI 自动优化有问题的用例并补充缺失场景。生成的用例将自动关联评审时选择的需求和模块。"
+          type="info"
+          show-icon
+          style="margin-bottom: 16px"
+        />
+
+        <div v-if="!optimizeResult">
+          <a-form layout="vertical">
+            <a-row :gutter="16">
+              <a-col :span="12">
+                <a-form-item label="优化模式">
+                  <a-select v-model:value="optimizeForm.optimize_mode" placeholder="选择优化模式">
+                    <a-select-option value="both">优化问题用例 + 补充缺失用例</a-select-option>
+                    <a-select-option value="optimize">仅优化问题用例</a-select-option>
+                    <a-select-option value="supplement">仅补充缺失用例</a-select-option>
+                  </a-select>
+                </a-form-item>
+              </a-col>
+              <a-col :span="12">
+                <a-form-item label="模型配置">
+                  <a-select
+                    v-model:value="optimizeForm.llm_config_id"
+                    placeholder="使用默认模型"
+                    allow-clear
+                    :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
+                  />
+                </a-form-item>
+              </a-col>
+            </a-row>
+
+            <a-form-item label="Prompt 模板（用例生成）">
+              <a-select
+                v-model:value="optimizeForm.prompt_id"
+                placeholder="使用默认优化模板"
+                allow-clear
+                :options="caseGenPrompts.map(p => ({ label: p.name, value: p.id }))"
+              />
+            </a-form-item>
+
+            <a-form-item label="自定义 Prompt（可选，覆盖模板）">
+              <a-textarea
+                v-model:value="optimizeForm.system_prompt"
+                :rows="6"
+                placeholder="留空则使用默认优化模板或上方选择的 Prompt 模板"
+              />
+            </a-form-item>
+
+            <div style="text-align: right">
+              <a-space>
+                <a-button @click="optimizeVisible = false">取消</a-button>
+                <a-button type="primary" @click="handleOptimize">开始生成</a-button>
+              </a-space>
+            </div>
+          </a-form>
+        </div>
+
+        <!-- 生成结果 -->
+        <div v-else class="optimize-result">
+          <a-result
+            :status="optimizeResult.error ? 'error' : 'success'"
+            :title="optimizeResult.error ? '生成失败' : '用例优化完成'"
+            :sub-title="optimizeResult.error || `成功生成 ${optimizeResult.case_count} 条用例，已保存 ${optimizeResult.cases_saved} 条`"
+          >
+            <template #extra v-if="!optimizeResult.error">
+              <a-space>
+                <a-button type="primary" @click="optimizeVisible = false">关闭</a-button>
+                <a-button @click="goToCases">查看用例列表</a-button>
+              </a-space>
+            </template>
+          </a-result>
+        </div>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
-import { AuditOutlined } from '@ant-design/icons-vue'
-import { listCaseReviews, getCaseReviewDetail, reviewCases, type CaseReviewItem } from '@/api/caseReviews'
+import { AuditOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
+import { listCaseReviews, getCaseReviewDetail, reviewCases, optimizeCasesFromReview, type CaseReviewItem } from '@/api/caseReviews'
 import { getCases, getRequirements, type TestCase } from '@/api/cases'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import { getLLMConfigs } from '@/api/llm'
+import { getAgentTask } from '@/api/agentTasks'
 
 const route = useRoute()
+const router = useRouter()
 const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = Number(route.params.id)
 
@@ -447,6 +541,8 @@ async function handleReview() {
         expected_result: c.expected_result,
       })),
       requirement: requirementText,
+      requirement_id: reviewForm.value.requirement_id || undefined,
+      module: reviewForm.value.module || undefined,
       llm_config_id: reviewForm.value.llm_config_id || undefined,
       prompt_id: reviewForm.value.prompt_id || undefined,
     })
@@ -506,6 +602,84 @@ async function viewDetail(record: CaseReviewItem) {
   }
 }
 
+// ===== 评审优化用例 =====
+const optimizeVisible = ref(false)
+const optimizing = ref(false)
+const optimizeResult = ref<{ case_count: number; cases_saved: number; error?: string } | null>(null)
+const caseGenPrompts = ref<Prompt[]>([])
+const optimizeForm = ref({
+  optimize_mode: 'both' as 'both' | 'optimize' | 'supplement',
+  llm_config_id: null as number | null,
+  prompt_id: null as number | null,
+  system_prompt: '',
+})
+let optimizeTaskId: number | null = null
+let optimizePollTimer: ReturnType<typeof setInterval> | null = null
+
+function openOptimizeModal() {
+  optimizeResult.value = null
+  optimizeForm.value = { optimize_mode: 'both', llm_config_id: null, prompt_id: null, system_prompt: '' }
+  optimizeVisible.value = true
+  // 加载用例生成 Prompt 模板
+  if (caseGenPrompts.value.length === 0) {
+    promptsApi.list('case_generation').then(data => { caseGenPrompts.value = data }).catch(() => {})
+  }
+}
+
+async function handleOptimize() {
+  if (!currentDetail.value) return
+  optimizing.value = true
+  try {
+    const res = await optimizeCasesFromReview(projectId, currentDetail.value.id, {
+      llm_config_id: optimizeForm.value.llm_config_id || undefined,
+      prompt_id: optimizeForm.value.prompt_id || undefined,
+      system_prompt: optimizeForm.value.system_prompt || undefined,
+      optimize_mode: optimizeForm.value.optimize_mode,
+    })
+    optimizeTaskId = res.task_id
+    message.success('优化任务已提交，正在生成中...')
+    startOptimizePolling()
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '提交优化任务失败')
+    optimizing.value = false
+  }
+}
+
+function startOptimizePolling() {
+  stopOptimizePolling()
+  optimizePollTimer = setInterval(async () => {
+    if (!optimizeTaskId) return
+    try {
+      const task = await getAgentTask(optimizeTaskId)
+      if (task.status === 'success') {
+        const r = task.output_result || {}
+        optimizeResult.value = { case_count: r.case_count || 0, cases_saved: r.cases_saved || 0 }
+        optimizing.value = false
+        stopOptimizePolling()
+        message.success(`用例优化完成，已保存 ${r.cases_saved || 0} 条用例`)
+      } else if (task.status === 'failed') {
+        optimizeResult.value = { case_count: 0, cases_saved: 0, error: task.error_message || '生成失败' }
+        optimizing.value = false
+        stopOptimizePolling()
+      }
+    } catch {
+      // 轮询中忽略错误
+    }
+  }, 3000)
+}
+
+function stopOptimizePolling() {
+  if (optimizePollTimer) {
+    clearInterval(optimizePollTimer)
+    optimizePollTimer = null
+  }
+}
+
+function goToCases() {
+  optimizeVisible.value = false
+  router.push(`/projects/${projectId}/cases`)
+}
+
 onMounted(() => {
   const params = loadFromUrl({ status: undefined })
   filterStatus.value = params.status
@@ -518,6 +692,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopReviewPolling()
+  stopOptimizePolling()
 })
 </script>
 

@@ -30,7 +30,30 @@ export function getCaseReviewDetail(projectId: number, taskId: number) {
 
 export function reviewCases(
   projectId: number,
-  data: { cases: any[]; requirement: string; llm_config_id?: number; prompt_id?: number },
+  data: {
+    cases: any[]
+    requirement: string
+    requirement_id?: number | null
+    module?: string | null
+    llm_config_id?: number
+    prompt_id?: number
+  },
 ) {
   return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/cases/review`, data)
+}
+
+export function optimizeCasesFromReview(
+  projectId: number,
+  reviewTaskId: number,
+  data: {
+    llm_config_id?: number
+    prompt_id?: number
+    system_prompt?: string
+    optimize_mode?: 'optimize' | 'supplement' | 'both'
+  },
+) {
+  return request.post<{ task_id: number; review_task_id: number; status: string; message: string }>(
+    `/projects/${projectId}/case-reviews/${reviewTaskId}/optimize`,
+    data,
+  )
 }

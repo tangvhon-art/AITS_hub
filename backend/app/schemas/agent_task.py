@@ -45,8 +45,18 @@ class SupervisorRunRequest(BaseModel):
 class ReviewRequest(BaseModel):
     cases: List[Dict[str, Any]] = Field(..., description="待评审用例列表")
     requirement: str = Field(default="", description="原始需求")
+    requirement_id: Optional[int] = Field(default=None, description="关联需求ID")
+    module: Optional[str] = Field(default=None, description="模块筛选")
     llm_config_id: Optional[int] = None
     prompt_id: Optional[int] = Field(default=None, description="自定义 Prompt ID")
+
+
+class ReviewOptimizeRequest(BaseModel):
+    """基于评审结果优化/补充用例"""
+    llm_config_id: Optional[int] = None
+    prompt_id: Optional[int] = Field(default=None, description="自定义 Prompt ID（用例生成模板）")
+    system_prompt: Optional[str] = Field(default=None, description="自定义 system prompt（覆盖模板）")
+    optimize_mode: str = Field(default="both", description="优化模式：optimize-仅优化问题用例，supplement-仅补充缺失用例，both-优化+补充")
 
 
 class BDDGenerateRequest(BaseModel):

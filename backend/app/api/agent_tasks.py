@@ -23,6 +23,7 @@ from app.schemas.agent_task import (
     AgentTaskListResponse,
     SupervisorRunRequest,
     ReviewRequest,
+    ReviewOptimizeRequest,
     BDDGenerateRequest,
 )
 
@@ -162,6 +163,8 @@ def review_cases(
             "cases": req.cases,
             "case_count": len(req.cases),
             "requirement": req.requirement,
+            "requirement_id": req.requirement_id,
+            "module": req.module,
             "prompt_id": req.prompt_id,
         },
         created_by=current_user.id,
@@ -258,6 +261,68 @@ def get_case_review_detail(
         "created_at": task.created_at,
         "completed_at": task.completed_at,
     }
+
+
+@project_router.post("/case-reviews/{task_id}/optimize")
+def optimize_cases_from_review(
+    project_id: int,
+    task_id: int,
+    req: ReviewOptimizeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """基于评审报告的问题列表和改进建议，优化/补充测试用例（异步）"""
+    get_project(project_id, db, current_user)
+
+    # 校验评审任务存在且已完成
+    review_task = db.query(AgentTask).filter(
+        AgentTask.id == task_id,
+        AgentTask.project_id == project_id,
+        AgentTask.agent_type == "case_reviewer",
+    ).first()
+    if not review_task:
+        raise HTTPException(status_code=404, detail="评审记录不存在")
+    if review_task.status != "success":
+        raise HTTPException(status_code=400, detail="评审尚未完成，无法优化用例")
+
+    # 创建优化任务
+    opt_task = AgentTask(
+        project_id=project_id,
+        agent_type="case_optimizer",
+        status="pending",
+        input_params={
+            "review_task_id": task_id,
+            "optimize_mode": req.optimize_mode,
+            "prompt_id": req.prompt_id,
+            "system_prompt": req.system_prompt,
+        },
+        created_by=current_user.id,
+        llm_config_id=req.llm_config_id,
+    )
+    db.add(opt_task)
+    db.commit()
+    db.refresh(opt_task)
+
+    # 异步派发
+    try:
+        from app.tasks.review_tasks import optimize_cases_from_review_task
+        optimize_cases_from_review_task.delay(task_id, opt_task.id)
+    except Exception:
+        logger.warning("Celery 不可用，使用后台线程回退")
+        import threading
+        from app.tasks.review_tasks import optimize_cases_from_review_task
+
+        def _run():
+            optimize_cases_from_review_task(task_id, opt_task.id)
+        threading.Thread(target=_run, daemon=True).start()
+
+    return {
+        "task_id": opt_task.id,
+        "review_task_id": task_id,
+        "status": "pending",
+        "message": "优化任务已提交，正在异步处理中",
+    }
+
 
 # ========== BDD 用例生成 ==========
 
