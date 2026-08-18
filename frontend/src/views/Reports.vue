@@ -15,6 +15,7 @@
         <a-select-option value="execution">执行</a-select-option>
         <a-select-option value="defect">缺陷</a-select-option>
         <a-select-option value="full">完整</a-select-option>
+        <a-select-option value="performance">性能报告</a-select-option>
       </a-select>
       <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
         <a-select-option value="generating">生成中</a-select-option>
@@ -45,9 +46,14 @@
             <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'pass_rate'">
-            <span :class="{ 'text-success': (record.pass_rate || 0) >= 80, 'text-warning': (record.pass_rate || 0) >= 50 && (record.pass_rate || 0) < 80, 'text-danger': (record.pass_rate || 0) < 50 }">
-              {{ record.pass_rate }}%
-            </span>
+            <template v-if="record.report_type === 'performance'">
+              <span class="text-success">{{ getPerfSuccessRate(record) }}%</span>
+            </template>
+            <template v-else>
+              <span :class="{ 'text-success': (record.pass_rate || 0) >= 80, 'text-warning': (record.pass_rate || 0) >= 50 && (record.pass_rate || 0) < 80, 'text-danger': (record.pass_rate || 0) < 50 }">
+                {{ record.pass_rate }}%
+              </span>
+            </template>
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space>
@@ -102,7 +108,22 @@
     <!-- 报告详情弹窗 -->
     <a-modal v-model:open="detailVisible" title="报告详情" :footer="null" width="900px">
       <div v-if="currentReport" class="report-detail">
-        <a-descriptions :column="3" bordered size="small" class="report-stats">
+        <!-- 性能报告统计 -->
+        <a-descriptions v-if="currentReport.report_type === 'performance'" :column="3" bordered size="small" class="report-stats">
+          <a-descriptions-item label="总请求数">{{ perfSummary.total_requests || 0 }}</a-descriptions-item>
+          <a-descriptions-item label="失败数">{{ perfSummary.total_failures || 0 }}</a-descriptions-item>
+          <a-descriptions-item label="失败率">
+            <span :class="{ 'text-danger': (perfSummary.failure_rate || 0) > 5 }">{{ perfSummary.failure_rate || 0 }}%</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="成功率">{{ (100 - (perfSummary.failure_rate || 0)).toFixed(2) }}%</a-descriptions-item>
+          <a-descriptions-item label="RPS">{{ perfSummary.rps || 0 }}</a-descriptions-item>
+          <a-descriptions-item label="平均响应">{{ perfSummary.avg_response_time || 0 }} ms</a-descriptions-item>
+          <a-descriptions-item label="P95响应">{{ perfSummary.p95_response_time || 0 }} ms</a-descriptions-item>
+          <a-descriptions-item label="执行ID">#{{ perfSummary.run_id || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="类型">性能报告</a-descriptions-item>
+        </a-descriptions>
+        <!-- 通用报告统计 -->
+        <a-descriptions v-else :column="3" bordered size="small" class="report-stats">
           <a-descriptions-item label="用例总数">{{ currentReport.total_cases }}</a-descriptions-item>
           <a-descriptions-item label="通过">{{ currentReport.passed_cases }}</a-descriptions-item>
           <a-descriptions-item label="失败">{{ currentReport.failed_cases }}</a-descriptions-item>
@@ -134,6 +155,7 @@ import { getReports, generateReport, deleteReport as deleteReportApi, type TestR
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import { getLLMConfigs } from '@/api/llm'
+import { marked } from 'marked'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -159,26 +181,36 @@ const generateForm = ref({ title: '', report_type: 'full', version_id: undefined
 
 const renderedContent = computed(() => {
   if (!currentReport.value?.content) return ''
-  // 简单的 Markdown 渲染（替换基本语法）
-  let html = currentReport.value.content
-    .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/^- (.*$)/gm, '<li>$1</li>')
-    .replace(/\n/g, '<br>')
-  return html
+  try {
+    return marked.parse(currentReport.value.content) as string
+  } catch {
+    return currentReport.value.content.replace(/\n/g, '<br>')
+  }
+})
+
+const perfSummary = computed(() => {
+  const s = currentReport.value?.summary
+  if (!s) return {}
+  if (typeof s === 'string') {
+    try { return JSON.parse(s) } catch { return {} }
+  }
+  return s
 })
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
   { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
-  { title: '类型', dataIndex: 'report_type', key: 'report_type', width: 100 },
+  { title: '类型', dataIndex: 'report_type', key: 'report_type', width: 100, customRender: ({ record }: { record: any }) => reportTypeText(record.report_type) },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
-  { title: '用例数', dataIndex: 'total_cases', key: 'total_cases', width: 80 },
-  { title: '通过率', dataIndex: 'pass_rate', key: 'pass_rate', width: 90 },
-  { title: '缺陷数', dataIndex: 'total_defects', key: 'total_defects', width: 80 },
+  { title: '用例数', dataIndex: 'total_cases', key: 'total_cases', width: 80, customRender: ({ record }: { record: any }) => record.report_type === 'performance' ? '-' : (record.total_cases ?? 0) },
+  { title: '通过率', dataIndex: 'pass_rate', key: 'pass_rate', width: 90, customRender: ({ record }: { record: any }) => {
+      if (record.report_type === 'performance') {
+        const s = typeof record.summary === 'string' ? (() => { try { return JSON.parse(record.summary) } catch { return {} } })() : (record.summary || {})
+        return `${(100 - (s.failure_rate || 0)).toFixed(1)}%`
+      }
+      return `${record.pass_rate ?? 0}%`
+    } },
+  { title: '缺陷数', dataIndex: 'total_defects', key: 'total_defects', width: 80, customRender: ({ record }: { record: any }) => record.report_type === 'performance' ? '-' : (record.total_defects ?? 0) },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '操作', key: 'action', width: 140, fixed: 'right' as const },
 ]
@@ -270,8 +302,13 @@ function statusText(s?: string) {
   return map[s || ''] || s
 }
 function reportTypeText(t?: string) {
-  const map: Record<string, string> = { summary: '汇总', execution: '执行', defect: '缺陷', full: '完整' }
+  const map: Record<string, string> = { summary: '汇总', execution: '执行', defect: '缺陷', full: '完整', performance: '性能报告' }
   return map[t || ''] || t
+}
+
+function getPerfSuccessRate(record: any) {
+  const s = typeof record.summary === 'string' ? (() => { try { return JSON.parse(record.summary) } catch { return {} } })() : (record.summary || {})
+  return (100 - (s.failure_rate || 0)).toFixed(1)
 }
 
 onMounted(() => {
@@ -296,10 +333,24 @@ onMounted(() => {
 .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 .report-detail { max-height: 600px; overflow-y: auto; }
 .report-stats { margin-bottom: 16px; }
-.report-content { line-height: 1.8; }
-.report-content :deep(h1) { font-size: 20px; margin: 16px 0 8px; }
-.report-content :deep(h2) { font-size: 18px; margin: 14px 0 6px; }
-.report-content :deep(h3) { font-size: 16px; margin: 12px 0 4px; }
+.report-content { line-height: 1.8; color: #1f2329; font-size: 14px; }
+.report-content :deep(h1) { font-size: 20px; margin: 16px 0 8px; font-weight: 600; border-bottom: 1px solid #e8e8e8; padding-bottom: 6px; }
+.report-content :deep(h2) { font-size: 17px; margin: 14px 0 8px; font-weight: 600; color: #1677ff; border-left: 3px solid #1677ff; padding-left: 8px; }
+.report-content :deep(h3) { font-size: 15px; margin: 12px 0 6px; font-weight: 600; }
+.report-content :deep(p) { margin: 8px 0; }
+.report-content :deep(ul), .report-content :deep(ol) { margin: 8px 0; padding-left: 24px; }
+.report-content :deep(li) { margin: 4px 0; }
+.report-content :deep(strong) { font-weight: 600; color: #1f2329; }
+.report-content :deep(em) { font-style: italic; }
+.report-content :deep(code) { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #d63384; font-family: 'SF Mono', Monaco, monospace; }
+.report-content :deep(pre) { background: #f6f8fa; padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
+.report-content :deep(pre code) { background: none; padding: 0; color: #1f2329; }
+.report-content :deep(blockquote) { border-left: 4px solid #d9d9d9; margin: 10px 0; padding: 8px 16px; color: #606266; background: #fafafa; border-radius: 0 4px 4px 0; }
+.report-content :deep(table) { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+.report-content :deep(th), .report-content :deep(td) { border: 1px solid #e8e8e8; padding: 8px 12px; text-align: left; }
+.report-content :deep(th) { background: #fafafa; font-weight: 600; }
+.report-content :deep(tr:nth-child(even)) { background: #fcfcfc; }
+.report-content :deep(hr) { border: none; border-top: 1px solid #e8e8e8; margin: 16px 0; }
 .text-success { color: #52c41a; font-weight: 600; }
 .text-warning { color: #faad14; font-weight: 600; }
 .text-danger { color: #ff4d4f; font-weight: 600; }

@@ -14,8 +14,9 @@ class PerformanceTest(SoftDeleteMixin, Base):
     description = Column(Text, comment="测试描述")
 
     target_type = Column(String(20), default="api_case", comment="目标类型: api_definition/api_case/api_scenario")
-    target_id = Column(Integer, comment="关联目标ID")
+    target_id = Column(Integer, comment="关联目标ID（单接口模式）")
     target_url = Column(String(500), comment="可覆盖目标URL")
+    targets = Column(JSON, default=list, comment="多接口目标列表: [{target_type,target_id,method,path,name,weight}]")
 
     users = Column(Integer, default=10, comment="并发用户数")
     spawn_rate = Column(Integer, default=1, comment="每秒启动用户数")
@@ -62,6 +63,7 @@ class PerformanceTestRun(SoftDeleteMixin, Base):
 
     stats_history = Column(JSON, default=list, comment="每秒统计快照列表")
     error_summary = Column(JSON, default=dict, comment="错误分类统计")
+    endpoint_stats = Column(JSON, default=list, comment="各接口聚合统计（JMeter风格）")
 
     triggered_by = Column(Integer, ForeignKey("users.id"), comment="触发人ID")
     created_at = Column(DateTime, default=china_now_naive, comment="创建时间")

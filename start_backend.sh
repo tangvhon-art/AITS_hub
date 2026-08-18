@@ -53,6 +53,16 @@ if ! playwright install --dry-run chromium &>/dev/null 2>&1; then
     playwright install chromium
 fi
 
+echo "[后端] 检查并初始化数据库..."
+python -c "
+from app.main import engine, _auto_migrate
+from app.models import *
+from app.database import Base
+Base.metadata.create_all(bind=engine)
+_auto_migrate(engine)
+print('[后端] 数据库初始化完成')
+" 2>&1 | grep -v "UserWarning\|warnings.warn\|protected_namespaces\|sqlalchemy.engine\|注册工具" || echo "[后端] [警告] 数据库初始化失败，将继续启动（运行时会自动重试）"
+
 echo "[后端] 启动 uvicorn (port=$PORT, reload=$([ -n "$RELOAD" ] && echo "开" || echo "关"))"
 echo "[后端] API 地址: http://localhost:$PORT"
 echo "[后端] 文档地址: http://localhost:$PORT/docs"

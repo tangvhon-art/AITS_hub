@@ -1,4 +1,4 @@
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Union
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -9,6 +9,7 @@ class PerformanceTestBase(BaseModel):
     target_type: str = "api_case"
     target_id: Optional[int] = None
     target_url: Optional[str] = None
+    targets: Optional[List[dict]] = Field(default_factory=list, description="多接口目标列表")
     users: int = 10
     spawn_rate: int = 1
     duration: int = 60
@@ -29,6 +30,7 @@ class PerformanceTestUpdate(BaseModel):
     target_type: Optional[str] = None
     target_id: Optional[int] = None
     target_url: Optional[str] = None
+    targets: Optional[List[dict]] = None
     users: Optional[int] = None
     spawn_rate: Optional[int] = None
     duration: Optional[int] = None
@@ -69,8 +71,9 @@ class PerformanceTestRunResponse(BaseModel):
     p99_response_time: float = 0.0
     requests_per_second: float = 0.0
     failure_rate: float = 0.0
-    stats_history: Optional[list] = None
+    stats_history: Optional[Union[list, dict]] = None
     error_summary: Optional[dict] = None
+    endpoint_stats: Optional[list] = None
     triggered_by: Optional[int] = None
     created_at: Optional[datetime] = None
 

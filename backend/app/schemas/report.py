@@ -3,7 +3,8 @@
 """
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import json
 
 
 class ReportBase(BaseModel):
@@ -34,6 +35,16 @@ class ReportResponse(ReportBase):
     status: str
     content: str = ""
     summary: Dict[str, Any] = {}
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def parse_summary(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return {}
+        return v or {}
     total_cases: int = 0
     passed_cases: int = 0
     failed_cases: int = 0

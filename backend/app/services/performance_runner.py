@@ -20,62 +20,76 @@ class PerformanceRunner:
 
     def generate_locust_script(
         self,
-        method: str,
-        url: str,
+        targets: list,
         headers: dict,
-        body: Optional[str],
         users: int,
         spawn_rate: int,
         duration: int,
         test_data: Optional[list] = None,
     ) -> str:
-        """根据配置生成 Locust 脚本"""
+        """根据多接口配置生成 Locust 脚本
+
+        targets: [{method, url, name, weight, body}]
+        """
         headers_json = json.dumps(headers or {})
-        body_literal = body or ""
         test_data_json = json.dumps(test_data, ensure_ascii=False) if test_data else "[]"
 
-        script = f'''"""Locust 性能测试脚本 - 自动生成"""
+        # 生成每个接口的 task 方法
+        task_methods = []
+        for i, t in enumerate(targets):
+            method = (t.get("method") or "GET").upper()
+            url = t.get("url") or "/"
+            name = t.get("name") or f"接口{i+1}"
+            weight = t.get("weight") or 1
+            body_literal = json.dumps(t.get("body") or "", ensure_ascii=False)
+            safe_name = f"task_{i}"
+
+            if method == "GET":
+                request_code = f'self.client.get("{url}", headers=HEADERS, name="{method} {name}")'
+            elif method == "POST":
+                request_code = f'self.client.post("{url}", headers=HEADERS, data=_build_body({body_literal}), name="{method} {name}")'
+            elif method == "PUT":
+                request_code = f'self.client.put("{url}", headers=HEADERS, data=_build_body({body_literal}), name="{method} {name}")'
+            elif method == "DELETE":
+                request_code = f'self.client.delete("{url}", headers=HEADERS, name="{method} {name}")'
+            elif method == "PATCH":
+                request_code = f'self.client.patch("{url}", headers=HEADERS, data=_build_body({body_literal}), name="{method} {name}")'
+            else:
+                request_code = f'self.client.request("{method}", "{url}", headers=HEADERS, name="{method} {name}")'
+
+            task_methods.append(f'''
+    @task({weight})
+    def {safe_name}(self):
+        try:
+            {request_code}
+        except Exception as e:
+            print(f"Request error: {{e}}")
+''')
+
+        tasks_code = "\n".join(task_methods)
+
+        script = f'''"""Locust 性能测试脚本 - 自动生成（多接口）"""
 import json
 import itertools
 from locust import HttpUser, task, between
 
 HEADERS = {headers_json}
-BODY_TEMPLATE = """{body_literal}"""
 TEST_DATA = {test_data_json}
 _data_cycle = itertools.cycle(TEST_DATA) if TEST_DATA else None
 
-def build_body():
-    if not _data_cycle:
-        return BODY_TEMPLATE or None
+def _build_body(template):
+    if not _data_cycle or not template:
+        return template or None
     row = next(_data_cycle)
-    if BODY_TEMPLATE:
-        body = BODY_TEMPLATE
-        for k, v in row.items():
-            body = body.replace("{{{{" + str(k) + "}}}}", str(v))
-        return body
-    return json.dumps(row)
+    body = template
+    for k, v in row.items():
+        body = body.replace("{{{{" + str(k) + "}}}}", str(v))
+    return body
 
 class PerformanceTestUser(HttpUser):
     """模拟用户行为"""
     wait_time = between(0.5, 2.0)
-
-    @task
-    def send_request(self):
-        """发送请求"""
-        try:
-            body = build_body()
-            if "{method.upper()}" == "GET":
-                self.client.get("{url}", headers=HEADERS, name="{method.upper()} {url}")
-            elif "{method.upper()}" == "POST":
-                self.client.post("{url}", headers=HEADERS, data=body, name="{method.upper()} {url}")
-            elif "{method.upper()}" == "PUT":
-                self.client.put("{url}", headers=HEADERS, data=body, name="{method.upper()} {url}")
-            elif "{method.upper()}" == "DELETE":
-                self.client.delete("{url}", headers=HEADERS, name="{method.upper()} {url}")
-            elif "{method.upper()}" == "PATCH":
-                self.client.patch("{url}", headers=HEADERS, data=body, name="{method.upper()} {url}")
-        except Exception as e:
-            print(f"Request error: {{e}}")
+{tasks_code}
 '''
         return script
 
@@ -83,13 +97,14 @@ class PerformanceTestUser(HttpUser):
         self,
         run_id: int,
         test_config: dict,
-        target_url: str,
-        method: str,
+        targets: list,
         headers: dict,
-        body: Optional[str],
         test_data: Optional[list] = None,
     ) -> dict:
-        """启动 Locust 性能测试（通过子进程）"""
+        """启动 Locust 性能测试（通过子进程）
+
+        targets: [{method, url, name, weight, body}]
+        """
         from app.models.performance_test import PerformanceTest, PerformanceTestRun
         from app.core.timezone import china_now_naive
 
@@ -105,10 +120,8 @@ class PerformanceTestUser(HttpUser):
 
         try:
             script = self.generate_locust_script(
-                method=method,
-                url=target_url,
+                targets=targets,
                 headers=headers or {},
-                body=body,
                 users=test_config.get("users", 10),
                 spawn_rate=test_config.get("spawn_rate", 1),
                 duration=test_config.get("duration", 60),
@@ -119,7 +132,9 @@ class PerformanceTestUser(HttpUser):
                 f.write(script)
                 script_path = f.name
 
-            host = self._extract_host(target_url)
+            # 从第一个 target 提取 host
+            first_url = targets[0].get("url", "") if targets else ""
+            host = self._extract_host(first_url)
             users = test_config.get("users", 10)
             spawn_rate = test_config.get("spawn_rate", 1)
             duration = test_config.get("duration", 60)
@@ -155,6 +170,7 @@ class PerformanceTestUser(HttpUser):
             run.failure_rate = stats.get("failure_rate", 0.0)
             run.stats_history = stats.get("stats_history", [])
             run.error_summary = stats.get("error_summary", {})
+            run.endpoint_stats = stats.get("endpoint_stats", [])
             if test:
                 test.status = "completed"
             self.db.commit()
@@ -226,6 +242,7 @@ class PerformanceTestUser(HttpUser):
             "failure_rate": 0.0,
             "stats_history": [],
             "error_summary": {},
+            "endpoint_stats": [],
         }
 
         csv_path = f"/tmp/locust_result_{run_id}_stats.csv"
@@ -234,20 +251,47 @@ class PerformanceTestUser(HttpUser):
                 with open(csv_path, "r") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        if row.get("Name") == "Aggregated":
-                            stats["total_requests"] = int(safe_float(row.get("Request Count", 0)))
-                            stats["total_failures"] = int(safe_float(row.get("Failure Count", 0)))
-                            stats["avg_response_time"] = safe_float(row.get("Average Response Time", 0))
-                            stats["min_response_time"] = safe_float(row.get("Min Response Time", 0))
-                            stats["max_response_time"] = safe_float(row.get("Max Response Time", 0))
-                            stats["p50_response_time"] = safe_float(row.get("50%", 0))
-                            stats["p95_response_time"] = safe_float(row.get("95%", 0))
-                            stats["p99_response_time"] = safe_float(row.get("99%", 0))
-                            stats["requests_per_second"] = safe_float(row.get("Requests/s", 0))
-                            total = stats["total_requests"]
-                            fails = stats["total_failures"]
-                            stats["failure_rate"] = round(fails / total * 100, 2) if total > 0 else 0.0
-                            break
+                        name = row.get("Name", "")
+                        req_count = int(safe_float(row.get("Request Count", 0)))
+                        fail_count = int(safe_float(row.get("Failure Count", 0)))
+                        avg_rt = safe_float(row.get("Average Response Time", 0))
+                        min_rt = safe_float(row.get("Min Response Time", 0))
+                        max_rt = safe_float(row.get("Max Response Time", 0))
+                        p50 = safe_float(row.get("50%", 0))
+                        p95 = safe_float(row.get("95%", 0))
+                        p99 = safe_float(row.get("99%", 0))
+                        rps = safe_float(row.get("Requests/s", 0))
+                        fail_rate = round(fail_count / req_count * 100, 2) if req_count > 0 else 0.0
+
+                        if name == "Aggregated":
+                            stats["total_requests"] = req_count
+                            stats["total_failures"] = fail_count
+                            stats["avg_response_time"] = avg_rt
+                            stats["min_response_time"] = min_rt
+                            stats["max_response_time"] = max_rt
+                            stats["p50_response_time"] = p50
+                            stats["p95_response_time"] = p95
+                            stats["p99_response_time"] = p99
+                            stats["requests_per_second"] = rps
+                            stats["failure_rate"] = fail_rate
+                        else:
+                            # 按接口统计（JMeter 聚合报告风格）
+                            stats["endpoint_stats"].append({
+                                "label": name,
+                                "samples": req_count,
+                                "average": round(avg_rt, 2),
+                                "min": round(min_rt, 2),
+                                "max": round(max_rt, 2),
+                                "std_dev": round(safe_float(row.get("Std Dev", 0)), 2),
+                                "error_pct": fail_rate,
+                                "throughput": round(rps, 2),
+                                "received_kb_s": round(safe_float(row.get("Average Size (bytes)", 0)) * rps / 1024, 2),
+                                "p50": round(p50, 2),
+                                "p90": round(safe_float(row.get("90%", 0)), 2),
+                                "p95": round(p95, 2),
+                                "p99": round(p99, 2),
+                                "failures": fail_count,
+                            })
             except Exception as e:
                 logger.warning(f"解析 Locust CSV 失败: {e}")
 
@@ -267,17 +311,23 @@ class PerformanceTestUser(HttpUser):
 
         return stats
 
-    def _parse_stats_history(self, run_id: int) -> list:
-        """解析 Locust stats_history CSV，提取每秒的 Aggregated 数据"""
+    def _parse_stats_history(self, run_id: int) -> dict:
+        """解析 Locust stats_history CSV，提取聚合趋势和各接口独立趋势
+
+        返回格式:
+        {
+            "aggregate": [{timestamp, users, rps, p50, p95, p99, avg}, ...],
+            "by_endpoint": {"GET /api/x": [...], "POST /api/y": [...]}
+        }
+        """
         import csv
 
         history_path = f"/tmp/locust_result_{run_id}_stats_history.csv"
         if not os.path.exists(history_path):
             logger.warning(f"stats_history CSV 文件不存在: {history_path}")
-            return []
+            return {"aggregate": [], "by_endpoint": {}}
 
         def safe_float(val, default=0.0):
-            """安全转换浮点数，处理 N/A 等无效值"""
             if val is None or val == "" or val == "N/A":
                 return default
             try:
@@ -285,16 +335,16 @@ class PerformanceTestUser(HttpUser):
             except (ValueError, TypeError):
                 return default
 
-        history = []
+        aggregate = []
+        by_endpoint = {}
         total_rows = 0
         try:
             with open(history_path, "r") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     total_rows += 1
-                    if row.get("Name") != "Aggregated":
-                        continue
-                    history.append({
+                    name = row.get("Name", "")
+                    record = {
                         "timestamp": row.get("Timestamp", ""),
                         "users": int(safe_float(row.get("User Count", 0))),
                         "rps": safe_float(row.get("Requests/s", 0)),
@@ -303,16 +353,22 @@ class PerformanceTestUser(HttpUser):
                         "p95": safe_float(row.get("95%", 0)),
                         "p99": safe_float(row.get("99%", 0)),
                         "avg": safe_float(row.get("Average Response Time", 0)),
-                    })
+                    }
+                    if name == "Aggregated":
+                        aggregate.append(record)
+                    elif name:
+                        if name not in by_endpoint:
+                            by_endpoint[name] = []
+                        by_endpoint[name].append(record)
         except Exception as e:
             logger.warning(f"解析 stats_history CSV 失败: {e}")
 
-        if total_rows > 0 and len(history) == 0:
-            logger.warning(f"stats_history CSV 有 {total_rows} 行但无 Aggregated 行，可能 Locust 版本输出格式不同")
+        if total_rows > 0 and len(aggregate) == 0:
+            logger.warning(f"stats_history CSV 有 {total_rows} 行但无 Aggregated 行")
         else:
-            logger.info(f"stats_history 解析完成: {len(history)} 条 Aggregated 记录 (共 {total_rows} 行)")
+            logger.info(f"stats_history 解析完成: 聚合 {len(aggregate)} 条, {len(by_endpoint)} 个接口趋势 (共 {total_rows} 行)")
 
-        return history
+        return {"aggregate": aggregate, "by_endpoint": by_endpoint}
 
     def _cleanup_csv_files(self, run_id: int):
         """清理 Locust CSV 临时文件"""

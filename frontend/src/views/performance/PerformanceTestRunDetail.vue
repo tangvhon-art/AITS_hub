@@ -3,7 +3,17 @@
     <div class="page-header">
       <a-button @click="$router.back()"><ArrowLeftOutlined /> 返回</a-button>
       <h2>执行结果详情</h2>
-      <a-button @click="loadData" :loading="loading"><ReloadOutlined /> 刷新</a-button>
+      <div class="header-actions">
+        <a-button @click="loadData" :loading="loading"><ReloadOutlined /> 刷新</a-button>
+        <a-button
+          type="primary"
+          :loading="analyzing"
+          :disabled="run.status !== 'completed'"
+          @click="handleAnalyze"
+        >
+          <RobotOutlined /> AI 性能分析
+        </a-button>
+      </div>
     </div>
 
     <a-row :gutter="16" style="margin-bottom: 16px">
@@ -14,6 +24,17 @@
       <a-col :span="4"><a-card><a-statistic title="平均响应" :value="run.avg_response_time || 0" :precision="1" suffix="ms" /></a-card></a-col>
       <a-col :span="4"><a-card><a-statistic title="P95响应" :value="run.p95_response_time || 0" :precision="1" suffix="ms" :value-style="{ color: (run.p95_response_time || 0) > 1000 ? '#cf1322' : '#3f8600' }" /></a-card></a-col>
     </a-row>
+
+    <!-- JMeter 风格聚合报告 -->
+    <a-card v-if="endpointStats.length > 0" title="聚合报告（JMeter 风格）" style="margin-bottom: 16px">
+      <a-table :columns="aggregateColumns" :data-source="endpointStats" :pagination="false" row-key="label" size="small" :scroll="{ x: 1400 }">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'error_pct'">
+            <span :style="{ color: record.error_pct > 0 ? '#cf1322' : '#3f8600' }">{{ record.error_pct }}%</span>
+          </template>
+        </template>
+      </a-table>
+    </a-card>
 
     <a-row :gutter="16">
       <a-col :span="12">
@@ -115,7 +136,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { ArrowLeftOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import * as echarts from 'echarts'
 import { performanceTestsApi, type PerformanceTestRun } from '@/api/performanceTests'
 
@@ -125,6 +146,7 @@ const testId = Number(route.params.testId)
 
 const loading = ref(false)
 const runLoading = ref(false)
+const analyzing = ref(false)
 const run = ref<Partial<PerformanceTestRun>>({})
 const runs = ref<PerformanceTestRun[]>([])
 const selectedRunId = ref<number | null>(null)
@@ -157,16 +179,44 @@ const errorColumns = [
 
 const errorData = ref<any[]>([])
 
+// 聚合报告（JMeter 风格）
+const endpointStats = computed(() => Array.isArray(run.value.endpoint_stats) ? run.value.endpoint_stats : [])
+const aggregateColumns = [
+  { title: 'Label', dataIndex: 'label', key: 'label', width: 200, fixed: 'left' },
+  { title: '#Samples', dataIndex: 'samples', key: 'samples', width: 90 },
+  { title: 'Average', dataIndex: 'average', key: 'average', width: 90, sorter: (a: any, b: any) => a.average - b.average },
+  { title: 'Min', dataIndex: 'min', key: 'min', width: 80 },
+  { title: 'Max', dataIndex: 'max', key: 'max', width: 80 },
+  { title: 'Std Dev', dataIndex: 'std_dev', key: 'std_dev', width: 90 },
+  { title: 'Error %', key: 'error_pct', width: 90 },
+  { title: 'Throughput', dataIndex: 'throughput', key: 'throughput', width: 100 },
+  { title: 'Received KB/sec', dataIndex: 'received_kb_s', key: 'received_kb_s', width: 130 },
+  { title: 'P50', dataIndex: 'p50', key: 'p50', width: 80 },
+  { title: 'P90', dataIndex: 'p90', key: 'p90', width: 80 },
+  { title: 'P95', dataIndex: 'p95', key: 'p95', width: 80 },
+  { title: 'P99', dataIndex: 'p99', key: 'p99', width: 80 },
+]
+
 const statusColor = (s?: string) => ({ pending: 'default', running: 'processing', completed: 'success', failed: 'error', stopped: 'warning' })[s || ''] || 'default'
 const statusText = (s?: string) => ({ pending: '等待中', running: '运行中', completed: '已完成', failed: '失败', stopped: '已停止' })[s || ''] || s || '-'
 
-const hasTrendData = computed(() => Array.isArray(run.value.stats_history) && run.value.stats_history.length > 0)
+const hasTrendData = computed(() => {
+  const h = run.value.stats_history
+  if (Array.isArray(h)) return h.length > 0
+  if (h && typeof h === 'object') return Array.isArray(h.aggregate) && h.aggregate.length > 0
+  return false
+})
 const trendEmptyText = computed(() => {
   const s = run.value.status
   if (s === 'pending' || s === 'running') return '测试运行中，趋势数据将在测试完成后显示'
   return '暂无趋势数据'
 })
-const hasDetailTrendData = computed(() => Array.isArray(detailRun.value.stats_history) && detailRun.value.stats_history.length > 0)
+const hasDetailTrendData = computed(() => {
+  const h = detailRun.value.stats_history
+  if (Array.isArray(h)) return h.length > 0
+  if (h && typeof h === 'object') return Array.isArray(h.aggregate) && h.aggregate.length > 0
+  return false
+})
 const detailTrendEmptyText = computed(() => {
   const s = detailRun.value.status
   if (s === 'pending' || s === 'running') return '测试运行中，趋势数据将在测试完成后显示'
@@ -232,6 +282,19 @@ function stopPolling() {
   }
 }
 
+async function handleAnalyze() {
+  if (!run.value.id) return
+  analyzing.value = true
+  try {
+    await performanceTestsApi.analyze(run.value.id, {})
+    message.success('性能分析已启动，完成后将生成性能报告')
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || e.message || '分析启动失败')
+  } finally {
+    analyzing.value = false
+  }
+}
+
 async function viewRun(record: PerformanceTestRun) {
   runLoading.value = true
   selectedRunId.value = record.id
@@ -283,7 +346,11 @@ watch(hasDetailTrendData, (val) => {
 })
 
 function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestRun>) {
-  const history = data.stats_history || []
+  // 兼容新旧格式：旧格式为数组，新格式为 {aggregate: [], by_endpoint: {}}
+  const raw = data.stats_history
+  const history: any[] = Array.isArray(raw) ? raw : (raw?.aggregate || [])
+  const byEndpoint: Record<string, any[]> = raw && !Array.isArray(raw) ? (raw.by_endpoint || {}) : {}
+
   const categories = history.map((h: any, i: number) => {
     if (h.timestamp) {
       const ts = typeof h.timestamp === 'number' ? h.timestamp : parseFloat(h.timestamp)
@@ -299,21 +366,41 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
   const p99Data = history.map((h: any) => h.p99 || 0)
   const rpsData = history.map((h: any) => h.rps || 0)
 
+  const legendData = ['P50', 'P95', 'P99', 'RPS']
+  const series: any[] = [
+    { name: 'P50', type: 'line', data: p50Data, smooth: true },
+    { name: 'P95', type: 'line', data: p95Data, smooth: true },
+    { name: 'P99', type: 'line', data: p99Data, smooth: true },
+    { name: 'RPS', type: 'line', data: rpsData, smooth: true, yAxisIndex: 1, lineStyle: { type: 'dashed' } },
+  ]
+
+  // 各接口平均响应时间趋势（多接口测试时展示）
+  const endpointColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4']
+  let colorIdx = 0
+  for (const [name, epHistory] of Object.entries(byEndpoint)) {
+    if (!Array.isArray(epHistory) || epHistory.length === 0) continue
+    legendData.push(name)
+    series.push({
+      name,
+      type: 'line',
+      data: epHistory.map((h: any) => h.avg || 0),
+      smooth: true,
+      lineStyle: { width: 1, type: 'dotted' },
+      itemStyle: { color: endpointColors[colorIdx % endpointColors.length] },
+    })
+    colorIdx++
+  }
+
   instance.setOption({
     tooltip: { trigger: 'axis' },
-    legend: { data: ['P50', 'P95', 'P99', 'RPS'] },
+    legend: { data: legendData, type: 'scroll' },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: { type: 'category', data: categories, axisLabel: { rotate: categories.length > 15 ? 30 : 0 } },
     yAxis: [
       { type: 'value', name: 'ms', position: 'left' },
       { type: 'value', name: 'RPS', position: 'right' },
     ],
-    series: [
-      { name: 'P50', type: 'line', data: p50Data, smooth: true },
-      { name: 'P95', type: 'line', data: p95Data, smooth: true },
-      { name: 'P99', type: 'line', data: p99Data, smooth: true },
-      { name: 'RPS', type: 'line', data: rpsData, smooth: true, yAxisIndex: 1, lineStyle: { type: 'dashed' } },
-    ],
+    series,
   }, true)
 }
 
@@ -338,6 +425,7 @@ onUnmounted(() => {
 .perf-run-detail { padding: 0; }
 .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .page-header h2 { margin: 0; flex: 1; }
+.header-actions { display: flex; gap: 8px; }
 .chart-container { height: 300px; }
 .chart-empty { height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 </style>

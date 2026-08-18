@@ -13,39 +13,59 @@
             </a-form-item>
           </a-col>
           <a-col :span="12">
-            <a-form-item label="目标类型">
-              <a-select v-model:value="form.target_type" @change="onTargetTypeChange">
+            <a-form-item label="描述">
+              <a-input v-model:value="form.description" placeholder="测试描述" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+      </a-card>
+
+      <a-card title="接口配置（支持多接口）" style="margin-bottom: 16px">
+        <a-table
+          :columns="targetColumns"
+          :data-source="form.targets"
+          :pagination="false"
+          row-key="_key"
+          size="small"
+        >
+          <template #bodyCell="{ column, record, index }">
+            <template v-if="column.key === 'target_type'">
+              <a-select v-model:value="record.target_type" style="width: 110px" @change="onTargetTypeChange(index)">
                 <a-select-option value="api_definition">接口定义</a-select-option>
                 <a-select-option value="api_case">接口用例</a-select-option>
                 <a-select-option value="api_scenario">接口场景</a-select-option>
               </a-select>
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="目标ID">
+            </template>
+            <template v-else-if="column.key === 'target_id'">
               <a-select
-                v-model:value="form.target_id"
-                style="width: 100%"
-                placeholder="请选择目标（可选）"
+                v-model:value="record.target_id"
+                style="width: 220px"
+                placeholder="选择目标"
                 allow-clear
                 show-search
                 :filter-option="filterTargetOption"
-                :loading="targetLoading"
-                :options="targetOptions"
+                :loading="targetLoadingMap[record._key] || false"
+                :options="targetOptionsMap[record._key] || []"
+                @change="onTargetSelect(index)"
               />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="覆盖URL">
-              <a-input v-model:value="form.target_url" placeholder="可留空，自动从环境获取" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="描述">
-          <a-textarea v-model:value="form.description" :rows="2" placeholder="测试描述" />
-        </a-form-item>
+            </template>
+            <template v-else-if="column.key === 'method'">
+              <a-tag :color="getMethodColor(record.method)">{{ record.method || '-' }}</a-tag>
+            </template>
+            <template v-else-if="column.key === 'path'">
+              <span style="font-family: monospace; font-size: 12px">{{ record.path || record.url || '-' }}</span>
+            </template>
+            <template v-else-if="column.key === 'weight'">
+              <a-input-number v-model:value="record.weight" :min="1" :max="100" style="width: 70px" />
+            </template>
+            <template v-else-if="column.key === 'action'">
+              <a-button type="link" size="small" danger @click="removeTarget(index)">删除</a-button>
+            </template>
+          </template>
+        </a-table>
+        <a-button type="dashed" style="width: 100%; margin-top: 8px" @click="addTarget">
+          + 添加接口
+        </a-button>
       </a-card>
 
       <a-card title="负载配置" style="margin-bottom: 16px">
@@ -138,6 +158,7 @@ const form = ref({
   target_type: 'api_case',
   target_id: null as number | null,
   target_url: '',
+  targets: [] as any[],
   users: 10,
   spawn_rate: 1,
   duration: 60,
@@ -150,40 +171,95 @@ const form = ref({
 
 const headersText = ref('{}')
 
-const targetOptions = ref<{ label: string; value: number }[]>([])
-const targetLoading = ref(false)
+// 多接口目标列定义
+const targetColumns = [
+  { title: '目标类型', key: 'target_type', width: 120 },
+  { title: '选择目标', key: 'target_id', width: 240 },
+  { title: '方法', key: 'method', width: 80 },
+  { title: '路径', key: 'path', ellipsis: true },
+  { title: '权重', key: 'weight', width: 90 },
+  { title: '操作', key: 'action', width: 70 },
+]
 
-async function loadTargetOptions() {
-  targetLoading.value = true
+// 每行独立的目标选项和加载状态
+const targetOptionsMap = ref<Record<string, any[]>>({})
+const targetLoadingMap = ref<Record<string, boolean>>({})
+
+let targetKeyCounter = 0
+
+function addTarget() {
+  targetKeyCounter++
+  form.value.targets.push({
+    _key: `t_${targetKeyCounter}`,
+    target_type: 'api_definition',
+    target_id: null,
+    method: '',
+    path: '',
+    url: '',
+    name: '',
+    weight: 1,
+  })
+}
+
+function removeTarget(index: number) {
+  form.value.targets.splice(index, 1)
+}
+
+async function onTargetTypeChange(index: number) {
+  const row = form.value.targets[index]
+  row.target_id = null
+  row.method = ''
+  row.path = ''
+  await loadTargetOptionsForRow(row)
+}
+
+async function onTargetSelect(index: number) {
+  const row = form.value.targets[index]
+  if (!row.target_id) return
+  // 从已加载的选项中查找目标信息
+  const options = targetOptionsMap.value[row._key] || []
+  const found = options.find((o: any) => o.value === row.target_id)
+  if (found) {
+    row.method = found.method || ''
+    row.path = found.path || ''
+    row.name = found.name || ''
+  }
+}
+
+async function loadTargetOptionsForRow(row: any) {
+  targetLoadingMap.value[row._key] = true
   try {
     const params = { page: 1, page_size: 100 }
-    let items: { id: number; name: string; method?: string; path?: string }[] = []
-    if (form.value.target_type === 'api_definition') {
+    let items: any[] = []
+    if (row.target_type === 'api_definition') {
       const res = await apiDefinitionsApi.list(projectId, params)
       items = res.items
-    } else if (form.value.target_type === 'api_case') {
+    } else if (row.target_type === 'api_case') {
       const res = await apiCasesApi.list(projectId, params)
       items = res.items
-    } else if (form.value.target_type === 'api_scenario') {
+    } else if (row.target_type === 'api_scenario') {
       const res = await apiScenariosApi.list(projectId, params)
       items = res.items
     }
-    targetOptions.value = items.map(item => ({
+    targetOptionsMap.value[row._key] = items.map((item: any) => ({
       label: item.method || item.path
         ? `${item.name} [${item.method || ''} ${item.path || ''}]`
         : item.name,
       value: item.id,
+      method: item.method,
+      path: item.path,
+      name: item.name,
     }))
   } catch {
-    targetOptions.value = []
+    targetOptionsMap.value[row._key] = []
   } finally {
-    targetLoading.value = false
+    targetLoadingMap.value[row._key] = false
   }
 }
 
-function onTargetTypeChange() {
-  form.value.target_id = null
-  loadTargetOptions()
+function getMethodColor(method: string) {
+  const colors: Record<string, string> = { GET: 'green', POST: 'blue', PUT: 'orange', DELETE: 'red', PATCH: 'purple' }
+  return colors[method] || 'default'
 }
 
 function filterTargetOption(input: string, option: any) {
@@ -236,7 +312,17 @@ async function loadData() {
     const res = await performanceTestsApi.get(projectId, Number(testId))
     Object.assign(form.value, res)
     headersText.value = JSON.stringify(res.headers || {}, null, 2)
-    await loadTargetOptions()
+    // 加载已有 targets
+    if (res.targets && res.targets.length > 0) {
+      form.value.targets = res.targets.map((t: any, i: number) => ({
+        _key: `t_${i}_${Date.now()}`,
+        ...t,
+      }))
+      // 为每行加载选项
+      for (const row of form.value.targets) {
+        await loadTargetOptionsForRow(row)
+      }
+    }
   } catch { }
 }
 
@@ -248,10 +334,15 @@ async function handleSave() {
   saving.value = true
   try {
     form.value.headers = JSON.parse(headersText.value || '{}')
+    // 去除前端临时字段 _key
+    const saveData = {
+      ...form.value,
+      targets: form.value.targets.map(({ _key, ...rest }: any) => rest),
+    }
     if (isEdit.value) {
-      await performanceTestsApi.update(projectId, Number(testId), form.value)
+      await performanceTestsApi.update(projectId, Number(testId), saveData)
     } else {
-      await performanceTestsApi.create(projectId, form.value)
+      await performanceTestsApi.create(projectId, saveData)
     }
     message.success('保存成功')
     router.push(`/projects/${projectId}/performance-tests`)
@@ -269,7 +360,7 @@ onMounted(() => {
   loadPoolOptions()
   loadEnvOptions()
   if (!isEdit.value) {
-    loadTargetOptions()
+    addTarget()
   }
 })
 </script>

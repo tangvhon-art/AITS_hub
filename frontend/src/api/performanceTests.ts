@@ -9,6 +9,7 @@ export interface PerformanceTest {
   target_type: string
   target_id: number | null
   target_url: string | null
+  targets: any[] | null
   users: number
   spawn_rate: number
   duration: number
@@ -41,8 +42,9 @@ export interface PerformanceTestRun {
   p99_response_time: number
   requests_per_second: number
   failure_rate: number
-  stats_history: any[] | null
+  stats_history: any[] | Record<string, any> | null
   error_summary: Record<string, any> | null
+  endpoint_stats: any[] | null
   triggered_by: number | null
   created_at: string | null
 }
@@ -68,4 +70,6 @@ export const performanceTestsApi = {
     request.get<PerformanceTestRun>(`/performance-test-runs/${runId}`),
   convertPreview: (projectId: number, targetType: string, targetId: number) =>
     request.get(`/projects/${projectId}/performance-tests/convert/preview`, { params: { target_type: targetType, target_id: targetId } }),
+  analyze: (runId: number, data: { llm_config_id?: number; prompt_id?: number }) =>
+    request.post(`/performance-test-runs/${runId}/analyze`, data),
 }

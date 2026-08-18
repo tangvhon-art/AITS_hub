@@ -162,29 +162,59 @@ fi
 if [ "$START_CELERY" = true ]; then
     echo ">>> 启动 Celery Worker (concurrency=$CELERY_CONCURRENCY)..."
     cd "$SCRIPT_DIR/backend"
-    PYTHONHOME= PYTHONPATH= ./venv/bin/celery -A app.celery_app.celery_app worker \
+    unset PYTHONHOME PYTHONPATH
+    WORKER_LOG="$SCRIPT_DIR/logs/celery_worker.log"
+    mkdir -p "$SCRIPT_DIR/logs"
+    nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
         --concurrency="$CELERY_CONCURRENCY" \
         --hostname=aits-worker@%h \
-        -Q celery \
+        --events \
+        --heartbeat-interval=5 \
         --max-tasks-per-child=100 \
-        --time-limit=600 &
-    PIDS+=($!)
+        --time-limit=600 \
+        > "$WORKER_LOG" 2>&1 &
+    WORKER_PID=$!
+    PIDS+=($WORKER_PID)
     cd "$SCRIPT_DIR"
-    # 等待 Worker 连接 Redis 并开始发送事件，Flower 依赖事件流检测 Worker
-    echo "    等待 Worker 初始化..."
-    sleep 5
+    # 等待 Worker 启动并验证就绪
+    echo "    等待 Worker 就绪..."
+    WORKER_READY=false
+    for i in $(seq 1 15); do
+        sleep 2
+        if ! kill -0 "$WORKER_PID" 2>/dev/null; then
+            echo "    [错误] Celery Worker 进程已退出，日志如下："
+            tail -20 "$WORKER_LOG" 2>/dev/null
+            break
+        fi
+        if cd "$SCRIPT_DIR/backend" && ./venv/bin/celery -A app.celery_app.celery_app inspect ping > /dev/null 2>&1; then
+            WORKER_READY=true
+            cd "$SCRIPT_DIR"
+            break
+        fi
+        cd "$SCRIPT_DIR"
+    done
+    if [ "$WORKER_READY" = true ]; then
+        echo "    Celery Worker 启动成功 (PID=$WORKER_PID, 已就绪)"
+    else
+        echo "    [警告] Celery Worker 启动超时（进程存活但未响应 ping），Flower 可能无法立即检测到"
+    fi
 fi
 
 # 启动 Flower 监控面板
 if [ "$START_FLOWER" = true ]; then
     echo ">>> 启动 Flower 监控面板 (port=$PORT_FLOWER)..."
     cd "$SCRIPT_DIR/backend"
-    PYTHONHOME= PYTHONPATH= FLOWER_UNAUTHENTICATED_API=true ./venv/bin/celery \
+    unset PYTHONHOME PYTHONPATH
+    export FLOWER_UNAUTHENTICATED_API=true
+    FLOWER_LOG="$SCRIPT_DIR/logs/flower.log"
+    mkdir -p "$SCRIPT_DIR/logs"
+    nohup ./venv/bin/celery \
         -A app.celery_app.celery_app flower \
         --port="$PORT_FLOWER" \
         --conf=flowerconfig.py \
-        --auto_refresh=true &
+        --auto_refresh=true \
+        > "$FLOWER_LOG" 2>&1 &
     PIDS+=($!)
     cd "$SCRIPT_DIR"
 fi

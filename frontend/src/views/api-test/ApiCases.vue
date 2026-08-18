@@ -69,6 +69,29 @@
       :project-id="projectId"
       @saved="loadData"
     />
+
+    <!-- 执行环境选择弹窗 -->
+    <a-modal
+      v-model:open="runModalVisible"
+      title="选择执行环境"
+      :confirm-loading="runLoading"
+      @ok="confirmRun"
+      ok-text="确认执行"
+      cancel-text="取消"
+    >
+      <div style="margin-bottom: 12px">
+        用例：<strong>{{ runningCase?.name }}</strong>
+      </div>
+      <a-select
+        v-model:value="selectedEnvId"
+        placeholder="请选择环境（提供 base_url 和环境变量）"
+        style="width: 100%"
+        :options="runEnvironments.map(e => ({ label: `${e.name}${e.is_default ? '（默认）' : ''} - ${e.base_url}`, value: e.id }))"
+      />
+      <div v-if="runEnvironments.length === 0" style="color: #999; margin-top: 8px">
+        暂无环境，请先在「环境变量」中创建
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -78,6 +101,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiCasesApi, type ApiTestCase } from '@/api/apiTest'
+import { environmentsApi, type TestEnvironment } from '@/api/environments'
 import AiGenerateCasesModal from './AiGenerateCasesModal.vue'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 
@@ -92,6 +116,13 @@ const priorityFilter = ref('')
 const dataSource = ref<ApiTestCase[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 const showAiModal = ref(false)
+
+// 执行环境选择弹窗
+const runModalVisible = ref(false)
+const runLoading = ref(false)
+const runEnvironments = ref<TestEnvironment[]>([])
+const selectedEnvId = ref<number | null>(null)
+const runningCase = ref<ApiTestCase | null>(null)
 
 const selectedRowKeys = ref<number[]>([])
 const rowSelection = {
@@ -157,13 +188,39 @@ const handleEdit = (record: ApiTestCase) => {
 }
 
 const handleRun = async (record: ApiTestCase) => {
+  runningCase.value = record
+  selectedEnvId.value = null
+  runModalVisible.value = true
+  // 加载环境列表
   try {
-    const res = await apiCasesApi.run(projectId, record.id, {})
+    runEnvironments.value = await environmentsApi.list(projectId)
+    // 默认选中第一个或默认环境
+    const defaultEnv = runEnvironments.value.find(e => e.is_default) || runEnvironments.value[0]
+    if (defaultEnv) selectedEnvId.value = defaultEnv.id
+  } catch {
+    runEnvironments.value = []
+  }
+}
+
+const confirmRun = async () => {
+  if (!runningCase.value) return
+  const env = runEnvironments.value.find(e => e.id === selectedEnvId.value)
+  const runData: any = {}
+  if (env) {
+    runData.base_url = env.base_url
+    runData.environment_vars = env.config?.variables || {}
+  }
+  runLoading.value = true
+  try {
+    const res = await apiCasesApi.run(projectId, runningCase.value.id, runData)
     message.success(`执行完成: ${res.status}`)
+    runModalVisible.value = false
     if (res.execution_id) {
       router.push(`/projects/${projectId}/api-test/executions/${res.execution_id}`)
     }
-  } catch {}
+  } finally {
+    runLoading.value = false
+  }
 }
 
 const handleBatchRun = async () => {

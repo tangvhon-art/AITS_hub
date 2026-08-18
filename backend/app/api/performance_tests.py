@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, Body, Depends, Query, HTTPException, Request
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from app.database import get_db, SessionLocal
 from app.core.deps import get_current_user, get_project
@@ -43,6 +44,7 @@ def create_test(
         target_type=data.target_type,
         target_id=data.target_id,
         target_url=data.target_url,
+        targets=data.targets,
         users=data.users,
         spawn_rate=data.spawn_rate,
         duration=data.duration,
@@ -161,21 +163,47 @@ def run_test(
 
     from app.services.performance_runner import PerformanceRunner
     runner = PerformanceRunner(db)
-    target_info = runner.get_target_info(test.target_type, test.target_id)
 
-    if not target_info and not test.target_url:
-        raise HTTPException(status_code=400, detail="无法获取目标接口信息，请设置 target_url")
-
+    # 构建多接口 targets 列表
+    targets = []
     env = None
     if test.environment_id:
         from app.models.test_plan import TestEnvironment
         env = db.query(TestEnvironment).filter(TestEnvironment.id == test.environment_id).first()
-
     base_url = env.base_url if env else ""
-    target_url = test.target_url or f"{base_url}{target_info.get('path', '/')}"
-    method = target_info.get("method", "GET")
-    headers = {**(target_info.get("headers") or {}), **(test.headers or {})}
-    body = test.body_template or target_info.get("body")
+
+    if test.targets and len(test.targets) > 0:
+        # 多接口模式
+        for t in test.targets:
+            target_info = {}
+            if t.get("target_id"):
+                target_info = runner.get_target_info(t.get("target_type", "api_definition"), t["target_id"])
+            url = t.get("url") or f"{base_url}{target_info.get('path', '/')}"
+            targets.append({
+                "method": t.get("method") or target_info.get("method", "GET"),
+                "url": url,
+                "name": t.get("name") or target_info.get("name", "接口"),
+                "weight": t.get("weight", 1),
+                "body": t.get("body") or target_info.get("body"),
+            })
+    else:
+        # 单接口兼容模式
+        target_info = runner.get_target_info(test.target_type, test.target_id)
+        if not target_info and not test.target_url:
+            raise HTTPException(status_code=400, detail="无法获取目标接口信息，请设置 target_url 或 targets")
+        target_url = test.target_url or f"{base_url}{target_info.get('path', '/')}"
+        targets.append({
+            "method": target_info.get("method", "GET"),
+            "url": target_url,
+            "name": target_info.get("name", "接口"),
+            "weight": 1,
+            "body": test.body_template or target_info.get("body"),
+        })
+
+    headers = {**(test.headers or {})}
+    # 合并第一个 target 的 headers
+    if targets and targets[0].get("headers"):
+        headers = {**headers, **targets[0]["headers"]}
 
     test_data = None
     if test.data_pool_id:
@@ -187,8 +215,7 @@ def run_test(
         "users": test.users,
         "spawn_rate": test.spawn_rate,
         "duration": test.duration,
-        "target_url": target_url,
-        "method": method,
+        "targets": targets,
     }
 
     run = PerformanceTestRun(
@@ -218,10 +245,8 @@ def run_test(
     run_performance_test_task.delay(
         run_id=run.id,
         test_config=config_snapshot,
-        target_url=target_url,
-        method=method,
+        targets=targets,
         headers=headers,
-        body=body,
         test_data=test_data,
     )
 
@@ -314,3 +339,45 @@ def convert_preview(
         "name": info.get("name"),
         "suggested_name": f"性能测试 - {info.get('name', '')}",
     }
+
+
+# ==================== 性能测试 AI 分析 ====================
+
+class PerformanceAnalyzeRequest(BaseModel):
+    llm_config_id: Optional[int] = None
+    prompt_id: Optional[int] = None
+
+
+@run_router.post("/{run_id}/analyze")
+def analyze_performance(
+    run_id: int,
+    data: PerformanceAnalyzeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """对性能测试执行结果进行 AI 分析，异步生成性能报告"""
+    run = db.query(PerformanceTestRun).filter(PerformanceTestRun.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="执行记录不存在")
+    if run.status != "completed":
+        raise HTTPException(status_code=400, detail=f"执行记录状态为 {run.status}，仅 completed 状态可分析")
+
+    from app.tasks.performance_tasks import analyze_performance_task
+    analyze_performance_task.delay(
+        run_id=run_id,
+        user_id=current_user.id,
+        llm_config_id=data.llm_config_id,
+        prompt_id=data.prompt_id,
+    )
+
+    log_audit(
+        db, action="analyze", resource_type="performance_run",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"run_id": run_id},
+    )
+    db.commit()
+
+    return {"run_id": run_id, "status": "processing", "detail": "性能分析已启动，完成后将生成性能报告"}
