@@ -1,6 +1,6 @@
 from datetime import datetime
 from app.core.timezone import china_now_naive
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, JSON
 from app.database import Base, SoftDeleteMixin
 
 
@@ -21,5 +21,9 @@ class LLMConfig(SoftDeleteMixin, Base):
     status = Column(String(20), default="active", comment="状态：active-启用，inactive-停用")
     priority = Column(Integer, default=0, comment="降级优先级，数字越小优先级越高")
     description = Column(Text, default="", comment="配置描述")
+    supports_function_calling = Column(Boolean, default=True, comment="是否支持 Function Calling")
+    tool_call_strategy = Column(String(20), default="auto", comment="工具调用策略: auto/required/none")
+    api_format = Column(String(30), default="chat_completions", comment="API格式: chat_completions-Chat Completions接口, responses-Responses API接口")
+    capabilities = Column(JSON, comment="模型能力探测缓存 {function_calling, streaming, skill_supported, mcp_supported, detected_at}")
     created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
     updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")

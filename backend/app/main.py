@@ -47,6 +47,8 @@ from app.api import (
     env_compare_router,
     prompts_router,
     notifications_router,
+    mcp_router,
+    skills_router,
 )
 
 logging.basicConfig(
@@ -71,6 +73,10 @@ def _auto_migrate(engine):
         ("api_scenarios", "data_pool_id", "INTEGER"),
         ("knowledge_docs", "source_type", "VARCHAR(30) DEFAULT 'manual'"),
         ("knowledge_docs", "source_id", "INTEGER"),
+        ("llm_configs", "supports_function_calling", "TINYINT DEFAULT 1"),
+        ("llm_configs", "tool_call_strategy", "VARCHAR(20) DEFAULT 'auto'"),
+        ("llm_configs", "api_format", "VARCHAR(30) DEFAULT 'chat_completions'"),
+        ("llm_configs", "capabilities", "JSON"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:
@@ -104,10 +110,21 @@ async def lifespan(app: FastAPI):
         TestDataPool, EnvironmentVariableOverride,
         Prompt,
         NotificationChannel, NotificationRule, NotificationRecord,
+        MCPConnector, Skill,
     )
     Base.metadata.create_all(bind=engine)
     _auto_migrate(engine)
     logger.info("数据库表初始化完成")
+
+    # 注册内置工具
+    try:
+        from app.agents.tools.builtin import register_builtin_tools
+        register_builtin_tools()
+        from app.agents.tools.registry import tool_registry
+        logger.info(f"内置工具注册完成，共 {len(tool_registry.list_tools())} 个工具")
+    except Exception as e:
+        logger.warning(f"内置工具注册失败: {e}")
+
     yield
     logger.info("应用关闭")
 
@@ -173,6 +190,8 @@ app.include_router(env_variables_router)
 app.include_router(env_compare_router)
 app.include_router(prompts_router)
 app.include_router(notifications_router)
+app.include_router(mcp_router)
+app.include_router(skills_router)
 
 
 @app.get("/api/health", tags=["系统"])

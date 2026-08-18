@@ -104,10 +104,34 @@ class LLMFactory:
     def _create_openai_compatible(
         self, model_name, base_url, api_key, max_tokens, temperature, streaming=False, **kwargs
     ) -> BaseChatModel:
-        """创建 OpenAI 兼容协议的 LLM（DeepSeek / vLLM / TGI 等）"""
-        from langchain_openai import ChatOpenAI
+        """创建 OpenAI 兼容协议的 LLM（DeepSeek / vLLM / TGI / SiliconFlow 等）
 
-        return ChatOpenAI(
+        支持两种 API 格式：
+        - chat_completions: /v1/chat/completions（LangChain ChatOpenAI，默认）
+        - responses: /v1/responses（自定义 ResponsesChat）
+        """
+        api_format = kwargs.get("api_format", "chat_completions")
+
+        # 规范化 base_url：确保以 /v1 结尾（OpenAI 兼容接口标准路径）
+        if base_url:
+            base_url = base_url.rstrip("/")
+            if not base_url.endswith("/v1") and not base_url.endswith("/v1/"):
+                # 检查是否已经包含版本路径
+                if "/v" not in base_url.split("/")[-1]:
+                    base_url = base_url + "/v1"
+
+        if api_format == "responses":
+            from app.agents.responses_chat import ResponsesChat
+            return ResponsesChat(
+                model=model_name,
+                api_key=api_key or "not-needed",
+                base_url=base_url or "https://api.openai.com/v1",
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(
             model=model_name,
             api_key=api_key or "not-needed",
             base_url=base_url or None,
@@ -115,6 +139,7 @@ class LLMFactory:
             temperature=temperature,
             streaming=streaming,
         )
+        return llm
 
     def _create_anthropic(
         self, model_name, api_key, max_tokens, temperature, streaming=False, **kwargs
@@ -152,6 +177,7 @@ class LLMFactory:
             max_tokens=config.get("max_tokens", 4096),
             temperature=config.get("temperature", 0.7),
             streaming=config.get("streaming", False),
+            api_format=config.get("api_format", "chat_completions"),
         )
 
     def get_default_llm(self, db_session=None) -> BaseChatModel:
@@ -174,6 +200,7 @@ class LLMFactory:
                     "max_tokens": default_config.max_tokens,
                     "temperature": default_config.temperature,
                     "streaming": default_config.streaming,
+                    "api_format": default_config.api_format,
                 })
 
         # 回退到环境变量默认配置
@@ -220,6 +247,7 @@ class LLMFactory:
             "max_tokens": first.max_tokens,
             "temperature": first.temperature,
             "streaming": first.streaming,
+            "api_format": first.api_format,
         }), first.id
 
     def call_with_fallback(

@@ -241,6 +241,18 @@ const routes: RouteRecordRaw[] = [
         name: 'NotificationRecords',
         component: () => import('@/views/notification/NotificationRecords.vue'),
         meta: { title: '通知记录', icon: 'BellOutlined' }
+      },
+      {
+        path: 'mcp/connectors',
+        name: 'MCPConnectors',
+        component: () => import('@/views/MCPConnectors.vue'),
+        meta: { title: 'MCP 连接器', icon: 'ApiOutlined' }
+      },
+      {
+        path: 'skills',
+        name: 'Skills',
+        component: () => import('@/views/Skills.vue'),
+        meta: { title: 'Skill 管理', icon: 'ThunderboltOutlined' }
       }
     ]
   }

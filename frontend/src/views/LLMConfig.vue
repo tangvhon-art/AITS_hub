@@ -122,6 +122,12 @@
         <a-form-item label="提供商" required>
           <a-select v-model:value="configForm.provider" @change="onProviderChange" :options="providerOptions" />
         </a-form-item>
+        <a-form-item v-if="configForm.provider === 'openai_compatible'" label="API 格式">
+          <a-select v-model:value="configForm.api_format">
+            <a-select-option value="chat_completions">Chat Completions（/v1/chat/completions）</a-select-option>
+            <a-select-option value="responses">Responses API（/v1/responses）</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item v-if="configForm.provider !== 'anthropic'" label="Base URL">
           <a-input v-model:value="configForm.base_url" :placeholder="baseUrlPlaceholder" />
         </a-form-item>
@@ -256,7 +262,8 @@ const configForm = reactive({
   is_default: false,
   status: 'active',
   priority: 0,
-  description: ''
+  description: '',
+  api_format: 'chat_completions'
 })
 
 const showTestResult = ref(false)
@@ -367,7 +374,8 @@ function editConfig(row: any) {
     is_default: row.is_default,
     status: row.status,
     priority: row.priority,
-    description: row.description
+    description: row.description,
+    api_format: row.api_format || 'chat_completions'
   })
   showCreateModal.value = true
 }

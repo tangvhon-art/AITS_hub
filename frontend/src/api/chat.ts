@@ -26,6 +26,7 @@ export interface ToolCall {
   args: any
   result?: any
   status?: 'running' | 'success' | 'failed'
+  duration?: number
 }
 
 export interface ChatResponse {
@@ -55,6 +56,7 @@ export async function chatStream(
     onToolCall?: (toolCall: ToolCall) => void
     onToolResult?: (toolCall: ToolCall) => void
     onKnowledge?: (results: KnowledgeResult[]) => void
+    onProgress?: (progress: { node: string; label: string; status: string; detail?: string }) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -74,6 +76,8 @@ export async function chatStream(
             callbacks.onToolResult?.(data.tool_call)
           } else if (data.type === 'knowledge') {
             callbacks.onKnowledge?.(data.results || [])
+          } else if (data.type === 'progress') {
+            callbacks.onProgress?.({ node: data.node, label: data.label, status: data.status, detail: data.detail })
           }
         },
         onError: (err) => {

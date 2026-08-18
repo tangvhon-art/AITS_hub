@@ -259,3 +259,102 @@ def set_default_llm_config(
     db.commit()
     db.refresh(config)
     return _to_response(config)
+
+
+@router.get("/{config_id}/capabilities")
+async def get_llm_capabilities(config_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    探测模型能力（缓存24小时）
+
+    检测方式：
+    1. Function Calling：发一个带 tools 的实际请求，检查响应是否包含 tool_calls
+    2. 流式输出：发一个 stream 请求，检查是否返回流式 chunk
+    3. Skill / MCP：依赖 Function Calling，FC 支持则支持
+    """
+    import time
+    config = db.query(LLMConfig).filter(LLMConfig.id == config_id, LLMConfig.is_deleted == False).first()
+    if not config:
+        raise HTTPException(404, "模型配置不存在")
+    now = time.time()
+    if config.capabilities and isinstance(config.capabilities, dict):
+        detected_at = config.capabilities.get("detected_at", 0)
+        if now - detected_at < 86400:
+            return config.capabilities
+
+    capabilities = {
+        "function_calling": False,
+        "streaming": False,
+        "skill_supported": False,
+        "mcp_supported": False,
+        "detected_at": now,
+        "probe_method": "actual_request",
+    }
+
+    try:
+        from app.agents.llm_factory import llm_factory
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        llm = llm_factory.create_llm(config)
+
+        # ---- 1. 探测 Function Calling ----
+        # 发一个带 tools 的实际请求，使用 tool_choice="required" 强制模型调用工具
+        test_tool = {
+            "type": "function",
+            "function": {
+                "name": "ping",
+                "description": "A test tool that returns pong.",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        }
+        try:
+            # 方式1: tool_choice="required" 强制调用
+            try:
+                llm_forced = llm.bind_tools([test_tool], tool_choice="required")
+                messages = [HumanMessage(content="Please ping now.")]
+                response = await llm_forced.ainvoke(messages)
+            except Exception:
+                # 部分 provider 不支持 tool_choice 参数，降级为普通 bind_tools
+                llm_forced = llm.bind_tools([test_tool])
+                messages = [
+                    SystemMessage(content="You MUST call the ping tool. Do not answer with text."),
+                    HumanMessage(content="Ping."),
+                ]
+                response = await llm_forced.ainvoke(messages)
+
+            # 兼容提取工具调用（同 ChatAgent 的逻辑）
+            from app.agents.chat_agent import ChatAgent
+            tool_calls = ChatAgent._extract_tool_calls(response)
+            has_tool_calls = len(tool_calls) > 0
+            capabilities["function_calling"] = has_tool_calls
+            if not has_tool_calls:
+                capabilities["probe_detail"] = f"模型未返回 tool_calls（response.content={str(response.content)[:100]}）"
+        except Exception as e:
+            capabilities["function_calling"] = False
+            capabilities["probe_error"] = f"FC探测失败: {str(e)[:200]}"
+
+        # ---- 2. 探测流式输出 ----
+        try:
+            stream_messages = [HumanMessage(content="Say hello in one word.")]
+            chunk_count = 0
+            async for chunk in llm.astream(stream_messages):
+                if hasattr(chunk, 'content') and chunk.content:
+                    chunk_count += 1
+                if chunk_count >= 2:
+                    break
+            capabilities["streaming"] = chunk_count > 0
+        except Exception as e:
+            capabilities["streaming"] = False
+            if "probe_error" not in capabilities:
+                capabilities["probe_error"] = f"流式探测失败: {str(e)[:200]}"
+
+        # ---- 3. Skill 和 MCP 依赖 Function Calling ----
+        capabilities["skill_supported"] = capabilities["function_calling"]
+        capabilities["mcp_supported"] = capabilities["function_calling"]
+
+    except Exception as e:
+        capabilities["probe_error"] = f"模型连接失败: {str(e)[:200]}"
+
+    config.capabilities = capabilities
+    config.supports_function_calling = capabilities["function_calling"]
+    db.commit()
+    return capabilities

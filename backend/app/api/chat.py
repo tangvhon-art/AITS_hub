@@ -4,7 +4,8 @@ Chat 智能助手 API
 """
 import json
 import logging
-from typing import Optional, List
+import asyncio
+from typing import Optional, List, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -18,6 +19,25 @@ from app.agents.chat_agent import ChatAgent
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["智能助手"])
+
+# P3: 单用户并发对话数限制
+MAX_CONCURRENT_PER_USER = 3
+_user_concurrent: Dict[int, int] = {}
+
+
+def _acquire_concurrent(user_id: int) -> bool:
+    """获取并发槽位，返回是否成功"""
+    current = _user_concurrent.get(user_id, 0)
+    if current >= MAX_CONCURRENT_PER_USER:
+        return False
+    _user_concurrent[user_id] = current + 1
+    return True
+
+
+def _release_concurrent(user_id: int):
+    """释放并发槽位"""
+    if user_id in _user_concurrent:
+        _user_concurrent[user_id] = max(0, _user_concurrent[user_id] - 1)
 
 
 class ChatMessage(BaseModel):
@@ -47,6 +67,10 @@ async def chat(
     if not req.message or not req.message.strip():
         raise HTTPException(status_code=400, detail="消息内容不能为空")
 
+    # P3: 并发对话数限制
+    if not _acquire_concurrent(current_user.id):
+        raise HTTPException(status_code=429, detail=f"并发对话数已达上限（{MAX_CONCURRENT_PER_USER}），请等待当前对话完成")
+
     history = [h.model_dump() for h in req.history] if req.history else None
 
     if not req.stream:
@@ -67,6 +91,7 @@ async def chat(
             return result
         finally:
             db.close()
+            _release_concurrent(current_user.id)
 
     # SSE 流式返回 - 在生成器内部创建独立的 db session
     async def event_generator():
@@ -79,16 +104,44 @@ async def chat(
                 user_id=current_user.id,
             )
 
-            # 流式输出（包含工具调用事件和内容）
-            async for event in agent.chat(
-                message=req.message,
-                history=history,
-                use_knowledge=req.use_knowledge,
-            ):
-                # 检查客户端是否断开
-                if await request.is_disconnected():
-                    break
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            # P3: 心跳 + 事件流合并
+            event_queue: asyncio.Queue = asyncio.Queue()
+            heartbeat_task = None
+
+            async def heartbeat():
+                """每15秒发送心跳注释，防止代理超时断开"""
+                while True:
+                    await asyncio.sleep(15)
+                    await event_queue.put((": keep-alive\n\n", True))
+
+            async def consume_events():
+                try:
+                    async for event in agent.chat(
+                        message=req.message,
+                        history=history,
+                        use_knowledge=req.use_knowledge,
+                    ):
+                        await event_queue.put((f"data: {json.dumps(event, ensure_ascii=False)}\n\n", False))
+                except Exception as e:
+                    logger.error(f"Agent chat 生成异常: {e}", exc_info=True)
+                    await event_queue.put((f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n", False))
+                finally:
+                    await event_queue.put(("__done__", False))
+
+            heartbeat_task = asyncio.create_task(heartbeat())
+            consumer_task = asyncio.create_task(consume_events())
+
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    item, is_heartbeat = await event_queue.get()
+                    if item == "__done__":
+                        break
+                    yield item
+            finally:
+                heartbeat_task.cancel()
+                consumer_task.cancel()
 
             # 发送结束信号
             end_data = {"type": "done"}
@@ -100,6 +153,7 @@ async def chat(
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
         finally:
             db.close()
+            _release_concurrent(current_user.id)
 
     return StreamingResponse(
         event_generator(),

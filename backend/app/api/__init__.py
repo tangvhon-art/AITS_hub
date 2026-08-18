@@ -39,6 +39,8 @@ from app.api.env_variables import router as env_variables_router
 from app.api.env_variables import compare_router as env_compare_router
 from app.api.prompts import router as prompts_router
 from app.api.notifications import router as notifications_router
+from app.api.mcp import router as mcp_router
+from app.api.skills import router as skills_router
 
 __all__ = [
     "auth_router",
@@ -82,4 +84,6 @@ __all__ = [
     "env_compare_router",
     "prompts_router",
     "notifications_router",
+    "mcp_router",
+    "skills_router",
 ]

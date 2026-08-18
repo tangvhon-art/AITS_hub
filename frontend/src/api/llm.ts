@@ -10,6 +10,7 @@ export interface LLMConfig {
   max_tokens: number
   temperature: number
   streaming: boolean
+  api_format?: string
   is_default: boolean
   status: string
   priority: number
@@ -27,6 +28,7 @@ export interface LLMConfigCreate {
   max_tokens?: number
   temperature?: number
   streaming?: boolean
+  api_format?: string
   is_default?: boolean
   status?: string
   priority?: number
@@ -42,6 +44,7 @@ export interface LLMConfigUpdate {
   max_tokens?: number
   temperature?: number
   streaming?: boolean
+  api_format?: string
   is_default?: boolean
   status?: string
   priority?: number
