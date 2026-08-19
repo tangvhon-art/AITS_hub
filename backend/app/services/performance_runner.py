@@ -229,6 +229,12 @@ class PerformanceTestUser(HttpUser):
             except (ValueError, TypeError):
                 return default
 
+        def get_col(row, *names, default=0.0):
+            for n in names:
+                if n in row and row[n] not in (None, "", "N/A"):
+                    return safe_float(row[n], default)
+            return default
+
         stats = {
             "total_requests": 0,
             "total_failures": 0,
@@ -252,15 +258,17 @@ class PerformanceTestUser(HttpUser):
                     reader = csv.DictReader(f)
                     for row in reader:
                         name = row.get("Name", "")
-                        req_count = int(safe_float(row.get("Request Count", 0)))
-                        fail_count = int(safe_float(row.get("Failure Count", 0)))
-                        avg_rt = safe_float(row.get("Average Response Time", 0))
-                        min_rt = safe_float(row.get("Min Response Time", 0))
-                        max_rt = safe_float(row.get("Max Response Time", 0))
-                        p50 = safe_float(row.get("50%", 0))
-                        p95 = safe_float(row.get("95%", 0))
-                        p99 = safe_float(row.get("99%", 0))
-                        rps = safe_float(row.get("Requests/s", 0))
+                        req_count = int(get_col(row, "Request Count", "requests", "samples"))
+                        fail_count = int(get_col(row, "Failure Count", "failures", "failure_count"))
+                        avg_rt = get_col(row, "Average Response Time", "Average", "average", "avg")
+                        min_rt = get_col(row, "Min Response Time", "Min", "min")
+                        max_rt = get_col(row, "Max Response Time", "Max", "max")
+                        p50 = get_col(row, "50%", "Median Response Time", "Median", "p50")
+                        p95 = get_col(row, "95%", "p95")
+                        p99 = get_col(row, "99%", "p99")
+                        rps = get_col(row, "Requests/s", "RPS", "throughput", "rps")
+                        failures_per_s = get_col(row, "Failures/s", "failures_per_s", "failures_per_second")
+                        avg_size = get_col(row, "Average Content Size (bytes)", "Average Size (bytes)", "avg_size", "average_size")
                         fail_rate = round(fail_count / req_count * 100, 2) if req_count > 0 else 0.0
 
                         if name == "Aggregated":
@@ -273,24 +281,28 @@ class PerformanceTestUser(HttpUser):
                             stats["p95_response_time"] = p95
                             stats["p99_response_time"] = p99
                             stats["requests_per_second"] = rps
+                            stats["failures_per_second"] = failures_per_s
                             stats["failure_rate"] = fail_rate
                         else:
                             # 按接口统计（JMeter 聚合报告风格）
                             stats["endpoint_stats"].append({
                                 "label": name,
                                 "samples": req_count,
+                                "failures": fail_count,
                                 "average": round(avg_rt, 2),
+                                "median": round(p50, 2),
                                 "min": round(min_rt, 2),
                                 "max": round(max_rt, 2),
                                 "std_dev": round(safe_float(row.get("Std Dev", 0)), 2),
                                 "error_pct": fail_rate,
                                 "throughput": round(rps, 2),
-                                "received_kb_s": round(safe_float(row.get("Average Size (bytes)", 0)) * rps / 1024, 2),
+                                "failures_per_s": round(failures_per_s, 2),
+                                "avg_size_bytes": round(avg_size, 2),
+                                "received_kb_s": round(avg_size * rps / 1024, 2),
                                 "p50": round(p50, 2),
                                 "p90": round(safe_float(row.get("90%", 0)), 2),
                                 "p95": round(p95, 2),
                                 "p99": round(p99, 2),
-                                "failures": fail_count,
                             })
             except Exception as e:
                 logger.warning(f"解析 Locust CSV 失败: {e}")
@@ -335,24 +347,38 @@ class PerformanceTestUser(HttpUser):
             except (ValueError, TypeError):
                 return default
 
+        def get_col(row, *names, default=0.0):
+            """尝试多个列名获取值"""
+            for n in names:
+                if n in row and row[n] not in (None, "", "N/A"):
+                    return safe_float(row[n], default)
+            return default
+
         aggregate = []
         by_endpoint = {}
         total_rows = 0
+        header_logged = False
         try:
             with open(history_path, "r") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     total_rows += 1
+                    if not header_logged:
+                        logger.info(f"stats_history CSV 列名: {list(row.keys())}")
+                        header_logged = True
                     name = row.get("Name", "")
+                    avg_val = get_col(row, "Average Response Time", "Average", "avg_response_time", "avg")
                     record = {
                         "timestamp": row.get("Timestamp", ""),
-                        "users": int(safe_float(row.get("User Count", 0))),
-                        "rps": safe_float(row.get("Requests/s", 0)),
-                        "failures_per_s": safe_float(row.get("Failures/s", 0)),
-                        "p50": safe_float(row.get("50%", 0)),
-                        "p95": safe_float(row.get("95%", 0)),
-                        "p99": safe_float(row.get("99%", 0)),
-                        "avg": safe_float(row.get("Average Response Time", 0)),
+                        "users": int(get_col(row, "User Count", "users", "user_count")),
+                        "rps": get_col(row, "Requests/s", "rps", "throughput"),
+                        "failures_per_s": get_col(row, "Failures/s", "failures_per_s", "failures"),
+                        "median": get_col(row, "Median Response Time", "50%", "Median", "p50"),
+                        "p50": get_col(row, "50%", "Median Response Time", "p50"),
+                        "p95": get_col(row, "95%", "p95"),
+                        "p99": get_col(row, "99%", "p99"),
+                        "avg": avg_val,
+                        "average": avg_val,
                     }
                     if name == "Aggregated":
                         aggregate.append(record)
@@ -366,6 +392,8 @@ class PerformanceTestUser(HttpUser):
         if total_rows > 0 and len(aggregate) == 0:
             logger.warning(f"stats_history CSV 有 {total_rows} 行但无 Aggregated 行")
         else:
+            if aggregate:
+                logger.info(f"stats_history 聚合首条: users={aggregate[0].get('users')}, rps={aggregate[0].get('rps')}, avg={aggregate[0].get('avg')}, p50={aggregate[0].get('p50')}")
             logger.info(f"stats_history 解析完成: 聚合 {len(aggregate)} 条, {len(by_endpoint)} 个接口趋势 (共 {total_rows} 行)")
 
         return {"aggregate": aggregate, "by_endpoint": by_endpoint}

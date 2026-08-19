@@ -85,7 +85,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/api-test/ApiTestLayout.vue'),
         meta: { title: '接口测试', icon: 'ApiOutlined' },
         children: [
-          { path: '', redirect: 'definitions' },
+          { path: '', redirect: { name: 'ApiDefinitions' } },
           { path: 'definitions', name: 'ApiDefinitions', component: () => import('@/views/api-test/ApiDefinitions.vue'), meta: { title: '接口管理', activeMenu: 'definitions' } },
           { path: 'definitions/:apiId', name: 'ApiDefinitionEdit', component: () => import('@/views/api-test/ApiDefinitionEdit.vue'), meta: { title: '接口编辑', activeMenu: 'definitions' } },
           { path: 'debug', name: 'ApiDebug', component: () => import('@/views/api-test/ApiDebug.vue'), meta: { title: '接口调试', activeMenu: 'debug' } },

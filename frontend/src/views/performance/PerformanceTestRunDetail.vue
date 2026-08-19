@@ -38,7 +38,7 @@
 
     <a-row :gutter="16">
       <a-col :span="12">
-        <a-card title="响应时间趋势">
+        <a-card title="运行趋势（虚拟用户数 / RPS / 响应时间）">
           <div v-if="hasTrendData" ref="responseChartRef" class="chart-container"></div>
           <a-empty v-else :description="trendEmptyText" class="chart-empty" />
         </a-card>
@@ -182,19 +182,20 @@ const errorData = ref<any[]>([])
 // 聚合报告（JMeter 风格）
 const endpointStats = computed(() => Array.isArray(run.value.endpoint_stats) ? run.value.endpoint_stats : [])
 const aggregateColumns = [
-  { title: 'Label', dataIndex: 'label', key: 'label', width: 200, fixed: 'left' },
-  { title: '#Samples', dataIndex: 'samples', key: 'samples', width: 90 },
+  { title: 'Name', dataIndex: 'label', key: 'label', width: 200, fixed: 'left' },
+  { title: '# requests', dataIndex: 'samples', key: 'samples', width: 100 },
+  { title: '# failures', dataIndex: 'failures', key: 'failures', width: 100 },
+  { title: 'Median', dataIndex: 'median', key: 'median', width: 90 },
+  { title: '90%', dataIndex: 'p90', key: 'p90', width: 80 },
+  { title: '95%', dataIndex: 'p95', key: 'p95', width: 80 },
+  { title: '99%', dataIndex: 'p99', key: 'p99', width: 80 },
   { title: 'Average', dataIndex: 'average', key: 'average', width: 90, sorter: (a: any, b: any) => a.average - b.average },
   { title: 'Min', dataIndex: 'min', key: 'min', width: 80 },
   { title: 'Max', dataIndex: 'max', key: 'max', width: 80 },
-  { title: 'Std Dev', dataIndex: 'std_dev', key: 'std_dev', width: 90 },
-  { title: 'Error %', key: 'error_pct', width: 90 },
-  { title: 'Throughput', dataIndex: 'throughput', key: 'throughput', width: 100 },
-  { title: 'Received KB/sec', dataIndex: 'received_kb_s', key: 'received_kb_s', width: 130 },
-  { title: 'P50', dataIndex: 'p50', key: 'p50', width: 80 },
-  { title: 'P90', dataIndex: 'p90', key: 'p90', width: 80 },
-  { title: 'P95', dataIndex: 'p95', key: 'p95', width: 80 },
-  { title: 'P99', dataIndex: 'p99', key: 'p99', width: 80 },
+  { title: 'Average size', dataIndex: 'avg_size_bytes', key: 'avg_size_bytes', width: 110 },
+  { title: 'RPS', dataIndex: 'throughput', key: 'throughput', width: 90 },
+  { title: 'Failures/s', dataIndex: 'failures_per_s', key: 'failures_per_s', width: 100 },
+  { title: '失败率', key: 'error_pct', width: 90 },
 ]
 
 const statusColor = (s?: string) => ({ pending: 'default', running: 'processing', completed: 'success', failed: 'error', stopped: 'warning' })[s || ''] || 'default'
@@ -349,7 +350,6 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
   // 兼容新旧格式：旧格式为数组，新格式为 {aggregate: [], by_endpoint: {}}
   const raw = data.stats_history
   const history: any[] = Array.isArray(raw) ? raw : (raw?.aggregate || [])
-  const byEndpoint: Record<string, any[]> = raw && !Array.isArray(raw) ? (raw.by_endpoint || {}) : {}
 
   const categories = history.map((h: any, i: number) => {
     if (h.timestamp) {
@@ -361,17 +361,15 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
     }
     return `${i + 1}s`
   })
-  const p50Data = history.map((h: any) => h.p50 || 0)
-  const p95Data = history.map((h: any) => h.p95 || 0)
-  const p99Data = history.map((h: any) => h.p99 || 0)
+  const avgData = history.map((h: any) => h.avg ?? h.average ?? h.avg_response_time ?? 0)
+  const usersData = history.map((h: any) => h.users || 0)
   const rpsData = history.map((h: any) => h.rps || 0)
 
-  const legendData = ['P50', 'P95', 'P99', 'RPS']
+  const legendData = ['虚拟用户数', 'RPS', '平均响应时间']
   const series: any[] = [
-    { name: 'P50', type: 'line', data: p50Data, smooth: true },
-    { name: 'P95', type: 'line', data: p95Data, smooth: true },
-    { name: 'P99', type: 'line', data: p99Data, smooth: true },
-    { name: 'RPS', type: 'line', data: rpsData, smooth: true, yAxisIndex: 1, lineStyle: { type: 'dashed' } },
+    { name: '虚拟用户数', type: 'line', data: usersData, smooth: true, yAxisIndex: 1, lineStyle: { type: 'dashed' } },
+    { name: 'RPS', type: 'line', data: rpsData, smooth: true, yAxisIndex: 1 },
+    { name: '平均响应时间', type: 'line', data: avgData, smooth: true, areaStyle: { opacity: 0.1 } },
   ]
 
   instance.setOption({
@@ -381,7 +379,7 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
     xAxis: { type: 'category', data: categories, axisLabel: { rotate: categories.length > 15 ? 30 : 0 } },
     yAxis: [
       { type: 'value', name: 'ms', position: 'left' },
-      { type: 'value', name: 'RPS', position: 'right' },
+      { type: 'value', name: '用户数/RPS', position: 'right' },
     ],
     series,
   }, true)
