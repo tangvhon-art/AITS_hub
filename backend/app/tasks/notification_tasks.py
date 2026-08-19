@@ -22,11 +22,34 @@ MAX_ATTEMPTS = 3  # 首次 + 2次重试
 
 
 def _do_send(channel: NotificationChannel, card: Dict[str, Any]) -> Dict[str, Any]:
-    """执行实际的飞书发送"""
+    """执行实际的发送（飞书 / 钉钉）"""
     from app.agents.llm_factory import decrypt_api_key
-    from app.services.feishu_bot import FeishuBotClient
 
     secret = decrypt_api_key(channel.secret) if channel.secret else None
+    channel_type = (channel.channel_type or "feishu").lower()
+
+    if channel_type == "dingtalk":
+        from app.services.dingtalk_bot import DingTalkBotClient
+        from app.services.dingtalk_card_builder import DingTalkCardBuilder
+
+        client = DingTalkBotClient(
+            webhook_url=channel.webhook_url,
+            secret=secret,
+            sign_enabled=channel.sign_enabled,
+        )
+        # 将飞书卡片格式转换为钉钉 actionCard
+        # card 是飞书格式，需要从中提取 event_code 等信息
+        # 由于 record.content 存的是飞书 card，这里直接用适配器转换
+        dt_card = DingTalkCardBuilder.convert_from_feishu_card(card)
+        return client.send_action_card(
+            title=dt_card["title"],
+            text=dt_card["text"],
+            button_title=dt_card["button_title"],
+            button_url=dt_card["button_url"],
+        )
+
+    # 默认飞书
+    from app.services.feishu_bot import FeishuBotClient
     client = FeishuBotClient(
         webhook_url=channel.webhook_url,
         secret=secret,

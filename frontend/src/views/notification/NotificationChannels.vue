@@ -93,17 +93,18 @@
         <a-form-item label="渠道类型" required>
           <a-select v-model:value="formData.channel_type" placeholder="请选择渠道类型">
             <a-select-option value="feishu">飞书机器人</a-select-option>
+            <a-select-option value="dingtalk">钉钉机器人</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="Webhook 地址" required>
           <a-input
             v-model:value="formData.webhook_url"
-            placeholder="请输入飞书机器人 Webhook 地址"
+            :placeholder="formData.channel_type === 'dingtalk' ? 'https://oapi.dingtalk.com/robot/send?access_token=xxx' : '请输入飞书机器人 Webhook 地址'"
           />
         </a-form-item>
         <a-form-item label="启用签名校验">
           <a-switch v-model:checked="formData.sign_enabled" />
-          <span class="form-hint">开启后需要填写签名密钥</span>
+          <span class="form-hint">开启后需要填写签名密钥（加签方式）</span>
         </a-form-item>
         <a-form-item v-if="formData.sign_enabled" label="签名密钥" required>
           <a-input-password

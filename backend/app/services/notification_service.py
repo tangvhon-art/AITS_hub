@@ -254,20 +254,32 @@ class NotificationService:
     def send_test_message(self, channel: NotificationChannel) -> Dict[str, Any]:
         """发送测试消息（同步，立即返回结果）"""
         from app.agents.llm_factory import decrypt_api_key
-        from app.services.feishu_bot import FeishuBotClient
 
         secret = decrypt_api_key(channel.secret) if channel.secret else None
-        client = FeishuBotClient(
-            webhook_url=channel.webhook_url,
-            secret=secret,
-            sign_enabled=channel.sign_enabled,
-        )
+        channel_type = (channel.channel_type or "feishu").lower()
         text = (
             f"✅ AITS 通知测试消息\n\n"
             f"渠道名称：{channel.name}\n"
             f"渠道类型：{channel.channel_type}\n"
             f"发送时间：{china_now_naive().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             f"如果您收到此消息，说明机器人配置正确。"
+        )
+
+        if channel_type == "dingtalk":
+            from app.services.dingtalk_bot import DingTalkBotClient
+            client = DingTalkBotClient(
+                webhook_url=channel.webhook_url,
+                secret=secret,
+                sign_enabled=channel.sign_enabled,
+            )
+            return client.send_text(text)
+
+        # 默认飞书
+        from app.services.feishu_bot import FeishuBotClient
+        client = FeishuBotClient(
+            webhook_url=channel.webhook_url,
+            secret=secret,
+            sign_enabled=channel.sign_enabled,
         )
         return client.send_text(text)
 
