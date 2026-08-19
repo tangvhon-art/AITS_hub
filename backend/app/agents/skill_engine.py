@@ -24,6 +24,7 @@ class SkillEngine:
         self._skills_cache: List = []
         self._cache_dirty = True
         self._registered_script_tools: List[str] = []  # 本次对话注册的 Skill 脚本工具名
+        self._registered_skill_tools: Dict[str, str] = {}  # skill_name -> tool_name，已注册为工具的 Skill
 
     def _load_skills(self, db: Session) -> List:
         """加载所有启用的 Skill"""
@@ -37,6 +38,79 @@ class SkillEngine:
 
     def invalidate_cache(self):
         self._cache_dirty = True
+
+    # ==================== Skill 工具注册（暴露给大模型 Function Calling） ====================
+
+    def register_skill_as_tool(self, skill) -> str:
+        """
+        将单个 Skill 注册为大模型可调用的工具。
+        工具名为 skill_{name}，描述为 Skill 的 description。
+        返回注册的工具名。
+        """
+        from app.agents.tools.skill_tool import SkillTool
+        import re
+        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", skill.name)
+        tool_name = f"skill_{safe_name}"
+        # 如果已注册，先注销旧的
+        if skill.name in self._registered_skill_tools:
+            old_tool = self._registered_skill_tools[skill.name]
+            try:
+                tool_registry.unregister(old_tool)
+            except Exception:
+                pass
+        tool = SkillTool(skill)
+        tool_registry.register(tool)
+        self._registered_skill_tools[skill.name] = tool_name
+        logger.info(f"Skill 已注册为工具: {tool_name} (skill={skill.name})")
+        return tool_name
+
+    def unregister_skill_tool(self, skill_name: str) -> bool:
+        """注销某个 Skill 对应的工具"""
+        import re
+        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", skill_name)
+        tool_name = f"skill_{safe_name}"
+        try:
+            tool_registry.unregister(tool_name)
+            self._registered_skill_tools.pop(skill_name, None)
+            logger.info(f"Skill 工具已注销: {tool_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"注销 Skill 工具失败 [{tool_name}]: {e}")
+            return False
+
+    def register_all_active_skills(self, db: Session) -> int:
+        """
+        系统启动时调用：将所有启用的 Skill 批量注册为大模型工具。
+        返回成功注册的数量。
+        """
+        from app.models.skill import Skill
+        skills = db.query(Skill).filter(
+            Skill.is_active == True, Skill.is_deleted == False
+        ).all()
+        count = 0
+        for skill in skills:
+            try:
+                self.register_skill_as_tool(skill)
+                count += 1
+            except Exception as e:
+                logger.warning(f"注册 Skill 工具失败 [{skill.name}]: {e}")
+        logger.info(f"系统启动：已注册 {count}/{len(skills)} 个 Skill 为工具")
+        return count
+
+    def list_registered_skills(self) -> List[Dict[str, str]]:
+        """列出所有已注册为工具的 Skill"""
+        return [
+            {"skill_name": name, "tool_name": tool}
+            for name, tool in self._registered_skill_tools.items()
+        ]
+
+    def is_registered(self, skill_name: str) -> bool:
+        """检查某个 Skill 是否已注册为工具"""
+        return skill_name in self._registered_skill_tools
+
+    def resync_skill_tool(self, skill) -> str:
+        """Skill 内容更新后，重新注册工具（刷新描述等信息）"""
+        return self.register_skill_as_tool(skill)
 
     def match(self, message: str, project_id: Optional[int] = None, db: Optional[Session] = None) -> Optional[Any]:
         """根据触发条件匹配 Skill（关键词/正则）"""

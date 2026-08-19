@@ -122,3 +122,85 @@ class SkillScriptTool(BaseTool):
         except Exception as e:
             duration = round(time.time() - start_time, 2)
             return {"success": False, "error": f"脚本执行异常: {str(e)}", "duration": duration}
+
+
+class SkillTool(BaseTool):
+    """
+    Skill 调度工具 — 将已注册的 Skill 暴露为大模型可调用的 Function Calling 工具。
+
+    大模型通过工具名 skill_{name} 调用，传入 message 参数，
+    工具内部加载 Skill 的 system_prompt + 工具白名单，执行完整的 Skill 流程，
+    最终返回 Skill 生成的回答内容。
+    """
+
+    def __init__(self, skill):
+        self.skill = skill
+        self.skill_name = skill.name
+        # 工具名：skill_{name}，非字母数字替换为下划线
+        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", skill.name)
+        self.name = f"skill_{safe_name}"
+        # 描述：Skill 的描述 + 触发提示，让大模型知道何时调用
+        desc = skill.description or skill.title or f"执行 {skill.title} Skill"
+        self.description = f"[Skill] {desc}。当用户需求匹配此 Skill 的能力范围时调用，传入具体指令 message。"
+        self.category = "skill"
+        self.parameters = ToolParameter(
+            type="object",
+            properties={
+                "message": {
+                    "type": "string",
+                    "description": "传递给 Skill 的具体指令或问题描述",
+                },
+            },
+            required=["message"],
+        )
+        super().__init__()
+
+    async def execute(
+        self,
+        args: Dict[str, Any],
+        db: Session,
+        project_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """执行 Skill，收集所有内容事件并返回"""
+        from app.agents.skill_engine import skill_engine
+
+        message = args.get("message", "")
+        if not message:
+            return {"success": False, "error": "缺少 message 参数"}
+
+        # 注册 Skill 自带的脚本工具（如果有）
+        skill_engine._register_skill_scripts(self.skill)
+
+        content_parts = []
+        tool_results = []
+        try:
+            async for event in skill_engine.execute(
+                self.skill, message, db, project_id, user_id
+            ):
+                etype = event.get("type")
+                if etype == "content":
+                    content_parts.append(event.get("content", ""))
+                elif etype == "tool_result":
+                    tc = event.get("tool_call", {})
+                    tool_results.append({
+                        "name": tc.get("name"),
+                        "status": tc.get("status"),
+                        "result": str(tc.get("result", ""))[:500],
+                    })
+                elif etype == "error":
+                    return {"success": False, "error": event.get("message", "Skill 执行失败")}
+        finally:
+            # 清理本次注册的脚本工具
+            skill_engine.cleanup()
+
+        result_text = "".join(content_parts).strip()
+        if not result_text:
+            result_text = "Skill 执行完成（无输出内容）"
+
+        return {
+            "success": True,
+            "result": result_text,
+            "tool_calls": len(tool_results),
+            "tools": tool_results,
+        }
