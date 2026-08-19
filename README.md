@@ -51,7 +51,7 @@ Agent LangChain 0.3 + LangGraph 0.3 + Playwright 1.49
 向量  FAISS + sentence-transformers（知识库 RAG 向量检索）
 压测  Locust（性能测试执行引擎，多接口混合压测）
 MCP   MCP Python SDK（SSE 连接器，工具发现与调用）
-通知  飞书机器人 Webhook（HMAC-SHA256 验签）
+通知  飞书/钉钉机器人 Webhook（HMAC-SHA256 验签，actionCard 卡片）
 AI    DeepSeek / Claude / vLLM-TGI / Ollama（4 种接入模式，自动降级 + 模型路由 + 能力检测）
 ```
 
@@ -221,6 +221,8 @@ AITS_hub/
 │   │   │   ├── defect_helper.py      #   缺陷自动创建
 │   │   │   ├── knowledge_base.py     #   知识库 RAG（FAISS 向量检索）
 │   │   │   ├── feishu_bot.py         #   飞书机器人客户端（HMAC-SHA256 验签）
+│   │   │   ├── dingtalk_bot.py       #   钉钉机器人客户端（加签验签，actionCard 卡片）
+│   │   │   ├── dingtalk_card_builder.py # 钉钉卡片构建器（适配器，飞书卡片→钉钉格式）
 │   │   │   ├── card_builder.py       #   通知卡片构建器（19 种模板）
 │   │   │   ├── notification_service.py#  通知服务（规则匹配+异步派发）
 │   │   │   ├── ai_creation_service.py#  AI 用例批量创建服务
@@ -490,12 +492,12 @@ AI 性能分析（异步）→ 生成性能报告（写入 TestReport）
 
 ### 事件通知
 
-全局公共模块（不绑定特定项目），支持飞书机器人通知：
+全局公共模块（不绑定特定项目），支持飞书/钉钉机器人通知：
 
-- **通知渠道**：飞书机器人（Webhook + HMAC-SHA256 验签），支持启用/禁用、测试发送
+- **通知渠道**：飞书机器人（Webhook + HMAC-SHA256 验签）、钉钉机器人（Webhook + 加签验签，actionCard 卡片），支持启用/禁用、测试发送
 - **通知规则**：按事件类型、渠道、条件（仅失败/最小失败数/严重程度/项目限定）配置
 - **18 种事件**：测试执行完成/失败、AI 任务完成/失败、缺陷创建/分配/状态变更、知识库处理完成、接口导入完成、性能分析完成等
-- **19 种卡片模板**：统一 header + column_set + markdown + hr + action 结构
+- **19 种卡片模板**：统一 header + column_set + markdown + hr + action 结构，钉钉通过适配器自动转换为 actionCard 格式
 - **异步发送**：Celery 任务，失败重试 2 次（10s/30s 间隔），通知失败不影响业务主流程
 - **通知记录**：完整记录发送状态、响应内容，支持失败重试、10 秒自动刷新
 
