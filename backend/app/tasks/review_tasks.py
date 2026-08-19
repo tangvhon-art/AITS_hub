@@ -29,8 +29,18 @@ def review_cases_task(self, task_id: int):
 
         input_params = task.input_params or {}
         cases = input_params.get("cases", [])
-        requirement = input_params.get("requirement", "")
+        requirements = input_params.get("requirements", [])
+        groups = input_params.get("groups", [])
         prompt_id = input_params.get("prompt_id")
+
+        # 兼容旧版：单个 requirement 文本
+        requirement_text = input_params.get("requirement", "")
+        if requirements:
+            # 多需求：拼接所有需求内容
+            req_parts = []
+            for r in requirements:
+                req_parts.append(f"【需求：{r.get('title', '')}】\n{r.get('content', '')}")
+            requirement_text = "\n\n".join(req_parts)
 
         # 获取自定义 Prompt
         system_prompt = ""
@@ -45,7 +55,12 @@ def review_cases_task(self, task_id: int):
         reviewer = CaseReviewerAgent(
             db, llm_config_id=task.llm_config_id, task_id=task.id, project_id=task.project_id
         )
-        agent_result = reviewer.review(cases, requirement=requirement, system_prompt=system_prompt)
+        agent_result = reviewer.review(
+            cases,
+            requirement=requirement_text,
+            system_prompt=system_prompt,
+            groups=groups,
+        )
 
         from app.services.content_extractor import ContentExtractor
         extracted = ContentExtractor.extract_review(agent_result["raw_content"])

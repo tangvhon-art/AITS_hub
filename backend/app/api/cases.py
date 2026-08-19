@@ -6,13 +6,17 @@ from typing import List, Optional
 from app.database import get_db
 from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
+from app.core.timezone import china_now_naive
 from app.models.user import User
 from app.models.project import Project
 from app.models.test_case import TestCase
-from app.models.requirement import TestRequirement
+from app.models.requirement import TestRequirement, RequirementFeature
 from app.models.agent_task import AgentTask
 from app.schemas.test_case import TestCaseCreate, TestCaseUpdate, TestCaseResponse, TestCaseBatchCreate
-from app.schemas.requirement import CaseGenerateRequest
+from app.schemas.requirement import (
+    CaseGenerateRequest,
+    RequirementFeatureCreate, RequirementFeatureUpdate, RequirementFeatureResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +30,11 @@ def list_cases(
     status: Optional[str] = Body(None),
     title: Optional[str] = Body(None),
     case_type: Optional[str] = Body(None),
+    req_id: Optional[int] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取用例列表，支持按模块/优先级/状态/标题/类型筛选"""
+    """获取用例列表，支持按模块/优先级/状态/标题/类型/需求筛选"""
     get_project(project_id, db, current_user)
     query = db.query(TestCase).filter(TestCase.project_id == project_id)
     if module:
@@ -42,6 +47,8 @@ def list_cases(
         query = query.filter(TestCase.title.ilike(f"%{title}%"))
     if case_type:
         query = query.filter(TestCase.case_type == case_type)
+    if req_id is not None:
+        query = query.filter(TestCase.req_id == req_id)
     return query.order_by(TestCase.created_at.desc()).all()
 
 @router.post("", response_model=TestCaseResponse, status_code=status.HTTP_201_CREATED)
@@ -246,6 +253,7 @@ def generate_cases(
             "requirement_id": req_id,
             "requirement_title": req_title,
             "prompt_id": gen_request.prompt_id,
+            "feature_ids": gen_request.feature_ids or [],
         },
         llm_config_id=gen_request.llm_config_id,
         created_by=current_user.id,
@@ -262,19 +270,10 @@ def generate_cases(
     db.commit()
     db.refresh(task)
 
-    # 通过 Celery 异步执行
-    try:
-        from app.tasks.case_tasks import generate_cases_task
-        generate_cases_task.delay(task.id)
-    except Exception:
-        logger.warning("Celery 不可用，使用后台线程回退")
-        import threading
-        from app.tasks.case_tasks import generate_cases_task
-
-        def _run():
-            generate_cases_task(task.id)
-
-        threading.Thread(target=_run, daemon=True).start()
+    # 异步执行（Celery 优先，失败降级后台线程）
+    from app.core.tasks import dispatch_task
+    from app.tasks.case_tasks import generate_cases_task
+    dispatch_task(generate_cases_task, task.id)
 
     return {
         "task_id": task.id,
@@ -311,3 +310,169 @@ def generate_cases_status(
         result["cases_saved"] = task.output_result.get("cases_saved", 0)
 
     return result
+
+
+# ── 需求功能点 ──────────────────────────────────────────────
+
+@router.get("/requirements/{req_id}/features")
+def list_features(
+    project_id: int,
+    req_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取需求的功能点列表（按模块分组）"""
+    get_project(project_id, db, current_user)
+    req = db.query(TestRequirement).filter(
+        TestRequirement.id == req_id,
+        TestRequirement.project_id == project_id,
+        TestRequirement.is_deleted == False,
+    ).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="需求不存在")
+
+    features = db.query(RequirementFeature).filter(
+        RequirementFeature.requirement_id == req_id,
+        RequirementFeature.is_deleted == False,
+    ).order_by(RequirementFeature.sort_order, RequirementFeature.id).all()
+
+    # 按模块分组
+    modules_map = {}
+    for f in features:
+        mod = modules_map.setdefault(f.module_name, {
+            "module_name": f.module_name,
+            "module_desc": f.module_desc,
+            "features": [],
+        })
+        mod["features"].append({
+            "id": f.id,
+            "name": f.name,
+            "description": f.description,
+            "priority": f.priority,
+            "design_methods": _safe_json(f.design_methods),
+            "preconditions": f.preconditions,
+            "module_name": f.module_name,
+            "sort_order": f.sort_order,
+        })
+
+    return {
+        "split_status": req.feature_split_status,
+        "modules": list(modules_map.values()),
+        "total": len(features),
+    }
+
+
+@router.post("/requirements/{req_id}/split-features")
+def trigger_split_features(
+    project_id: int,
+    req_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """手动触发功能点拆分（异步）"""
+    get_project(project_id, db, current_user)
+    req = db.query(TestRequirement).filter(
+        TestRequirement.id == req_id,
+        TestRequirement.project_id == project_id,
+        TestRequirement.is_deleted == False,
+    ).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="需求不存在")
+
+    if not req.content or not req.content.strip():
+        raise HTTPException(status_code=400, detail="需求内容为空，无法拆分功能点")
+
+    req.feature_split_status = "splitting"
+    db.commit()
+
+    log_audit(
+        db, action="split_features", resource_type="requirement",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"requirement_id": req_id},
+    )
+
+    # 异步拆分（Celery 优先，失败降级后台线程）
+    from app.core.tasks import dispatch_task
+    from app.tasks.case_tasks import split_features_task
+    dispatch_task(split_features_task, req_id)
+
+    return {"message": "功能点拆分任务已提交", "status": "splitting"}
+
+
+@router.put("/requirement-features/{feature_id}")
+def update_feature(
+    project_id: int,
+    feature_id: int,
+    data: RequirementFeatureUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """编辑功能点"""
+    get_project(project_id, db, current_user)
+    feat = db.query(RequirementFeature).filter(
+        RequirementFeature.id == feature_id,
+        RequirementFeature.project_id == project_id,
+        RequirementFeature.is_deleted == False,
+    ).first()
+    if not feat:
+        raise HTTPException(status_code=404, detail="功能点不存在")
+
+    update_data = data.model_dump(exclude_unset=True)
+    if "design_methods" in update_data and update_data["design_methods"] is not None:
+        update_data["design_methods"] = json.dumps(update_data["design_methods"], ensure_ascii=False)
+    for key, value in update_data.items():
+        setattr(feat, key, value)
+
+    log_audit(
+        db, action="update", resource_type="requirement_feature",
+        user=current_user, resource_id=feature_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.commit()
+    return {"message": "更新成功"}
+
+
+@router.delete("/requirement-features/{feature_id}")
+def delete_feature(
+    project_id: int,
+    feature_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除功能点"""
+    get_project(project_id, db, current_user)
+    feat = db.query(RequirementFeature).filter(
+        RequirementFeature.id == feature_id,
+        RequirementFeature.project_id == project_id,
+        RequirementFeature.is_deleted == False,
+    ).first()
+    if not feat:
+        raise HTTPException(status_code=404, detail="功能点不存在")
+
+    feat.is_deleted = True
+    feat.deleted_at = china_now_naive()
+    log_audit(
+        db, action="delete", resource_type="requirement_feature",
+        user=current_user, resource_id=feature_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.commit()
+    return {"message": "删除成功"}
+
+
+def _safe_json(value):
+    """安全解析 JSON 字段"""
+    import json as _json
+    if not value:
+        return []
+    try:
+        return _json.loads(value)
+    except (_json.JSONDecodeError, TypeError):
+        return []

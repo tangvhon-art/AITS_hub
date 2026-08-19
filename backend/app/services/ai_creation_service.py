@@ -48,6 +48,13 @@ class AICreationService:
         db.commit()
         db.refresh(requirement)
         logger.info(f"AI 需求创建成功: id={requirement.id}, title={requirement.title}")
+
+        # 异步触发功能点拆分
+        if content and content.strip():
+            from app.core.tasks import dispatch_task
+            from app.tasks.case_tasks import split_features_task
+            dispatch_task(split_features_task, requirement.id)
+
         return requirement
 
     # ==================== 用例创建 ====================
@@ -59,8 +66,13 @@ class AICreationService:
         cases: List[Dict[str, Any]],
         requirement_id: Optional[int] = None,
         created_by: Optional[int] = None,
+        feature_name_map: Optional[Dict[str, int]] = None,
     ) -> List[TestCase]:
-        """批量创建测试用例（复用 API 校验逻辑）"""
+        """批量创建测试用例（复用 API 校验逻辑）
+
+        Args:
+            feature_name_map: 功能点名称 → feature_id 的映射，用于关联功能点
+        """
         created = []
         errors = []
         for case_data in cases:
@@ -71,9 +83,16 @@ class AICreationService:
                 else:
                     steps_json = str(steps)
 
+                # 关联功能点
+                feature_id = None
+                if feature_name_map:
+                    fname = case_data.get("feature_name", "")
+                    feature_id = feature_name_map.get(fname)
+
                 case = TestCase(
                     project_id=project_id,
                     req_id=requirement_id,
+                    feature_id=feature_id,
                     title=case_data.get("title", "未命名用例")[:200],
                     module=case_data.get("module") or "",
                     priority=case_data.get("priority") or "P2",

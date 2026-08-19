@@ -185,3 +185,142 @@ class CaseGeneratorAgent(BaseAgent):
             "token_usage": self.get_token_usage(),
             "llm_config_id": self.llm_config_id,
         }
+
+    # ── 功能点驱动生成 ──────────────────────────────────
+
+    FEATURE_CASE_SYSTEM_PROMPT = """你是一名资深测试工程师，精通各种测试用例设计方法。你的任务是根据需求内容和选中的功能点，生成高质量、全覆盖、可执行的测试用例。
+
+## 用例设计方法（必须根据功能点特点选择使用）
+
+1. 等价类划分：将输入数据分为有效等价类和无效等价类，每个等价类至少一条用例
+2. 边界值分析：对数值范围、字符串长度，测试边界点及其两侧（如长度6-20，测5/6/7/19/20/21）
+3. 判定表/因果图：多条件组合时，列出所有条件组合的预期结果
+4. 场景法：覆盖基本流（正常流程）和备选流（分支/异常流程）
+5. 状态迁移：覆盖状态的正常流转和非法跳转
+6. 错误推测法：基于经验补充容易出错的场景（并发、重复提交、网络中断等）
+7. 正交试验法：多参数配置组合时使用
+
+## 覆盖要求
+每个功能点必须覆盖：
+- 正向场景：正常业务流程，验证功能正确性
+- 异常场景：非法输入、异常操作、错误处理
+- 边界条件：边界值、临界条件
+- 数据校验：必填、格式、长度、类型校验
+
+## 用例数量原则（自主判断，不要凑数）
+- P0 功能点：5-10 条（主流程 + 关键异常）
+- P1 功能点：3-6 条
+- P2 功能点：2-4 条
+- P3 功能点：1-2 条
+- 总数不超过 80 条
+- 宁精勿滥，每条用例必须有明确测试目的
+
+## 输出格式（最高优先级，必须严格遵守）
+你必须且只能输出一个合法的 JSON 对象，不要输出任何其他内容。
+
+格式：
+{"cases": [{"title": "用例标题", "module": "模块名（必须使用功能点所属模块名）", "priority": "P0", "case_type": "functional", "preconditions": "前置条件", "steps": [{"action": "操作描述", "expected": "预期结果"}], "expected_result": "整体预期结果", "feature_name": "对应的功能点名称", "bdd_content": ""}]}
+
+### 绝对禁止
+1. 禁止使用 ```json ``` 等 Markdown 代码块包裹
+2. 禁止在 JSON 前后添加任何解释或注释
+3. 输出第一个字符必须是 {，最后一个字符必须是 }
+4. 禁止编造需求中不存在的功能
+5. 禁止生成重复用例
+6. module 字段必须使用功能点所属的模块名，不要自创
+7. feature_name 必须是选中功能点中存在的名称
+8. 所有内容使用中文"""
+
+    FEATURE_CASE_HUMAN_TEMPLATE = """## 需求信息
+- 需求标题：{title}
+
+## 需求完整内容
+{content}
+
+## 需要生成用例的功能点（已按模块分组）
+{features_text}
+
+## 已有用例（避免重复）
+{existing_cases}
+
+请根据以上需求和功能点生成测试用例。每个功能点的用例数量由你根据功能复杂度和建议的设计方法自主判断，严格按 JSON 格式输出。"""
+
+    def generate_by_features(
+        self,
+        requirement_title: str,
+        requirement_content: str,
+        features: List[Dict[str, Any]],
+        existing_cases: Optional[List[str]] = None,
+        system_prompt: str = "",
+    ) -> Dict[str, Any]:
+        """
+        基于功能点生成测试用例
+
+        Args:
+            requirement_title: 需求标题
+            requirement_content: 需求完整内容
+            features: 功能点列表，每个含 module_name/name/description/priority/design_methods/preconditions
+            existing_cases: 已有用例标题列表
+            system_prompt: 自定义 system prompt（来自 Prompt 管理）
+        """
+        effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else self.FEATURE_CASE_SYSTEM_PROMPT
+
+        # 按模块分组构建功能点文本
+        modules_map: Dict[str, List[Dict]] = {}
+        for f in features:
+            mod = f.get("module_name", "未分组")
+            modules_map.setdefault(mod, []).append(f)
+
+        lines = []
+        for mod_name, feats in modules_map.items():
+            lines.append(f"### 模块：{mod_name}")
+            for feat in feats:
+                methods = feat.get("design_methods", [])
+                if isinstance(methods, str):
+                    methods_str = methods
+                else:
+                    methods_str = "、".join(methods) if methods else "等价类划分、边界值分析、场景法"
+                lines.append(f"**功能点：{feat.get('name', '')}**（优先级：{feat.get('priority', 'P1')}）")
+                if feat.get("description"):
+                    lines.append(f"  - 描述：{feat['description']}")
+                lines.append(f"  - 建议设计方法：{methods_str}")
+                if feat.get("preconditions"):
+                    lines.append(f"  - 前置条件：{feat['preconditions']}")
+                lines.append("")
+        features_text = "\n".join(lines)
+
+        existing_text = "无" if not existing_cases else "\n".join(f"- {t}" for t in existing_cases[:50])
+
+        messages = [
+            SystemMessage(content=effective_system_prompt),
+            HumanMessage(content=self.FEATURE_CASE_HUMAN_TEMPLATE.format(
+                title=requirement_title or "未命名需求",
+                content=requirement_content or "（无详细内容）",
+                features_text=features_text,
+                existing_cases=existing_text,
+            )),
+        ]
+
+        logger.info(f"基于功能点生成用例: {requirement_title}, 功能点数: {len(features)}")
+
+        response, token_usage, config_id = llm_factory.call_with_fallback(
+            self.db,
+            messages=messages,
+            preferred_config_id=self.llm_config_id,
+            temperature=0.3,
+        )
+
+        if token_usage:
+            self.token_usage["prompt_tokens"] += token_usage.get("prompt_tokens", 0)
+            self.token_usage["completion_tokens"] += token_usage.get("completion_tokens", 0)
+            self.token_usage["total_tokens"] += token_usage.get("total_tokens", 0)
+        self.llm_config_id = config_id or self.llm_config_id
+
+        raw = response.content if hasattr(response, "content") else str(response)
+        logger.info(f"功能点用例生成完成，原始输出长度: {len(raw)}")
+
+        return {
+            "raw_content": raw,
+            "token_usage": self.get_token_usage(),
+            "llm_config_id": self.llm_config_id,
+        }

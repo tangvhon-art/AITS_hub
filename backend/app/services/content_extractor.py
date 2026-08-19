@@ -346,7 +346,7 @@ class ContentExtractor:
         从 LLM 输出提取评审结果。
 
         Returns:
-            {"score", "passed", "summary", "issues", "overall_suggestions"}
+            {"score", "passed", "summary", "issues", "overall_suggestions", "group_reviews", "missing_scenarios"}
         """
         defaults = {
             "score": 60,
@@ -354,9 +354,12 @@ class ContentExtractor:
             "summary": "评审完成",
             "issues": [],
             "overall_suggestions": [],
+            "group_reviews": [],
+            "missing_scenarios": [],
         }
 
         if not content or not content.strip():
+            logger.warning("评审提取: 内容为空")
             return defaults
 
         # 策略 1: JSON 解析
@@ -370,23 +373,84 @@ class ContentExtractor:
                 score = 60
             return {
                 "score": max(0, min(100, score)),
-                "passed": bool(parsed.get("passed", score >= 80)),
+                "passed": bool(parsed.get("passed", score >= 70)),
                 "summary": str(parsed.get("summary") or "评审完成")[:200],
                 "issues": parsed.get("issues") or [],
                 "overall_suggestions": parsed.get("overall_suggestions") or [],
+                "group_reviews": parsed.get("group_reviews") or [],
+                "missing_scenarios": parsed.get("missing_scenarios") or [],
             }
 
-        # 策略 2: 正则提取评分
-        score_match = re.search(r'(\d+)\s*分', content)
+        # JSON 解析失败，记录原始内容用于排查
+        logger.warning(f"评审提取: JSON 解析失败，原始内容前500字: {content[:500]}")
+
+        # 策略 2: 正则提取评分 + 从文本中提取问题和建议
+        result = {**defaults}
+
+        # 提取评分
+        score_match = re.search(r'["\']?score["\']?\s*[:：]\s*(\d+)', content)
+        if not score_match:
+            score_match = re.search(r'(\d+)\s*分', content)
         if score_match:
             score = int(score_match.group(1))
-            logger.info(f"评审提取: 正则提取成功, score={score}")
-            return {
-                **defaults,
-                "score": max(0, min(100, score)),
-                "passed": score >= 80,
-                "summary": content.strip()[:200],
-            }
+            result["score"] = max(0, min(100, score))
+            result["passed"] = score >= 70
+            logger.info(f"评审提取: 正则提取评分成功, score={score}")
+
+        # 提取 summary
+        summary_match = re.search(r'["\']?summary["\']?\s*[:：]\s*["\']([^"\']+)["\']', content)
+        if summary_match:
+            result["summary"] = summary_match.group(1)[:200]
+
+        # 提取 issues（尝试从文本中匹配问题条目）
+        issues = []
+        # 匹配 "问题1：" 或 "1. 问题：" 格式
+        issue_pattern = re.findall(
+            r'(?:问题|issue)[\s\d]*[:：]\s*(.+?)(?=(?:问题|issue|建议|suggestion|$))',
+            content, re.IGNORECASE | re.DOTALL
+        )
+        for i, desc in enumerate(issue_pattern[:10]):
+            desc = desc.strip().strip('"').strip("'")
+            if desc and len(desc) > 5:
+                issues.append({
+                    "case_index": i,
+                    "case_title": "",
+                    "requirement_title": "",
+                    "module": "",
+                    "issue_type": "完整性",
+                    "severity": "medium",
+                    "description": desc[:200],
+                    "suggestion": "",
+                })
+        result["issues"] = issues
+
+        # 提取 overall_suggestions
+        suggestions = []
+        sug_pattern = re.findall(
+            r'(?:建议|suggestion)[\s\d]*[:：]\s*(.+?)(?=(?:建议|suggestion|问题|issue|遗漏|缺少|缺失|missing|$))',
+            content, re.IGNORECASE | re.DOTALL
+        )
+        for s in sug_pattern[:5]:
+            s = s.strip().strip('"').strip("'")
+            if s and len(s) > 5:
+                suggestions.append(s[:200])
+        result["overall_suggestions"] = suggestions
+
+        # 提取 missing_scenarios
+        missing = []
+        miss_pattern = re.findall(
+            r'(?:遗漏|缺少|缺失|missing)[\s\d]*[:：]\s*(.+?)(?=(?:遗漏|缺少|缺失|missing|建议|$))',
+            content, re.IGNORECASE | re.DOTALL
+        )
+        for m in miss_pattern[:5]:
+            m = m.strip().strip('"').strip("'")
+            if m and len(m) > 3:
+                missing.append(m[:200])
+        result["missing_scenarios"] = missing
+
+        if issues or suggestions or missing:
+            logger.info(f"评审提取: 正则提取到 issues={len(issues)}, suggestions={len(suggestions)}, missing={len(missing)}")
+            return result
 
         # 策略 3: 原文兜底
         logger.info("评审提取: 使用原文兜底")

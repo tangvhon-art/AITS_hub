@@ -69,7 +69,18 @@
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'feature_status'">
+            <a-tooltip v-if="record.feature_split_status === 'failed'" title="拆分失败，点击重新拆分">
+              <a-tag color="red" style="cursor: pointer" @click.stop="resplitFeatures(record)">拆分失败</a-tag>
+            </a-tooltip>
+            <a-tag v-else-if="record.feature_split_status === 'splitting'" color="processing">拆分中</a-tag>
+            <a-tag v-else-if="record.feature_split_status === 'split'" color="green">已拆分</a-tag>
+            <a-tooltip v-else title="点击立即拆分功能点">
+              <a-tag color="orange" style="cursor: pointer" @click.stop="resplitFeatures(record)">待拆分</a-tag>
+            </a-tooltip>
+          </template>
           <template v-else-if="column.key === 'action'">
+            <a-button type="link" size="small" @click="viewRequirement(record)"><EyeOutlined /> 查看</a-button>
             <a-button type="link" size="small" @click="editRequirement(record)">编辑</a-button>
             <a-button type="link" size="small" @click="generateCases(record)">生成用例</a-button>
             <a-button type="link" size="small" @click="syncOneToKnowledge(record)">同步知识库</a-button>
@@ -114,6 +125,23 @@
       </a-form>
     </a-modal>
 
+    <!-- 查看需求弹窗（Markdown 渲染） -->
+    <a-modal v-model:open="showViewModal" title="需求详情" :footer="null" width="800px">
+      <div v-if="viewingReq" class="req-detail">
+        <a-descriptions :column="2" size="small" bordered style="margin-bottom: 16px">
+          <a-descriptions-item label="需求标题">{{ viewingReq.title }}</a-descriptions-item>
+          <a-descriptions-item label="所属版本">{{ getVersionName(viewingReq.version_id) }}</a-descriptions-item>
+          <a-descriptions-item label="来源">
+            <a-tag :color="sourceColor(viewingReq.source)">{{ sourceLabel(viewingReq.source) }}</a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="状态">
+            <a-tag :color="statusColor(viewingReq.status)">{{ statusLabel(viewingReq.status) }}</a-tag>
+          </a-descriptions-item>
+        </a-descriptions>
+        <div class="md-content" v-html="renderedContent"></div>
+      </div>
+    </a-modal>
+
     <!-- 上传文档对话框 -->
     <a-modal
       v-model:open="showUploadModal"
@@ -138,36 +166,13 @@
     </a-modal>
 
     <!-- 生成用例对话框 -->
-    <a-modal
+    <!-- 功能点选择 + 生成用例弹窗 -->
+    <FeatureSelectModal
       v-model:open="showGenerateModal"
-      title="AI 生成测试用例"
-      @ok="doGenerate"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="需求">
-          <span>{{ generatingReq?.title }}</span>
-        </a-form-item>
-        <a-form-item label="生成数量">
-          <a-input-number v-model:value="generateCount" :min="1" :max="50" style="width: 100%" />
-        </a-form-item>
-        <a-form-item label="Prompt 模板">
-          <a-select
-            v-model:value="selectedCasePrompt"
-            placeholder="使用默认 Prompt"
-            allow-clear
-            :options="casePrompts.map(p => ({ label: p.name, value: p.id }))"
-          />
-        </a-form-item>
-        <a-form-item label="模型配置">
-          <a-select
-            v-model:value="selectedLLMConfig"
-            placeholder="使用默认模型"
-            allow-clear
-            :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
-          />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+      :project-id="projectId"
+      :requirement="generatingReq"
+      @success="onCaseGenerateSuccess"
+    />
 
     <!-- AI生成需求对话框 -->
     <a-modal
@@ -213,15 +218,17 @@
 
 <script setup lang="ts">
 import { formatDateTime } from '@/utils/date'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, UploadOutlined, InboxOutlined, RobotOutlined, CloudUploadOutlined } from '@ant-design/icons-vue'
-import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateCases as generateCasesApi, generateRequirement as generateRequirementApi, generateRequirementStatus } from '@/api/cases'
+import { PlusOutlined, UploadOutlined, InboxOutlined, RobotOutlined, CloudUploadOutlined, EyeOutlined } from '@ant-design/icons-vue'
+import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateRequirement as generateRequirementApi, generateRequirementStatus, splitFeatures as splitFeaturesApi } from '@/api/cases'
 import { syncRequirementsToKnowledge } from '@/api/knowledge'
 import { getLLMConfigs } from '@/api/llm'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { promptsApi, type Prompt } from '@/api/prompts'
+import { marked } from 'marked'
+import FeatureSelectModal from '@/components/FeatureSelectModal.vue'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -233,6 +240,13 @@ const syncingKb = ref(false)
 const requirements = ref<any[]>([])
 const showCreateModal = ref(false)
 const showUploadModal = ref(false)
+const showViewModal = ref(false)
+const viewingReq = ref<any>(null)
+const renderedContent = computed(() => {
+  if (!viewingReq.value?.content) return '<p style="color:#999">暂无内容</p>'
+  try { return marked.parse(viewingReq.value.content) as string }
+  catch { return viewingReq.value.content.replace(/\n/g, '<br>') }
+})
 
 const pagination = reactive({
   current: 1,
@@ -251,11 +265,7 @@ const showAiGenerateModal = ref(false)
 const aiGenerating = ref(false)
 const uploadFile = ref<File | null>(null)
 const generatingReq = ref<any>(null)
-const generateCount = ref(10)
-const selectedLLMConfig = ref<number | null>(null)
-const selectedCasePrompt = ref<number | null>(null)
 const llmConfigs = ref<any[]>([])
-const casePrompts = ref<Prompt[]>([])
 const requirementPrompts = ref<Prompt[]>([])
 const versions = ref<ProjectVersion[]>([])
 const filterVersionId = ref<number | undefined>(undefined)
@@ -277,8 +287,9 @@ const columns = [
   { title: '所属版本', dataIndex: 'version_id', key: 'version', width: 120 },
   { title: '来源', dataIndex: 'source', key: 'source', width: 100 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+  { title: '功能点', dataIndex: 'feature_split_status', key: 'feature_status', width: 120 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 280, fixed: 'right' }
+  { title: '操作', key: 'action', width: 380, fixed: 'right' }
 ]
 
 function getVersionName(versionId?: number | null) {
@@ -387,6 +398,11 @@ function resetForm() {
   reqForm.status = 'pending'
 }
 
+function viewRequirement(row: any) {
+  viewingReq.value = row
+  showViewModal.value = true
+}
+
 function editRequirement(row: any) {
   editingId.value = row.id
   reqForm.title = row.title
@@ -459,21 +475,18 @@ function generateCases(row: any) {
   showGenerateModal.value = true
 }
 
-async function doGenerate() {
+function onCaseGenerateSuccess() {
+  fetchRequirements()
+}
+
+async function resplitFeatures(row: any) {
   try {
-    const result: any = await generateCasesApi(projectId, {
-      requirement_id: generatingReq.value.id,
-      content: generatingReq.value.content,
-      count: generateCount.value,
-      llm_config_id: selectedLLMConfig.value || undefined,
-      prompt_id: selectedCasePrompt.value || undefined
-    })
-    message.success(`用例生成任务已提交（任务ID: ${result.task_id}），可在Agent任务中查看进度`)
-    showGenerateModal.value = false
-    selectedCasePrompt.value = null
-    fetchRequirements()
+    await splitFeaturesApi(projectId, row.id)
+    message.success('功能点拆分任务已提交')
+    row.feature_split_status = 'splitting'
+    setTimeout(() => fetchRequirements(), 5000)
   } catch (e: any) {
-    message.error(e?.response?.data?.detail || '提交失败，请重试')
+    message.error(e?.response?.data?.detail || '拆分失败')
   }
 }
 
@@ -508,7 +521,6 @@ onMounted(() => {
   fetchRequirements()
   getLLMConfigs().then(data => { llmConfigs.value = data })
   getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
-  promptsApi.list('case_generation').then(data => { casePrompts.value = data }).catch(() => {})
   promptsApi.list('requirement_generation').then(data => { requirementPrompts.value = data }).catch(() => {})
 })
 </script>
@@ -519,4 +531,21 @@ onMounted(() => {
   align-items: center;
 }
 .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.req-detail { max-height: 600px; overflow-y: auto; }
+.md-content { line-height: 1.8; color: #1f2329; font-size: 14px; }
+.md-content :deep(h1) { font-size: 20px; margin: 16px 0 8px; font-weight: 600; border-bottom: 1px solid #e8e8e8; padding-bottom: 6px; }
+.md-content :deep(h2) { font-size: 17px; margin: 14px 0 8px; font-weight: 600; color: #1677ff; border-left: 3px solid #1677ff; padding-left: 8px; }
+.md-content :deep(h3) { font-size: 15px; margin: 12px 0 6px; font-weight: 600; }
+.md-content :deep(p) { margin: 8px 0; }
+.md-content :deep(ul), .md-content :deep(ol) { margin: 8px 0; padding-left: 24px; }
+.md-content :deep(li) { margin: 4px 0; }
+.md-content :deep(strong) { font-weight: 600; }
+.md-content :deep(code) { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #d63384; }
+.md-content :deep(pre) { background: #f6f8fa; padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
+.md-content :deep(pre code) { background: none; padding: 0; color: #1f2329; }
+.md-content :deep(blockquote) { border-left: 4px solid #d9d9d9; margin: 10px 0; padding: 8px 16px; color: #606266; background: #fafafa; }
+.md-content :deep(table) { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+.md-content :deep(th), .md-content :deep(td) { border: 1px solid #e8e8e8; padding: 8px 12px; text-align: left; }
+.md-content :deep(th) { background: #fafafa; font-weight: 600; }
+.md-content :deep(hr) { border: none; border-top: 1px solid #e8e8e8; margin: 16px 0; }
 </style>

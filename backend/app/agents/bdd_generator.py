@@ -71,19 +71,20 @@ class BDDGeneratorAgent(BaseAgent):
         self.start_time = time.time()
         self._log_step("bdd_start", {}, "running")
 
-        # 构建输入
-        input_data = {
-            "feature_name": feature_name,
-            "requirement": requirement,
-        }
+        # 构建输入文本
+        input_parts = [f"功能名称：{feature_name or '未命名功能'}", f"需求描述：{requirement}"]
         if test_cases:
-            input_data["test_cases"] = test_cases
-
-        # P2-9: RAG 知识库增强 - 检索项目功能文档和 BDD 规范
-        rag_context = self.build_rag_context(
-            f"BDD 用例生成 {requirement[:200]} {feature_name}",
-            top_k=3,
-        )
+            case_lines = []
+            for i, tc in enumerate(test_cases):
+                if isinstance(tc, dict):
+                    case_lines.append(f"  用例{i+1}：{tc.get('title', '')}（优先级：{tc.get('priority', '')}）")
+                    steps = tc.get("steps", [])
+                    for step in steps:
+                        if isinstance(step, dict):
+                            case_lines.append(f"    - {step.get('action', '')}（预期：{step.get('expected', '')}）")
+                else:
+                    case_lines.append(f"  用例{i+1}：{tc}")
+            input_parts.append("关联测试用例：\n" + "\n".join(case_lines))
 
         system_content = BDD_GENERATION_PROMPT
         if rag_context:
@@ -91,14 +92,14 @@ class BDDGeneratorAgent(BaseAgent):
 
         messages = [
             SystemMessage(content=system_content),
-            HumanMessage(content=json.dumps(input_data, ensure_ascii=False, indent=2)),
+            HumanMessage(content="\n\n".join(input_parts)),
         ]
 
         try:
-            response = self._call_llm(messages)
+            response = self._call_llm(messages, temperature=0.3)
             self._log_step("llm_call", {}, "success")
 
-            bdd_content = self._extract_gherkin(response.content)
+            bdd_content = self._extract_gherkin(response.content if hasattr(response, "content") else str(response))
             scenario_count = bdd_content.count("Scenario:") + bdd_content.count("Scenario Outline:")
 
             result = {

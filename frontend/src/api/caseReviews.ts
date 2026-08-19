@@ -31,15 +31,17 @@ export function getCaseReviewDetail(projectId: number, taskId: number) {
 export function reviewCases(
   projectId: number,
   data: {
-    cases: any[]
-    requirement: string
+    cases?: any[]
+    requirement?: string
     requirement_id?: number | null
+    requirement_ids?: number[]
     module?: string | null
+    modules?: string[]
     llm_config_id?: number
     prompt_id?: number
   },
 ) {
-  return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/cases/review`, data)
+  return request.post<{ task_id: number; status: string; message: string; case_count?: number }>(`/projects/${projectId}/cases/review`, data)
 }
 
 export function optimizeCasesFromReview(

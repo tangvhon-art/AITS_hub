@@ -11,6 +11,7 @@ class TestCase(SoftDeleteMixin, Base):
     id = Column(Integer, primary_key=True, index=True, comment="自增主键")
     project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=False, index=True, comment="所属项目ID")
     req_id = Column(Integer, ForeignKey("test_requirements.id"), nullable=True, index=True, comment="关联需求ID")
+    feature_id = Column(Integer, ForeignKey("requirement_features.id"), nullable=True, index=True, comment="关联功能点ID")
     title = Column(String(200), nullable=False, comment="用例名称")
     module = Column(String(100), default="", comment="所属模块")
     priority = Column(String(10), default="P1", comment="优先级：P0/P1/P2/P3")

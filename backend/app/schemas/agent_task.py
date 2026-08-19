@@ -43,10 +43,12 @@ class SupervisorRunRequest(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    cases: List[Dict[str, Any]] = Field(..., description="待评审用例列表")
-    requirement: str = Field(default="", description="原始需求")
-    requirement_id: Optional[int] = Field(default=None, description="关联需求ID")
-    module: Optional[str] = Field(default=None, description="模块筛选")
+    cases: List[Dict[str, Any]] = Field(default=[], description="待评审用例列表（可选，不传则后端根据需求和模块查询）")
+    requirement: str = Field(default="", description="原始需求（兼容旧版）")
+    requirement_id: Optional[int] = Field(default=None, description="关联需求ID（兼容旧版单选）")
+    requirement_ids: List[int] = Field(default=[], description="关联需求ID列表（多选）")
+    module: Optional[str] = Field(default=None, description="模块筛选（兼容旧版单选）")
+    modules: List[str] = Field(default=[], description="模块筛选列表（多选）")
     llm_config_id: Optional[int] = None
     prompt_id: Optional[int] = Field(default=None, description="自定义 Prompt ID")
 

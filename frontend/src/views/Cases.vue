@@ -25,6 +25,8 @@
       <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px" :options="statusOptions" />
       <a-select v-model:value="filterPriority" placeholder="优先级" allow-clear style="width: 120px" :options="priorityOptions" />
       <a-input v-model:value="filterModule" placeholder="模块" allow-clear style="width: 150px" />
+      <a-select v-model:value="filterReqId" placeholder="关联需求" allow-clear show-search style="width: 200px"
+        :options="requirements.map(req => ({ label: req.title, value: req.id }))" />
       <a-button type="primary" @click="fetchCases">查询</a-button>
       <a-button @click="handleReset">重置</a-button>
     </div>
@@ -37,7 +39,7 @@
         @change="handleTableChange"
         row-key="id"
         size="middle"
-        :scroll="{ x: 1000 }"
+        :scroll="{ x: 1200 }"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'priority'">
@@ -48,6 +50,13 @@
           </template>
           <template v-else-if="column.key === 'case_type'">
             {{ caseTypeLabel(record.case_type) }}
+          </template>
+          <template v-else-if="column.key === 'requirement'">
+            <a-tooltip v-if="getReqTitle(record.req_id)" placement="topLeft" :overlay-style="{ maxWidth: '300px' }">
+              <template #title>{{ getReqTitle(record.req_id) }}</template>
+              <span class="cell-ellipsis">{{ getReqTitle(record.req_id) }}</span>
+            </a-tooltip>
+            <span v-else style="color: #999">-</span>
           </template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" size="small" @click="runCase(record)">执行</a-button>
@@ -221,6 +230,7 @@ const filterModule = ref('')
 const filterTitle = ref('')
 const filterCaseType = ref<string | undefined>(undefined)
 const filterStatus = ref<string | undefined>(undefined)
+const filterReqId = ref<number | undefined>(undefined)
 
 const showCaseModal = ref(false)
 const editingCase = ref<any>(null)
@@ -248,6 +258,7 @@ const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
   { title: '用例名称', dataIndex: 'title', key: 'title', ellipsis: true },
   { title: '模块', dataIndex: 'module', key: 'module', width: 120 },
+  { title: '关联需求', key: 'requirement', width: 180, ellipsis: true },
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
   { title: '类型', dataIndex: 'case_type', key: 'case_type', width: 100 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
@@ -294,8 +305,14 @@ function caseTypeLabel(t: string) {
   return map[t] || t
 }
 
+function getReqTitle(reqId: number | null | undefined) {
+  if (!reqId) return ''
+  const req = requirements.value.find((r: any) => r.id === reqId)
+  return req ? req.title : ''
+}
+
 async function fetchCases() {
-  syncToUrl({ priority: filterPriority.value, module: filterModule.value, title: filterTitle.value, case_type: filterCaseType.value, status: filterStatus.value })
+  syncToUrl({ priority: filterPriority.value, module: filterModule.value, title: filterTitle.value, case_type: filterCaseType.value, status: filterStatus.value, req_id: filterReqId.value })
   loading.value = true
   try {
     const params: any = {}
@@ -304,6 +321,7 @@ async function fetchCases() {
     if (filterTitle.value) params.title = filterTitle.value
     if (filterCaseType.value) params.case_type = filterCaseType.value
     if (filterStatus.value) params.status = filterStatus.value
+    if (filterReqId.value) params.req_id = filterReqId.value
     cases.value = await getCases(projectId, params)
     pagination.total = cases.value.length
   } finally {
@@ -317,6 +335,7 @@ function handleReset() {
   filterTitle.value = ''
   filterCaseType.value = undefined
   filterStatus.value = undefined
+  filterReqId.value = undefined
   fetchCases()
 }
 
@@ -444,12 +463,13 @@ async function doGenerate() {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ priority: undefined, module: '', title: '', case_type: undefined, status: undefined })
+  const params = loadFromUrl({ priority: undefined, module: '', title: '', case_type: undefined, status: undefined, req_id: undefined })
   filterPriority.value = params.priority
   filterModule.value = params.module || ''
   filterTitle.value = params.title || ''
   filterCaseType.value = params.case_type
   filterStatus.value = params.status
+  filterReqId.value = params.req_id ? Number(params.req_id) : undefined
   fetchCases()
   getRequirements(projectId).then(data => { requirements.value = data })
   getLLMConfigs().then(data => { llmConfigs.value = data })
@@ -469,6 +489,15 @@ onMounted(() => {
   gap: 8px;
   margin-bottom: 16px;
   align-items: center;
+}
+
+.cell-ellipsis {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 .steps-editor {

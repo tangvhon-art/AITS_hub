@@ -51,7 +51,14 @@
           </a-col>
         </a-row>
         <a-form-item label="接口描述">
-          <a-textarea v-model:value="form.description" :rows="2" />
+          <div style="margin-bottom: 8px">
+            <a-radio-group v-model:value="descEditMode" size="small" button-style="solid">
+              <a-radio-button value="edit"><EditOutlined /> 编辑</a-radio-button>
+              <a-radio-button value="preview"><EyeOutlined /> 预览</a-radio-button>
+            </a-radio-group>
+          </div>
+          <a-textarea v-if="descEditMode === 'edit'" v-model:value="form.description" :rows="6" placeholder="支持 Markdown 格式，可点击上方「AI 生成文档」自动生成" />
+          <div v-else class="md-preview" v-html="renderedDesc"></div>
         </a-form-item>
       </a-card>
 
@@ -202,10 +209,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { ArrowLeftOutlined, RobotOutlined } from '@ant-design/icons-vue'
+import { ArrowLeftOutlined, RobotOutlined, EyeOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { apiDefinitionsApi, apiModulesApi, type ApiDefinition, type ApiModule } from '@/api/apiTest'
 import { getLLMConfigs } from '@/api/llm'
 import { promptsApi, type Prompt } from '@/api/prompts'
+import { marked } from 'marked'
 
 const route = useRoute()
 const router = useRouter()
@@ -216,6 +224,12 @@ const isEdit = computed(() => apiId && apiId !== 'new')
 const formRef = ref()
 const saving = ref(false)
 const activeTab = ref('headers')
+const descEditMode = ref<'edit' | 'preview'>('edit')
+const renderedDesc = computed(() => {
+  if (!form.value.description) return '<p style="color:#999">暂无描述内容</p>'
+  try { return marked.parse(form.value.description) as string }
+  catch { return form.value.description.replace(/\n/g, '<br>') }
+})
 const moduleTree = ref<any[]>([])
 const showAiDocModal = ref(false)
 const aiGenerating = ref(false)
@@ -383,4 +397,31 @@ onMounted(() => {
   gap: 8px;
   justify-content: flex-end;
 }
+.md-preview {
+  min-height: 120px;
+  max-height: 500px;
+  overflow-y: auto;
+  padding: 12px 16px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #fafafa;
+  line-height: 1.8;
+  color: #1f2329;
+  font-size: 14px;
+}
+.md-preview :deep(h1) { font-size: 20px; margin: 16px 0 8px; font-weight: 600; border-bottom: 1px solid #e8e8e8; padding-bottom: 6px; }
+.md-preview :deep(h2) { font-size: 17px; margin: 14px 0 8px; font-weight: 600; color: #1677ff; border-left: 3px solid #1677ff; padding-left: 8px; }
+.md-preview :deep(h3) { font-size: 15px; margin: 12px 0 6px; font-weight: 600; }
+.md-preview :deep(p) { margin: 8px 0; }
+.md-preview :deep(ul), .md-preview :deep(ol) { margin: 8px 0; padding-left: 24px; }
+.md-preview :deep(li) { margin: 4px 0; }
+.md-preview :deep(strong) { font-weight: 600; }
+.md-preview :deep(code) { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #d63384; }
+.md-preview :deep(pre) { background: #f6f8fa; padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
+.md-preview :deep(pre code) { background: none; padding: 0; color: #1f2329; }
+.md-preview :deep(blockquote) { border-left: 4px solid #d9d9d9; margin: 10px 0; padding: 8px 16px; color: #606266; background: #fff; }
+.md-preview :deep(table) { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+.md-preview :deep(th), .md-preview :deep(td) { border: 1px solid #e8e8e8; padding: 8px 12px; text-align: left; }
+.md-preview :deep(th) { background: #f0f0f0; font-weight: 600; }
+.md-preview :deep(hr) { border: none; border-top: 1px solid #e8e8e8; margin: 16px 0; }
 </style>

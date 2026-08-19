@@ -151,8 +151,80 @@ def review_cases(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """评审测试用例（异步）"""
+    """评审测试用例（异步），支持多选需求和模块"""
     get_project(project_id, db, current_user)
+
+    from app.models.test_case import TestCase
+    from app.models.requirement import TestRequirement
+
+    # 合并单选和多选参数
+    requirement_ids = list(req.requirement_ids or [])
+    if req.requirement_id and req.requirement_id not in requirement_ids:
+        requirement_ids.append(req.requirement_id)
+    modules = list(req.modules or [])
+    if req.module and req.module not in modules:
+        modules.append(req.module)
+
+    # 如果前端未传 cases，则根据需求和模块从数据库查询
+    cases = req.cases or []
+    if not cases:
+        query = db.query(TestCase).filter(
+            TestCase.project_id == project_id,
+            TestCase.is_deleted == False,
+        )
+        if requirement_ids:
+            query = query.filter(TestCase.req_id.in_(requirement_ids))
+        if modules:
+            query = query.filter(TestCase.module.in_(modules))
+        cases_db = query.order_by(TestCase.module, TestCase.id).all()
+        cases = []
+        for c in cases_db:
+            try:
+                steps = json.loads(c.steps) if c.steps else []
+            except (json.JSONDecodeError, TypeError):
+                steps = []
+            cases.append({
+                "id": c.id,
+                "title": c.title,
+                "module": c.module or "",
+                "priority": c.priority or "",
+                "preconditions": c.preconditions or "",
+                "steps": steps,
+                "expected_result": c.expected_result or "",
+                "req_id": c.req_id,
+            })
+
+    # 查询选中的需求详情
+    requirements_data = []
+    if requirement_ids:
+        reqs = db.query(TestRequirement).filter(
+            TestRequirement.id.in_(requirement_ids),
+            TestRequirement.project_id == project_id,
+            TestRequirement.is_deleted == False,
+        ).all()
+        for r in reqs:
+            requirements_data.append({
+                "id": r.id,
+                "title": r.title,
+                "content": r.content or "",
+            })
+
+    # 按需求+模块分组统计
+    groups = {}
+    for c in cases:
+        key = f"{c.get('req_id', '无需求')}||{c.get('module', '未分类')}"
+        if key not in groups:
+            req_title = next((r["title"] for r in requirements_data if r["id"] == c.get("req_id")), "无需求")
+            groups[key] = {
+                "requirement_id": c.get("req_id"),
+                "requirement_title": req_title,
+                "module": c.get("module", "未分类"),
+                "case_count": 0,
+            }
+        groups[key]["case_count"] += 1
+
+    if not cases:
+        raise HTTPException(status_code=400, detail="未找到符合条件的测试用例，请选择需求或模块")
 
     # 创建任务记录
     task = AgentTask(
@@ -160,11 +232,12 @@ def review_cases(
         agent_type="case_reviewer",
         status="pending",
         input_params={
-            "cases": req.cases,
-            "case_count": len(req.cases),
-            "requirement": req.requirement,
-            "requirement_id": req.requirement_id,
-            "module": req.module,
+            "cases": cases,
+            "case_count": len(cases),
+            "requirements": requirements_data,
+            "requirement_ids": requirement_ids,
+            "modules": modules,
+            "groups": list(groups.values()),
             "prompt_id": req.prompt_id,
         },
         created_by=current_user.id,
@@ -174,20 +247,12 @@ def review_cases(
     db.commit()
     db.refresh(task)
 
-    # 异步派发 Celery 任务
-    try:
-        from app.tasks.review_tasks import review_cases_task
-        review_cases_task.delay(task.id)
-    except Exception:
-        logger.warning("Celery 不可用，使用后台线程回退")
-        import threading
-        from app.tasks.review_tasks import review_cases_task
+    # 异步派发
+    from app.core.tasks import dispatch_task
+    from app.tasks.review_tasks import review_cases_task
+    dispatch_task(review_cases_task, task.id)
 
-        def _run():
-            review_cases_task(task.id)
-        threading.Thread(target=_run, daemon=True).start()
-
-    return {"task_id": task.id, "status": "pending", "message": "评审任务已提交"}
+    return {"task_id": task.id, "status": "pending", "message": "评审任务已提交", "case_count": len(cases)}
 
 
 @project_router.post("/case-reviews/search")

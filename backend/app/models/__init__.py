@@ -1,6 +1,6 @@
 from app.models.user import User
 from app.models.project import Project
-from app.models.requirement import TestRequirement
+from app.models.requirement import TestRequirement, RequirementFeature
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
 from app.models.agent_task import AgentTask
@@ -43,6 +43,7 @@ __all__ = [
     "User",
     "Project",
     "TestRequirement",
+    "RequirementFeature",
     "TestCase",
     "TestRun",
     "AgentTask",

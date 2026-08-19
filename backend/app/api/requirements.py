@@ -73,6 +73,10 @@ def create_requirement(
     )
     db.commit()
     db.refresh(requirement)
+
+    # 异步触发功能点拆分
+    _trigger_feature_split(requirement.id, requirement.content)
+
     return requirement
 
 @router.get("/{req_id}", response_model=RequirementResponse)
@@ -304,6 +308,10 @@ async def upload_requirement(
     )
     db.commit()
     db.refresh(requirement)
+
+    # 异步触发功能点拆分
+    _trigger_feature_split(requirement.id, requirement.content)
+
     return requirement
 
 
@@ -401,3 +409,12 @@ def generate_requirement_status(
         result["title"] = task.output_result.get("title", "")
 
     return result
+
+
+def _trigger_feature_split(requirement_id: int, content: str):
+    """异步触发需求功能点拆分（内容非空时）"""
+    if not content or not content.strip():
+        return
+    from app.core.tasks import dispatch_task
+    from app.tasks.case_tasks import split_features_task
+    dispatch_task(split_features_task, requirement_id)

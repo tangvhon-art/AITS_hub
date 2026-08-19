@@ -84,6 +84,7 @@ class CardBuilder:
             "ui.script.failed": cls.build_script_failed,
             "performance.completed": cls.build_performance_completed,
             "ai.requirement.generated": cls.build_ai_requirement,
+            "requirement.features_split": cls.build_features_split,
             "ai.case.generated": cls.build_ai_case,
             "ai.api_case.generated": cls.build_ai_api_case,
             "ai.api_doc.generated": cls.build_ai_api_doc,
@@ -401,6 +402,28 @@ class CardBuilder:
         ]
         if not success and error:
             lines.append(f"错误原因：{_truncate(error)}")
+        buttons = []
+        if project_id:
+            buttons.append(cls._button("查看需求", _front_url(f"/projects/{project_id}/requirements")))
+
+        return cls._card(title, template, lines, triggered_by, buttons, ctx.get("trigger_time"))
+
+    # ==================== 需求功能点拆分完成 ====================
+
+    @classmethod
+    def build_features_split(cls, ctx: Dict[str, Any], triggered_by: Optional[str]) -> Dict[str, Any]:
+        source_name = ctx.get("source_name", "未知需求")
+        project_id = ctx.get("project_id")
+        module_count = ctx.get("module_count", 0)
+        feature_count = ctx.get("feature_count", 0)
+
+        title = f"🔀 功能点拆分完成 - {source_name}"
+        template = "green"
+        lines = [
+            f"需求名称：{source_name}",
+            f"拆分为 {module_count} 个模块，共 {feature_count} 个功能点",
+            "可在需求列表中点击「生成用例」选择功能点",
+        ]
         buttons = []
         if project_id:
             buttons.append(cls._button("查看需求", _front_url(f"/projects/{project_id}/requirements")))

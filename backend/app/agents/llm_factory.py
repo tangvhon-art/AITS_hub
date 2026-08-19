@@ -256,10 +256,14 @@ class LLMFactory:
         messages: List[BaseMessage],
         preferred_config_id: Optional[int] = None,
         max_retries: int = 2,
+        temperature: Optional[float] = None,
     ) -> tuple[Any, Dict[str, int], Optional[int]]:
         """
         带降级和重试的 LLM 调用。
         返回 (response, token_usage, used_config_id)
+
+        Args:
+            temperature: 可选，覆盖配置中的 temperature 值
         """
         from app.models.llm_config import LLMConfig
 
@@ -290,7 +294,7 @@ class LLMFactory:
                         "base_url": config.base_url,
                         "api_key": config.api_key,
                         "max_tokens": config.max_tokens,
-                        "temperature": config.temperature,
+                        "temperature": temperature if temperature is not None else config.temperature,
                         "streaming": config.streaming,
                     })
                     response = llm.invoke(messages)

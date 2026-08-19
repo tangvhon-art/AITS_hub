@@ -113,19 +113,61 @@ class DefectAnalyzerAgent(BaseAgent):
         if rag_context:
             system_content += f"\n\n{rag_context}"
 
+        # 将上下文格式化为纯文本
+        context_parts = []
+        if context.get("target_url"):
+            context_parts.append(f"失败接口/URL：{context['target_url']}")
+        if context.get("error_message"):
+            context_parts.append(f"错误信息：{context['error_message']}")
+        if context.get("test_case"):
+            tc = context["test_case"]
+            if isinstance(tc, dict):
+                tc_lines = [f"  - {k}：{v}" for k, v in tc.items() if v]
+                context_parts.append("关联测试用例：\n" + "\n".join(tc_lines))
+            else:
+                context_parts.append(f"关联测试用例：{tc}")
+        if context.get("execution_steps"):
+            steps = context["execution_steps"]
+            step_lines = []
+            for si, step in enumerate(steps):
+                if isinstance(step, dict):
+                    action = step.get("action", step.get("step", ""))
+                    result = step.get("result", step.get("status", ""))
+                    error = step.get("error", "")
+                    line = f"  {si+1}. {action}"
+                    if result:
+                        line += f" → {result}"
+                    if error:
+                        line += f"（错误：{error}）"
+                    step_lines.append(line)
+                else:
+                    step_lines.append(f"  {si+1}. {step}")
+            context_parts.append("执行步骤（最后10步）：\n" + "\n".join(step_lines))
+        elif context.get("execution_log"):
+            context_parts.append(f"执行日志：\n{context['execution_log']}")
+
+        context_text = "\n\n".join(context_parts) if context_parts else "无详细上下文"
+
         messages = [
             SystemMessage(content=system_content),
-            HumanMessage(content=f"分析上下文：\n{json.dumps(context, ensure_ascii=False, indent=2)}"),
+            HumanMessage(content=f"请分析以下测试失败信息：\n\n{context_text}"),
         ]
 
         try:
-            response = self._call_llm(messages)
+            response = self._call_llm(messages, temperature=0.2)
+
+            content = response.content if hasattr(response, "content") else str(response)
+            # 内容清洗：去除 markdown 代码块包裹
+            import re
+            content = re.sub(r'^```(?:json)?\s*\n?', '', content)
+            content = re.sub(r'\n?```\s*$', '', content)
+            content = content.strip()
             self._log_step("llm_call", {}, "success")
 
-            logger.info(f"缺陷分析完成，原始输出长度: {len(response.content)}")
+            logger.info(f"缺陷分析完成，输出长度: {len(content)}")
 
             return {
-                "raw_content": response.content,
+                "raw_content": content,
                 "token_usage": self.get_token_usage(),
                 "llm_config_id": self.llm_config_id,
             }

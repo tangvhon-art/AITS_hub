@@ -50,6 +50,19 @@
           <template v-else-if="column.key === 'case_count'">
             {{ record.input_params?.case_count || 0 }}
           </template>
+          <template v-else-if="column.key === 'scope'">
+            <div v-if="record.input_params?.groups?.length">
+              <a @click="openScopeModal(record)" style="cursor: pointer">
+                <a-tag v-for="(g, i) in record.input_params.groups.slice(0, 2)" :key="i" color="blue" style="margin-bottom: 2px">
+                  {{ g.requirement_title }}/{{ g.module }}
+                </a-tag>
+                <div v-if="record.input_params.groups.length > 2" style="font-size: 12px; color: #1677ff">
+                  等 {{ record.input_params.groups.length }} 组，点击查看
+                </div>
+              </a>
+            </div>
+            <a v-else style="color: #999; cursor: pointer" @click="openScopeModal(record)">全部</a>
+          </template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" size="small" @click="viewDetail(record)">查看详情</a-button>
           </template>
@@ -66,31 +79,29 @@
       @cancel="handleCloseReviewModal"
     >
       <a-form layout="vertical">
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="选择需求">
-              <a-select
-                v-model:value="reviewForm.requirement_id"
-                placeholder="选择需求（可选）"
-                allow-clear
-                show-search
-                :options="requirements.map(r => ({ label: r.title, value: r.id }))"
-                @change="onRequirementChange"
-              />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="模块筛选">
-              <a-select
-                v-model:value="reviewForm.module"
-                placeholder="选择模块（可选）"
-                allow-clear
-                show-search
-                :options="moduleOptions"
-              />
-            </a-form-item>
-          </a-col>
-        </a-row>
+        <a-form-item label="选择需求（可多选，不选则评审全部需求的用例）">
+          <a-select
+            v-model:value="reviewForm.requirement_ids"
+            mode="multiple"
+            placeholder="选择需求（可多选）"
+            allow-clear
+            show-search
+            :options="requirements.map(r => ({ label: r.title, value: r.id }))"
+            :max-tag-count="3"
+          />
+        </a-form-item>
+
+        <a-form-item label="选择模块（可多选，不选则评审所有模块）">
+          <a-select
+            v-model:value="reviewForm.modules"
+            mode="multiple"
+            placeholder="选择模块（可多选）"
+            allow-clear
+            show-search
+            :options="moduleOptions"
+            :max-tag-count="3"
+          />
+        </a-form-item>
 
         <a-row :gutter="16">
           <a-col :span="12">
@@ -115,45 +126,18 @@
           </a-col>
         </a-row>
 
-        <a-form-item>
-          <a-space>
-            <a-button @click="fetchCasesForReview" :loading="fetchingCases">
-              获取用例
-            </a-button>
-            <span v-if="selectedCases.length > 0" style="color: #52c41a">
-              已获取 {{ selectedCases.length }} 条用例
-            </span>
-            <span v-else-if="fetchDone" style="color: #999">
-              未找到匹配的用例
-            </span>
-          </a-space>
-        </a-form-item>
-
-        <div v-if="selectedCases.length > 0" class="case-preview">
-          <a-table
-            :columns="caseColumns"
-            :data-source="selectedCases"
-            :pagination="{ pageSize: 5 }"
-            row-key="id"
-            size="small"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'priority'">
-                <a-tag :color="priorityColor(record.priority)">{{ record.priority }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'steps'">
-                {{ Array.isArray(record.steps) ? record.steps.length : 0 }} 步
-              </template>
-            </template>
-          </a-table>
-        </div>
+        <a-alert
+          type="info"
+          show-icon
+          :message="`将根据选中的需求和模块自动查询关联用例进行评审，用例与需求和模块保持关联。`"
+          style="margin-bottom: 16px"
+        />
 
         <div class="modal-actions">
           <a-button @click="handleCloseReviewModal">取消</a-button>
           <a-button
             type="primary"
             :loading="reviewing"
-            :disabled="selectedCases.length === 0"
             @click="handleReview"
           >
             开始评审
@@ -195,6 +179,59 @@
             </a-descriptions>
           </a-card>
 
+          <!-- 分组评价 -->
+          <a-card v-if="currentDetail.output_result?.group_reviews?.length" size="small" title="分组评价（按需求+模块）" style="margin-bottom: 16px">
+            <a-table
+              :columns="groupReviewColumns"
+              :data-source="currentDetail.output_result.group_reviews"
+              :pagination="false"
+              row-key="(_r: any, i: number) => i"
+              size="small"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'coverage'">
+                  <a-tag :color="coverageColor(record.coverage)">{{ record.coverage }}</a-tag>
+                </template>
+                <template v-else-if="column.key === 'requirement_title'">
+                  <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '400px' }">
+                    <template #title>{{ record.requirement_title }}</template>
+                    <span class="cell-ellipsis">{{ record.requirement_title }}</span>
+                  </a-tooltip>
+                </template>
+                <template v-else-if="column.key === 'module'">
+                  <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '300px' }">
+                    <template #title>{{ record.module }}</template>
+                    <span class="cell-ellipsis">{{ record.module }}</span>
+                  </a-tooltip>
+                </template>
+                <template v-else-if="column.key === 'comment'">
+                  <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '500px' }">
+                    <template #title>
+                      <div style="white-space: pre-wrap">{{ record.comment }}</div>
+                    </template>
+                    <span class="cell-ellipsis">{{ record.comment }}</span>
+                  </a-tooltip>
+                </template>
+              </template>
+            </a-table>
+          </a-card>
+
+          <!-- 遗漏场景 -->
+          <a-card v-if="currentDetail.output_result?.missing_scenarios?.length" size="small" title="遗漏场景（建议补充）" style="margin-bottom: 16px">
+            <a-list size="small" :data-source="currentDetail.output_result.missing_scenarios">
+              <template #renderItem="{ item, index }">
+                <a-list-item>
+                  <a-list-item-meta>
+                    <template #avatar>
+                      <a-avatar :size="24" style="background: #faad14">{{ index + 1 }}</a-avatar>
+                    </template>
+                    <template #description>{{ item }}</template>
+                  </a-list-item-meta>
+                </a-list-item>
+              </template>
+            </a-list>
+          </a-card>
+
           <!-- 问题列表 -->
           <a-card size="small" title="问题列表" style="margin-bottom: 16px">
             <a-empty v-if="!currentDetail.output_result?.issues?.length" description="无问题" />
@@ -208,7 +245,14 @@
             >
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'case_index'">
-                  用例 #{{ record.case_index + 1 }}
+                  <div>用例 #{{ record.case_index + 1 }}</div>
+                  <div v-if="record.case_title" style="font-size: 12px; color: #666">{{ record.case_title }}</div>
+                </template>
+                <template v-else-if="column.key === 'requirement_title'">
+                  {{ record.requirement_title || '-' }}
+                </template>
+                <template v-else-if="column.key === 'module'">
+                  {{ record.module || '-' }}
                 </template>
                 <template v-else-if="column.key === 'severity'">
                   <a-tag :color="severityColor(record.severity)">{{ record.severity }}</a-tag>
@@ -271,6 +315,50 @@
         </div>
       </a-spin>
     </a-drawer>
+
+    <!-- 评审范围查看弹窗 -->
+    <a-modal
+      v-model:open="scopeModalVisible"
+      title="评审范围详情"
+      width="720px"
+      :footer="null"
+    >
+      <div class="scope-filter-bar">
+        <a-input
+          v-model:value="scopeSearch"
+          placeholder="搜索需求或模块"
+          allow-clear
+          style="width: 240px"
+          @pressEnter="scopePage = 1"
+        />
+        <a-button type="primary" @click="scopePage = 1">查询</a-button>
+        <a-button @click="handleScopeReset">重置</a-button>
+      </div>
+      <a-table
+        :columns="scopeColumns"
+        :data-source="scopeFilteredData"
+        :pagination="scopePagination"
+        :loading="false"
+        row-key="(_r: any, i: number) => i"
+        size="small"
+        @change="handleScopeTableChange"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'requirement_title'">
+            <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '400px' }">
+              <template #title>{{ record.requirement_title }}</template>
+              <span class="cell-ellipsis">{{ record.requirement_title }}</span>
+            </a-tooltip>
+          </template>
+          <template v-else-if="column.key === 'module'">
+            <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '300px' }">
+              <template #title>{{ record.module }}</template>
+              <span class="cell-ellipsis">{{ record.module }}</span>
+            </a-tooltip>
+          </template>
+        </template>
+      </a-table>
+    </a-modal>
 
     <!-- 优化用例弹窗 -->
     <a-modal
@@ -386,24 +474,33 @@ const columns = [
   { title: '评分', key: 'score', width: 80 },
   { title: '结果', key: 'passed', width: 90 },
   { title: '用例数', key: 'case_count', width: 80 },
+  { title: '评审范围', key: 'scope', width: 160 },
   { title: '评审时间', dataIndex: 'created_at', key: 'created_at', customRender: ({ text }: any) => text ? formatDateTime(text) : '-' },
   { title: '操作', key: 'action', width: 100 },
 ]
 
-const caseColumns = [
-  { title: '用例名称', dataIndex: 'title', key: 'title', ellipsis: true },
-  { title: '模块', dataIndex: 'module', key: 'module', width: 120 },
-  { title: '优先级', key: 'priority', width: 80 },
-  { title: '步骤', key: 'steps', width: 70 },
-]
-
 const issueColumns = [
   { title: '用例', key: 'case_index', width: 80 },
+  { title: '需求', key: 'requirement_title', width: 120, ellipsis: true },
+  { title: '模块', key: 'module', width: 100, ellipsis: true },
   { title: '问题类型', key: 'issue_type', width: 100 },
   { title: '严重程度', key: 'severity', width: 90 },
   { title: '问题描述', dataIndex: 'description', key: 'description', ellipsis: true },
   { title: '修改建议', dataIndex: 'suggestion', key: 'suggestion', ellipsis: true },
 ]
+
+const groupReviewColumns = [
+  { title: '需求', dataIndex: 'requirement_title', key: 'requirement_title', ellipsis: true },
+  { title: '模块', dataIndex: 'module', key: 'module', width: 120 },
+  { title: '用例数', dataIndex: 'case_count', key: 'case_count', width: 80 },
+  { title: '覆盖度', key: 'coverage', width: 100 },
+  { title: '评价', dataIndex: 'comment', key: 'comment', ellipsis: true },
+]
+
+function coverageColor(coverage: string) {
+  const map: Record<string, string> = { '完整': 'green', '部分': 'orange', '不足': 'red' }
+  return map[coverage] || 'default'
+}
 
 function formatDateTime(dt: string) {
   if (!dt) return '-'
@@ -466,17 +563,14 @@ function handleReset() {
 // ===== 新建评审 =====
 const showReviewModal = ref(false)
 const reviewing = ref(false)
-const fetchingCases = ref(false)
-const fetchDone = ref(false)
 const requirements = ref<any[]>([])
 const moduleOptions = ref<{ label: string; value: string }[]>([])
 const reviewPrompts = ref<Prompt[]>([])
 const llmConfigs = ref<any[]>([])
-const selectedCases = ref<TestCase[]>([])
 
 const reviewForm = ref({
-  requirement_id: null as number | null,
-  module: null as string | null,
+  requirement_ids: [] as number[],
+  modules: [] as string[],
   prompt_id: null as number | null,
   llm_config_id: null as number | null,
 })
@@ -495,63 +589,12 @@ async function loadModuleOptions() {
   } catch {}
 }
 
-async function onRequirementChange() {
-  selectedCases.value = []
-  fetchDone.value = false
-}
-
-async function fetchCasesForReview() {
-  fetchingCases.value = true
-  fetchDone.value = false
-  try {
-    const params: any = {}
-    if (reviewForm.value.module) params.module = reviewForm.value.module
-    const cases = await getCases(projectId, params)
-
-    let filtered = cases
-    if (reviewForm.value.requirement_id) {
-      filtered = cases.filter((c: TestCase) => c.req_id === reviewForm.value.requirement_id)
-    }
-
-    selectedCases.value = filtered
-    fetchDone.value = true
-
-    if (filtered.length === 0) {
-      message.warning('未找到匹配的用例')
-    } else {
-      message.success(`已获取 ${filtered.length} 条用例`)
-    }
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '获取用例失败')
-  } finally {
-    fetchingCases.value = false
-  }
-}
-
 async function handleReview() {
-  if (selectedCases.value.length === 0) {
-    message.warning('请先获取用例')
-    return
-  }
-
-  const requirement = requirements.value.find(r => r.id === reviewForm.value.requirement_id)
-  const requirementText = requirement ? `${requirement.title}\n${requirement.content || ''}` : ''
-
   reviewing.value = true
   try {
     await reviewCases(projectId, {
-      cases: selectedCases.value.map(c => ({
-        id: c.id,
-        title: c.title,
-        module: c.module,
-        priority: c.priority,
-        preconditions: c.preconditions,
-        steps: typeof c.steps === 'string' ? JSON.parse(c.steps) : c.steps,
-        expected_result: c.expected_result,
-      })),
-      requirement: requirementText,
-      requirement_id: reviewForm.value.requirement_id || undefined,
-      module: reviewForm.value.module || undefined,
+      requirement_ids: reviewForm.value.requirement_ids,
+      modules: reviewForm.value.modules,
       llm_config_id: reviewForm.value.llm_config_id || undefined,
       prompt_id: reviewForm.value.prompt_id || undefined,
     })
@@ -588,9 +631,7 @@ function stopReviewPolling() {
 
 function handleCloseReviewModal() {
   showReviewModal.value = false
-  reviewForm.value = { requirement_id: null, module: null, prompt_id: null, llm_config_id: null }
-  selectedCases.value = []
-  fetchDone.value = false
+  reviewForm.value = { requirement_ids: [], modules: [], prompt_id: null, llm_config_id: null }
 }
 
 // ===== 评审详情 =====
@@ -609,6 +650,53 @@ async function viewDetail(record: CaseReviewItem) {
   } finally {
     detailLoading.value = false
   }
+}
+
+// ===== 评审范围弹窗 =====
+const scopeModalVisible = ref(false)
+const scopeSearch = ref('')
+const scopePage = ref(1)
+const scopePageSize = ref(10)
+const scopeGroups = ref<any[]>([])
+
+const scopeColumns = [
+  { title: '需求名称', dataIndex: 'requirement_title', key: 'requirement_title', ellipsis: true },
+  { title: '模块', dataIndex: 'module', key: 'module', width: 160 },
+  { title: '用例数', dataIndex: 'case_count', key: 'case_count', width: 80 },
+]
+
+const scopeFilteredData = computed(() => {
+  if (!scopeSearch.value) return scopeGroups.value
+  const kw = scopeSearch.value.toLowerCase()
+  return scopeGroups.value.filter((g: any) =>
+    (g.requirement_title || '').toLowerCase().includes(kw) ||
+    (g.module || '').toLowerCase().includes(kw)
+  )
+})
+
+const scopePagination = computed(() => ({
+  current: scopePage.value,
+  pageSize: scopePageSize.value,
+  total: scopeFilteredData.value.length,
+  showSizeChanger: true,
+  showTotal: (total: number) => `共 ${total} 组`,
+}))
+
+function openScopeModal(record: any) {
+  scopeGroups.value = record.input_params?.groups || []
+  scopeSearch.value = ''
+  scopePage.value = 1
+  scopeModalVisible.value = true
+}
+
+function handleScopeReset() {
+  scopeSearch.value = ''
+  scopePage.value = 1
+}
+
+function handleScopeTableChange(pag: any) {
+  scopePage.value = pag.current
+  scopePageSize.value = pag.pageSize
 }
 
 // ===== 评审优化用例 =====
@@ -719,6 +807,13 @@ onUnmounted(() => {
 .case-reviews-page { padding: 20px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .page-header h2 { margin: 0; font-size: 20px; }
+
+.scope-filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  align-items: center;
+}
 
 .text-success { color: #52c41a; }
 .text-warning { color: #faad14; }

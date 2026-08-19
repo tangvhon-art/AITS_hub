@@ -61,13 +61,14 @@ REPORT_PROMPT = """你是一位资深测试报告撰写专家，拥有丰富的�
 - 列出具体的改进建议（按优先级排序）
 - 后续测试重点方向
 
-## 生成原则
-- 所有数据必须基于提供的统计数据，禁止编造数据
-- 分析要深入，不仅是数据罗列，要给出原因分析和改进方向
-- 语言专业、简洁、客观
-- 使用 Markdown 格式，善用表格、列表、加粗等排版
-- 如果统计数据中某项为 0，如实说明，不要省略对应章节
-- 所有内容使用中文"""
+## 生成原则（最高优先级，必须严格遵守）
+1. **数据绝对准确**：所有数值必须来自下方提供的统计数据，禁止编造、估算或推算任何数字
+2. **分析要深入**：不仅是数据罗列，要给出原因分析和改进方向
+3. **语言专业、简洁、客观**：每个要点不超过2句话
+4. **禁止重复**：不要重复输出相同内容，不要输出无意义的重复字符或符号
+5. **使用 Markdown 格式**：善用表格、列表、加粗等排版
+6. **如果统计数据中某项为 0**，如实说明，不要省略对应章节
+7. **所有内容使用中文**"""
 
 
 class ReportGeneratorAgent(BaseAgent):
@@ -134,27 +135,37 @@ class ReportGeneratorAgent(BaseAgent):
         if rag_context:
             system_content += f"\n\n{rag_context}"
 
+        # 将统计数据预处理为纯文本，避免 JSON 堆砌导致 LLM 混淆
+        stats_text = self._format_stats_text(stats, version_name, report_type)
+
         # 生成报告内容
         messages = [
             SystemMessage(content=system_content),
-            HumanMessage(content=(
-                f"项目ID: {project_id}\n"
-                f"版本: {version_name}\n"
-                f"报告类型: {report_type}\n\n"
-                f"统计数据:\n{json.dumps(stats, ensure_ascii=False, indent=2)}"
-            )),
+            HumanMessage(content=stats_text),
         ]
 
         try:
-            response = self._call_llm(messages)
+            # 使用低 temperature 生成更稳定、准确的报告
+            response = self._call_llm(messages, temperature=0.3)
             self._log_step("llm_call", {}, "success")
 
             report_title = title or f"测试报告 - {china_now_naive().strftime('%Y-%m-%d')}"
-            logger.info(f"报告生成完成，原始输出长度: {len(response.content)}")
+            content = response.content if hasattr(response, "content") else str(response)
+
+            # 内容清洗：去除 LLM 异常输出
+            import re
+            content = re.sub(r'["\u201c\u201d]{5,}', '', content)
+            content = re.sub(r'[()]{5,}', '', content)
+            content = re.sub(r',{3,}', '，', content)
+            content = re.sub(r'\n{4,}', '\n\n\n', content)
+            if len(content) > 8000:
+                content = content[:8000] + '\n\n...（内容已截断）'
+
+            logger.info(f"报告生成完成，输出长度: {len(content)}")
 
             result = {
                 "title": report_title,
-                "raw_content": response.content,
+                "raw_content": content,
                 "summary": stats,
                 "report_type": report_type,
                 "total_cases": stats.get("total_cases", 0),
@@ -244,11 +255,12 @@ class ReportGeneratorAgent(BaseAgent):
         # 接口自动化执行统计
         api_exec_query = self.db.query(ApiExecution).filter(
             ApiExecution.project_id == project_id,
+            ApiExecution.execution_type == "case",
             ApiExecution.is_deleted == False,
         )
         if version_id is not None:
             if api_case_ids:
-                api_exec_query = api_exec_query.filter(ApiExecution.case_id.in_(api_case_ids))
+                api_exec_query = api_exec_query.filter(ApiExecution.ref_id.in_(api_case_ids))
             else:
                 api_exec_query = api_exec_query.filter(ApiExecution.id == -1)
         api_total_runs = api_exec_query.count()
@@ -355,3 +367,58 @@ class ReportGeneratorAgent(BaseAgent):
             "plan_exec_passed": plan_exec_passed,
             "plan_exec_failed": plan_exec_failed,
         }
+
+    def _format_stats_text(self, stats: Dict[str, Any], version_name: str, report_type: str) -> str:
+        """将统计数据格式化为纯文本，供 LLM 分析"""
+        severity_map = {"blocker": "致命", "critical": "严重", "major": "一般", "minor": "轻微", "trivial": "建议"}
+        category_map = {"frontend": "前端", "backend": "后端", "data": "数据", "environment": "环境", "requirement": "需求", "other": "其他"}
+
+        lines = [
+            f"报告类型：{report_type}",
+            f"版本：{version_name or '全部版本'}",
+            "",
+            "## 用例与执行统计",
+            f"用例总数：{stats.get('total_cases', 0)}",
+            f"总执行次数：{stats.get('total_runs', 0)}",
+            f"通过次数：{stats.get('passed_cases', 0)}",
+            f"失败次数：{stats.get('failed_cases', 0)}",
+            f"通过率：{stats.get('pass_rate', 0)}%",
+            f"平均执行时长：{stats.get('avg_duration', 0)} 秒",
+            "",
+            "## 接口自动化统计",
+            f"接口执行次数：{stats.get('api_total_runs', 0)}",
+            f"接口通过：{stats.get('api_passed_runs', 0)}",
+            f"接口失败：{stats.get('api_failed_runs', 0)}",
+            f"接口平均时长：{stats.get('api_avg_duration', 0)} 秒",
+            "",
+            "## 测试计划执行",
+            f"计划执行次数：{stats.get('plan_exec_count', 0)}",
+            f"计划执行成功：{stats.get('plan_exec_passed', 0)}",
+            f"计划执行失败：{stats.get('plan_exec_failed', 0)}",
+            f"关联测试计划数：{stats.get('total_plans', 0)}（已完成 {stats.get('completed_plans', 0)}）",
+            f"关联需求数：{stats.get('total_requirements', 0)}",
+            "",
+            "## 缺陷统计",
+            f"缺陷总数：{stats.get('total_defects', 0)}",
+            f"未解决缺陷：{stats.get('open_defects', 0)}",
+        ]
+
+        # 缺陷严重程度分布
+        sev_dist = stats.get("severity_distribution", {})
+        if sev_dist:
+            lines.append("缺陷严重程度分布：")
+            for sev, count in sev_dist.items():
+                lines.append(f"  - {severity_map.get(sev, sev)}：{count}")
+
+        # 缺陷根因分布
+        cat_dist = stats.get("category_distribution", {})
+        if cat_dist:
+            lines.append("缺陷根因分类分布：")
+            for cat, count in cat_dist.items():
+                lines.append(f"  - {category_map.get(cat, cat)}：{count}")
+
+        lines.extend([
+            "",
+            "请根据以上统计数据生成测试报告。所有数值必须来自上述数据，禁止编造。",
+        ])
+        return "\n".join(lines)

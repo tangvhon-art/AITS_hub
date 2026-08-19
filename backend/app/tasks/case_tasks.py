@@ -10,13 +10,97 @@ from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
 from app.models.test_case import TestCase
 from app.models.project import Project
-from app.models.requirement import TestRequirement
+from app.models.requirement import TestRequirement, RequirementFeature
 from app.agents.case_generator import CaseGeneratorAgent
+from app.agents.feature_splitter import FeatureSplitterAgent
 from app.services.content_extractor import ContentExtractor
 from app.services.ai_creation_service import AICreationService
 from app.services.notification_service import notify_event, notify_ai_task_failed
 
 logger = logging.getLogger(__name__)
+
+
+@celery_app.task(bind=True, name="split_requirement_features", max_retries=1)
+def split_features_task(self, requirement_id: int, llm_config_id=None):
+    """异步拆分需求功能点"""
+    db = SessionLocal()
+    try:
+        req = db.query(TestRequirement).filter(
+            TestRequirement.id == requirement_id,
+            TestRequirement.is_deleted == False,
+        ).first()
+        if not req:
+            logger.error(f"需求不存在: {requirement_id}")
+            return
+
+        req.feature_split_status = "splitting"
+        db.commit()
+
+        agent = FeatureSplitterAgent(db_session=db, llm_config_id=llm_config_id, project_id=req.project_id)
+        result = agent.split_features(title=req.title, content=req.content or "")
+        modules = result.get("modules", [])
+
+        if not modules:
+            req.feature_split_status = "failed"
+            db.commit()
+            logger.warning(f"功能点拆分结果为空: requirement_id={requirement_id}")
+            return
+
+        # 软删除旧功能点
+        db.query(RequirementFeature).filter(
+            RequirementFeature.requirement_id == requirement_id,
+            RequirementFeature.is_deleted == False,
+        ).update({"is_deleted": True, "deleted_at": china_now_naive()})
+
+        # 插入新功能点
+        feature_count = 0
+        for mod in modules:
+            for feat in mod.get("features", []):
+                rf = RequirementFeature(
+                    requirement_id=requirement_id,
+                    project_id=req.project_id,
+                    module_name=mod["module_name"],
+                    module_desc=mod.get("module_desc", ""),
+                    name=feat["name"],
+                    description=feat.get("description", ""),
+                    priority=feat.get("priority", "P1"),
+                    design_methods=json.dumps(feat.get("design_methods", []), ensure_ascii=False),
+                    preconditions=feat.get("preconditions", ""),
+                    sort_order=feat.get("sort_order", feature_count),
+                )
+                db.add(rf)
+                feature_count += 1
+
+        req.feature_split_status = "split"
+        db.commit()
+
+        logger.info(f"功能点拆分完成: requirement_id={requirement_id}, 模块={len(modules)}, 功能点={feature_count}")
+
+        # 发送通知
+        try:
+            notify_event(
+                req.project_id,
+                "requirement.features_split",
+                {
+                    "source_name": req.title,
+                    "module_count": len(modules),
+                    "feature_count": feature_count,
+                },
+            )
+        except Exception as ne:
+            logger.warning(f"发送功能点拆分通知失败: {ne}")
+
+    except Exception as e:
+        logger.error(f"功能点拆分失败: requirement_id={requirement_id}, error={e}", exc_info=True)
+        try:
+            req = db.query(TestRequirement).filter(TestRequirement.id == requirement_id).first()
+            if req:
+                req.feature_split_status = "failed"
+                db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
 
 
 @celery_app.task(bind=True, name="generate_cases", max_retries=2)
@@ -38,6 +122,7 @@ def generate_cases_task(self, task_id: int):
         count = input_params.get("count", 10)
         content = input_params.get("content", "")
         prompt_id = input_params.get("prompt_id")
+        feature_ids = input_params.get("feature_ids") or []
 
         # 获取需求信息
         requirement_content = content
@@ -74,16 +159,63 @@ def generate_cases_task(self, task_id: int):
 
         # 执行生成
         agent = CaseGeneratorAgent(db_session=db, llm_config_id=task.llm_config_id, project_id=project_id)
-        result = agent.generate(
-            requirement_content=requirement_content,
-            count=count,
-            requirement_title=requirement_title,
-            project_name=project_name,
-            existing_count=existing_count,
-            system_prompt=system_prompt,
-        )
 
-        # 提取并创建用例（多策略提取，不做降级）
+        feature_name_map = {}
+        if feature_ids and req_id:
+            # ── 功能点驱动生成 ──
+            features_db = db.query(RequirementFeature).filter(
+                RequirementFeature.id.in_(feature_ids),
+                RequirementFeature.requirement_id == req_id,
+                RequirementFeature.is_deleted == False,
+            ).all()
+
+            if not features_db:
+                raise ValueError("选中的功能点不存在或已被删除")
+
+            features_data = []
+            for f in features_db:
+                try:
+                    methods = json.loads(f.design_methods) if f.design_methods else []
+                except (json.JSONDecodeError, TypeError):
+                    methods = []
+                features_data.append({
+                    "id": f.id,
+                    "module_name": f.module_name,
+                    "name": f.name,
+                    "description": f.description,
+                    "priority": f.priority,
+                    "design_methods": methods,
+                    "preconditions": f.preconditions,
+                })
+                feature_name_map[f.name] = f.id
+
+            existing_titles = [
+                t[0] for t in db.query(TestCase.title).filter(
+                    TestCase.project_id == project_id,
+                    TestCase.req_id == req_id,
+                    TestCase.is_deleted == False,
+                ).limit(50).all()
+            ]
+
+            result = agent.generate_by_features(
+                requirement_title=requirement_title,
+                requirement_content=requirement_content,
+                features=features_data,
+                existing_cases=existing_titles,
+                system_prompt=system_prompt,
+            )
+        else:
+            # ── 传统数量驱动生成（兼容旧逻辑） ──
+            result = agent.generate(
+                requirement_content=requirement_content,
+                count=count,
+                requirement_title=requirement_title,
+                project_name=project_name,
+                existing_count=existing_count,
+                system_prompt=system_prompt,
+            )
+
+        # 提取并创建用例
         cases = ContentExtractor.extract_test_cases(result["raw_content"])
         created_cases = AICreationService.create_test_cases(
             db,
@@ -91,7 +223,14 @@ def generate_cases_task(self, task_id: int):
             cases=cases,
             requirement_id=req_id,
             created_by=task.created_by,
+            feature_name_map=feature_name_map or None,
         )
+
+        # 更新需求状态
+        if req_id:
+            req = db.query(TestRequirement).filter(TestRequirement.id == req_id).first()
+            if req and req.status == "pending":
+                req.status = "generated"
 
         task.status = "success"
         task.output_result = {

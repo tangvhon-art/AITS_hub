@@ -80,6 +80,8 @@ def _auto_migrate(engine):
         ("skills", "files", "JSON"),
         ("performance_tests", "targets", "JSON"),
         ("performance_test_runs", "endpoint_stats", "JSON"),
+        ("test_requirements", "feature_split_status", "VARCHAR(20) DEFAULT 'pending'"),
+        ("test_cases", "feature_id", "INTEGER"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:
@@ -97,7 +99,7 @@ async def lifespan(app: FastAPI):
     logger.info("正在初始化数据库表...")
     # 导入所有模型确保 Base.metadata 包含所有表
     from app.models import (
-        User, Project, TestRequirement, TestCase, TestRun,
+        User, Project, TestRequirement, RequirementFeature, TestCase, TestRun,
         AgentTask, LLMConfig, Defect, TestReport, KnowledgeDoc,
         TestPlan, TestPlanCase, TestEnvironment, AuditLog,
         TestPlanItem, TestPlanExecution, TestPlanExecutionResult,

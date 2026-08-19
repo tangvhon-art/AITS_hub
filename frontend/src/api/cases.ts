@@ -36,7 +36,7 @@ export function deleteCase(projectId: number, caseId: number) {
   return request.delete(`/projects/${projectId}/cases/${caseId}`)
 }
 
-export function generateCases(projectId: number, data: { requirement_id?: number; content: string; count: number; llm_config_id?: number; prompt_id?: number }) {
+export function generateCases(projectId: number, data: { requirement_id?: number; content?: string; count?: number; feature_ids?: number[]; version_id?: number; llm_config_id?: number; prompt_id?: number }) {
   return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/cases/generate`, data)
 }
 
@@ -44,6 +44,45 @@ export function generateCasesStatus(projectId: number, taskId: number) {
   return request.get<{ status: string; case_count: number; cases_saved: number; error: string }>(
     `/projects/${projectId}/cases/generate/${taskId}`,
   )
+}
+
+// ── 需求功能点 ──────────────────────────────────────────
+
+export interface RequirementFeature {
+  id: number
+  name: string
+  description: string
+  priority: string
+  design_methods: string[]
+  preconditions: string
+  module_name: string
+  sort_order: number
+}
+
+export interface FeatureModuleGroup {
+  module_name: string
+  module_desc: string
+  features: RequirementFeature[]
+}
+
+export function getFeatures(projectId: number, reqId: number) {
+  return request.get<{ split_status: string; modules: FeatureModuleGroup[]; total: number }>(
+    `/projects/${projectId}/cases/requirements/${reqId}/features`,
+  )
+}
+
+export function splitFeatures(projectId: number, reqId: number) {
+  return request.post<{ message: string; status: string }>(
+    `/projects/${projectId}/cases/requirements/${reqId}/split-features`,
+  )
+}
+
+export function updateFeature(projectId: number, featureId: number, data: Partial<RequirementFeature>) {
+  return request.put(`/projects/${projectId}/cases/requirement-features/${featureId}`, data)
+}
+
+export function deleteFeature(projectId: number, featureId: number) {
+  return request.delete(`/projects/${projectId}/cases/requirement-features/${featureId}`)
 }
 
 // 需求相关

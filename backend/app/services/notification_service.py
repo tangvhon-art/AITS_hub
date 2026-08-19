@@ -55,6 +55,7 @@ EVENT_TYPES: List[Dict[str, str]] = [
     {"code": "performance.completed", "name": "性能测试完成", "category": "测试执行", "level": "info", "color": "blue", "description": "性能测试执行结束"},
     # AI任务类
     {"code": "ai.requirement.generated", "name": "AI需求生成完成", "category": "AI任务", "level": "info", "color": "blue", "description": "AI异步生成需求文档结束"},
+    {"code": "requirement.features_split", "name": "需求功能点拆分完成", "category": "AI任务", "level": "success", "color": "green", "description": "需求自动拆分为模块和功能点"},
     {"code": "ai.case.generated", "name": "AI功能用例生成完成", "category": "AI任务", "level": "info", "color": "blue", "description": "功能用例AI批量生成结束"},
     {"code": "ai.api_case.generated", "name": "AI接口用例生成完成", "category": "AI任务", "level": "info", "color": "blue", "description": "接口用例AI生成结束"},
     {"code": "ai.api_doc.generated", "name": "AI接口文档生成完成", "category": "AI任务", "level": "info", "color": "blue", "description": "接口文档AI生成结束"},
