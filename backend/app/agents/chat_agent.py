@@ -230,6 +230,28 @@ class ChatAgent(BaseAgent):
         except Exception:
             return True
 
+    async def _classify_intent(self, message: str) -> str:
+        """用 LLM 显式分类用户意图：data_query / action / knowledge / chat"""
+        prompt = f"""用户问题：{message}
+
+请判断用户意图类型，只返回一个英文单词：
+- data_query：查询数据（项目、用例、缺陷、报告、需求等列表或统计）
+- action：执行操作（创建、修改、删除、执行测试、生成等）
+- knowledge：知识问答（概念解释、方法论、需要检索知识库）
+- chat：闲聊/通用问答（不需要工具）"""
+        try:
+            response = await llm_factory.acall_with_fallback(
+                self.db, [{"role": "user", "content": prompt}],
+                preferred_config_id=self.llm_config_id
+            )
+            content = (response.content if hasattr(response, 'content') else str(response)).strip().lower()
+            for intent in ("data_query", "action", "knowledge", "chat"):
+                if intent in content:
+                    return intent
+        except Exception as e:
+            logger.warning(f"意图分类失败，默认 chat: {e}")
+        return "chat"
+
     # ---------- 主对话流程 ----------
 
     async def chat(
@@ -248,23 +270,37 @@ class ChatAgent(BaseAgent):
         start_time = time.time()
 
         try:
-            # 1. 意图识别
-            yield progress(ProgressNode.INTENT_RECOGNITION, "意图识别中...", "running")
-            # Skill 匹配钩子（阶段三实现，当前跳过）
+            from app.agents.progress import ProgressManager
+
+            # 1. 意图分类
+            intent = await self._classify_intent(message)
+            logger.info(f"用户意图分类: {intent} | 问题: {message[:50]}")
+
+            # 2. Skill 匹配
             skill = None
+            skill_name = None
             try:
                 from app.agents.skill_engine import skill_engine
-                skill = skill_engine.match(message, self.project_id)
+                skill = await skill_engine.match_llm(message, self.project_id, self.db)
                 if skill:
-                    yield progress(ProgressNode.SKILL_MATCHED, f"已匹配能力：{skill.title}", "done")
-            except (ImportError, Exception):
-                pass
-            yield progress(ProgressNode.INTENT_RECOGNITION, "意图识别中...", "done")
+                    skill_engine._register_skill_scripts(skill)
+                    skill_name = skill.title
+            except (ImportError, Exception) as e:
+                logger.warning(f"Skill 匹配异常: {e}")
 
-            # 2. 知识库检索
+            # 3. 初始化动态进度计划
+            pm = ProgressManager()
+            yield pm.init_plan(intent, use_knowledge=use_knowledge and bool(self.project_id), skill_name=skill_name)
+
+            # 4. 意图解析完成
+            yield pm.start("intent")
+            yield pm.done("intent")
+
+            # 5. 知识库检索
             knowledge_results = []
             if use_knowledge and self.project_id:
-                yield progress(ProgressNode.KNOWLEDGE_SEARCH, "知识库检索中...", "running")
+                if "knowledge" in pm._step_index:
+                    yield pm.start("knowledge")
                 knowledge_results = await self.search_knowledge(message)
                 if knowledge_results:
                     yield {
@@ -275,22 +311,38 @@ class ChatAgent(BaseAgent):
                             for r in knowledge_results[:5]
                         ],
                     }
-                yield progress(ProgressNode.KNOWLEDGE_SEARCH, "知识库检索中...", "done")
+                if "knowledge" in pm._step_index:
+                    yield pm.done("knowledge")
 
-            # 3. 判断走 Function Calling 还是降级
+            # 6. 确定查询数据源 / 校验参数（仅 data_query/action 意图）
+            if "tool_plan" in pm._step_index:
+                yield pm.start("tool_plan")
+                yield pm.done("tool_plan")
+            if "validate" in pm._step_index:
+                yield pm.start("validate")
+                yield pm.done("validate")
+
+            # 7. 执行工具调用 + 生成回答
             if self._supports_function_calling():
-                async for event in self._chat_with_tools(message, history, knowledge_results, skill):
+                async for event in self._chat_with_tools(message, history, knowledge_results, skill, pm):
                     yield event
             else:
-                async for event in self._chat_legacy(message, history, knowledge_results):
+                async for event in self._chat_legacy(message, history, knowledge_results, pm):
                     yield event
 
-            yield progress(ProgressNode.DONE, "完成", "done", detail=f"{round(time.time() - start_time, 1)}s")
+            yield pm.snapshot()
             yield {"type": "done"}
 
         except Exception as e:
             logger.error(f"Chat 对话失败: {e}", exc_info=True)
             yield {"type": "error", "message": str(e)}
+        finally:
+            # 清理本次对话注册的 Skill 脚本工具
+            try:
+                from app.agents.skill_engine import skill_engine
+                skill_engine.cleanup()
+            except Exception:
+                pass
 
     # ---------- Function Calling 流程 ----------
 
@@ -300,6 +352,7 @@ class ChatAgent(BaseAgent):
         history: List[Dict[str, str]],
         knowledge_results: List[Dict[str, Any]],
         skill=None,
+        pm=None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """使用原生 bind_tools 的对话流程"""
         knowledge_context = self._build_knowledge_context(knowledge_results)
@@ -391,14 +444,23 @@ class ChatAgent(BaseAgent):
                         logger.info(f"第 {round_idx+1} 轮返回空内容，追加引导提示继续")
                         messages.append(HumanMessage(content="请根据以上工具返回的结果，用中文回答用户的问题。如果没有相关数据，请如实说明。"))
                         continue
-                yield progress(ProgressNode.GENERATING, "生成回答中...", "running")
+                if pm:
+                    if "organize" in pm._step_index:
+                        yield pm.start("organize")
+                        yield pm.done("organize")
+                    yield pm.start("answer")
+                else:
+                    yield progress(ProgressNode.GENERATING, "生成回答中...", "running")
                 if response.content:
                     yield {"type": "content", "content": response.content}
                 else:
                     # 最终输出使用绑定 tools 的 LLM（消息中含 ToolMessage）
                     async for chunk in self._stream_final(llm_with_tools, messages):
                         yield chunk
-                yield progress(ProgressNode.GENERATING, "生成回答中...", "done")
+                if pm:
+                    yield pm.done("answer")
+                else:
+                    yield progress(ProgressNode.GENERATING, "生成回答中...", "done")
                 return
 
             # 有工具调用 → 逐个执行
@@ -406,9 +468,13 @@ class ChatAgent(BaseAgent):
                 tool_name = tc["name"]
                 tool_args = tc.get("args", {})
                 tool_call_id = tc.get("id") or f"call_{round_idx}_{tool_name}_{int(time.time())}"
-                tool_label = get_tool_label(tool_name)
 
-                yield progress(ProgressNode.TOOL_CALLING, f"调用 {tool_label} 中...", "running", detail=tool_name)
+                # 动态进度：追加工具步骤
+                tool_node_id = None
+                if pm:
+                    tool_node_id = pm.add_tool_step(tool_name, tool_args)
+                    yield pm.snapshot()
+
                 yield {"type": "tool_call", "tool_call": {"name": tool_name, "args": tool_args, "status": "running"}}
 
                 tool_start = time.time()
@@ -416,7 +482,9 @@ class ChatAgent(BaseAgent):
                 duration = round(time.time() - tool_start, 2)
 
                 success = result.get("success", False)
-                yield progress(ProgressNode.TOOL_DONE, f"{tool_label} 完成", "done", detail=f"{duration}s")
+                if pm and tool_node_id:
+                    pm.done_tool_step(tool_node_id)
+                    yield pm.snapshot()
                 yield {
                     "type": "tool_result",
                     "tool_call": {
@@ -431,12 +499,24 @@ class ChatAgent(BaseAgent):
                 tool_content = json.dumps(result.get("result") if success else {"error": result.get("error")}, ensure_ascii=False)
                 messages.append(ToolMessage(content=tool_content, tool_call_id=tool_call_id))
 
-        # 达到最大轮次
-        yield progress(ProgressNode.GENERATING, "生成回答中...", "running")
+        # 整理结果 + 生成回答
+        if pm:
+            if "organize" in pm._step_index:
+                yield pm.start("organize")
+                yield pm.done("organize")
+            if "verify" in pm._step_index:
+                yield pm.start("verify")
+                yield pm.done("verify")
+            yield pm.start("answer")
+        else:
+            yield progress(ProgressNode.GENERATING, "生成回答中...", "running")
         llm_with_tools = llm.bind_tools(tool_schemas) if tool_schemas else llm
         async for chunk in self._stream_final(llm_with_tools, messages):
             yield chunk
-        yield progress(ProgressNode.GENERATING, "生成回答中...", "done")
+        if pm:
+            yield pm.done("answer")
+        else:
+            yield progress(ProgressNode.GENERATING, "生成回答中...", "done")
 
     async def _stream_final(self, llm, messages: List) -> AsyncGenerator[Dict[str, Any], None]:
         """流式输出最终回答"""
@@ -461,22 +541,24 @@ class ChatAgent(BaseAgent):
         message: str,
         history: List[Dict[str, str]],
         knowledge_results: List[Dict[str, Any]],
+        pm=None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """不支持 Function Calling 时的降级流程（两步式）"""
-        from app.agents.mcp_tools import mcp_registry
-
         # 工具决策
-        yield progress(ProgressNode.THINKING, "思考中...", "running")
         need_tool, tool_name, tool_args = await self._decide_tool_legacy(message)
-        yield progress(ProgressNode.THINKING, "思考中...", "done")
 
         tool_result = None
         if need_tool and tool_name:
-            tool_label = get_tool_label(tool_name)
-            yield progress(ProgressNode.TOOL_CALLING, f"调用 {tool_label} 中...", "running", detail=tool_name)
+            # 动态进度：追加工具步骤
+            tool_node_id = None
+            if pm:
+                tool_node_id = pm.add_tool_step(tool_name, tool_args)
+                yield pm.snapshot()
             yield {"type": "tool_call", "tool_call": {"name": tool_name, "args": tool_args, "status": "running"}}
-            tool_result = await mcp_registry.execute_tool(tool_name, tool_args, self.db, self.project_id, self.user_id)
-            yield progress(ProgressNode.TOOL_DONE, f"{tool_label} 完成", "done")
+            tool_result = await tool_registry.execute(tool_name, tool_args, self.db, self.project_id, self.user_id)
+            if pm and tool_node_id:
+                pm.done_tool_step(tool_node_id)
+                yield pm.snapshot()
             yield {
                 "type": "tool_result",
                 "tool_call": {
@@ -499,16 +581,25 @@ class ChatAgent(BaseAgent):
                 messages.append({"role": h["role"], "content": h.get("content", "")})
         messages.append({"role": "user", "content": message})
 
-        yield progress(ProgressNode.GENERATING, "生成回答中...", "running")
+        if pm:
+            if "organize" in pm._step_index:
+                yield pm.start("organize")
+                yield pm.done("organize")
+            yield pm.start("answer")
+        else:
+            yield progress(ProgressNode.GENERATING, "生成回答中...", "running")
         llm, _ = llm_factory.get_llm_with_fallback(self.db, preferred_config_id=self.llm_config_id)
         async for chunk in self._stream_final(llm, messages):
             yield chunk
-        yield progress(ProgressNode.GENERATING, "生成回答中...", "done")
+        if pm:
+            yield pm.done("answer")
+        else:
+            yield progress(ProgressNode.GENERATING, "生成回答中...", "done")
 
     async def _decide_tool_legacy(self, message: str):
         """两步式工具决策"""
         from app.agents.utils import extract_json
-        tools_desc = "\n".join([f"【{t.name}】{t.description}" for t in tool_registry.list_tools()])
+        tools_desc = "\n".join([f"【{t.name}】{t.description}" for t in tool_registry.list_tools(self.project_id)])
         prompt = f"""判断是否需要调用工具。可用工具：
 {tools_desc}
 

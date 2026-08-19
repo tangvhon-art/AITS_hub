@@ -57,6 +57,7 @@ export async function chatStream(
     onToolResult?: (toolCall: ToolCall) => void
     onKnowledge?: (results: KnowledgeResult[]) => void
     onProgress?: (progress: { node: string; label: string; status: string; detail?: string }) => void
+    onProgressPlan?: (steps: any[]) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -78,6 +79,8 @@ export async function chatStream(
             callbacks.onKnowledge?.(data.results || [])
           } else if (data.type === 'progress') {
             callbacks.onProgress?.({ node: data.node, label: data.label, status: data.status, detail: data.detail })
+          } else if (data.type === 'progress_plan') {
+            callbacks.onProgressPlan?.(data.steps || [])
           }
         },
         onError: (err) => {

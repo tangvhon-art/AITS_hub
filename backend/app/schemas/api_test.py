@@ -3,7 +3,7 @@
 """
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ==================== ApiModule ====================
@@ -549,11 +549,23 @@ class ApiImportPreviewResponse(BaseModel):
 
 
 # ==================== Run Request ====================
+def _normalize_env_vars(v):
+    """将 environment_vars 从数组格式 [{key,value}] 转为字典格式 {key: value}"""
+    if isinstance(v, list):
+        return {item["key"]: item.get("value", "") for item in v if isinstance(item, dict) and item.get("key")}
+    return v
+
+
 class ApiCaseRunRequest(BaseModel):
     environment_id: Optional[int] = None
     variables: Optional[Dict[str, Any]] = {}
     environment_vars: Optional[Dict[str, Any]] = {}
     base_url: Optional[str] = ""
+
+    @field_validator("environment_vars", mode="before")
+    @classmethod
+    def normalize_env_vars(cls, v):
+        return _normalize_env_vars(v)
 
 
 class ApiCaseBatchRunRequest(BaseModel):
@@ -588,6 +600,11 @@ class ApiDebugSendRequest(BaseModel):
     pre_script: Optional[str] = ""
     post_script: Optional[str] = ""
     timeout: int = 30
+
+    @field_validator("environment_vars", mode="before")
+    @classmethod
+    def normalize_env_vars(cls, v):
+        return _normalize_env_vars(v)
 
 
 class ApiDebugResponse(BaseModel):

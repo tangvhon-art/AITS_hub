@@ -198,7 +198,7 @@ const routes: RouteRecordRaw[] = [
         path: 'projects/:id/import-export',
         name: 'ImportExport',
         component: () => import('@/views/ImportExport.vue'),
-        meta: { title: '数据导入导出', icon: 'ImportOutlined' }
+        meta: { title: '数据导入导出', icon: 'ImportOutlined', hideInMenu: true }
       },
       {
         path: 'agent-tasks',

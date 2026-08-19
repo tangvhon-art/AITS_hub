@@ -60,10 +60,11 @@ const isRunning = computed(() => props.nodes.some(n => n.status === 'running'))
 // 进度全部完成后自动收起
 watch(isRunning, (running) => {
   if (!running && props.nodes.length > 0) {
-    collapsed.value = true
+    setTimeout(() => { collapsed.value = true }, 800)
   }
 })
-const toolCount = computed(() => props.nodes.filter(n => n.node === 'tool_calling').length)
+
+const toolCount = computed(() => props.nodes.filter(n => n.node && n.node.startsWith('tool_')).length)
 const totalDuration = computed(() => {
   const done = props.nodes.filter(n => n.status === 'done' && n.duration)
   if (done.length === 0) return '0s'

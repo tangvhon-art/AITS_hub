@@ -33,12 +33,12 @@
           </a-col>
         </a-row>
         <a-row :gutter="16">
-          <a-col :span="12">
+          <a-col :span="8">
             <a-form-item label="接口名称">
               <a-input v-model:value="form.name" />
             </a-form-item>
           </a-col>
-          <a-col :span="12">
+          <a-col :span="8">
             <a-form-item label="所属分组">
               <a-tree-select
                 v-model:value="form.module_id"
@@ -47,6 +47,15 @@
                 allow-clear
                 tree-default-expand-all
               />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="状态">
+              <a-select v-model:value="form.status" placeholder="选择状态">
+                <a-select-option value="draft">草稿</a-select-option>
+                <a-select-option value="active">已启用</a-select-option>
+                <a-select-option value="deprecated">已废弃</a-select-option>
+              </a-select>
             </a-form-item>
           </a-col>
         </a-row>
@@ -243,6 +252,7 @@ const form = ref<any>({
   path: '',
   description: '',
   module_id: null,
+  status: 'draft',
   headers: [],
   query_params: [],
   path_params: [],

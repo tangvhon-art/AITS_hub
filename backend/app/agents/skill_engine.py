@@ -23,6 +23,7 @@ class SkillEngine:
     def __init__(self):
         self._skills_cache: List = []
         self._cache_dirty = True
+        self._registered_script_tools: List[str] = []  # 本次对话注册的 Skill 脚本工具名
 
     def _load_skills(self, db: Session) -> List:
         """加载所有启用的 Skill"""
@@ -38,7 +39,7 @@ class SkillEngine:
         self._cache_dirty = True
 
     def match(self, message: str, project_id: Optional[int] = None, db: Optional[Session] = None) -> Optional[Any]:
-        """根据触发条件匹配 Skill"""
+        """根据触发条件匹配 Skill（关键词/正则）"""
         if not db:
             return None
         skills = self._load_skills(db)
@@ -46,6 +47,86 @@ class SkillEngine:
             if self._match_trigger(message, skill.trigger_config or {}):
                 return skill
         return None
+
+    async def match_llm(self, message: str, project_id: Optional[int] = None,
+                        db: Optional[Session] = None) -> Optional[Any]:
+        """用 LLM 语义匹配 Skill（失败时降级到关键词匹配）"""
+        if not db:
+            return None
+        skills = self._load_skills(db)
+        if not skills:
+            return None
+
+        # 构建 Skill 列表描述
+        skill_list = []
+        for i, s in enumerate(skills):
+            trigger = s.trigger_config or {}
+            keywords = trigger.get("keywords", [])
+            skill_list.append(
+                f"{i+1}. 名称：{s.name}\n"
+                f"   描述：{s.description or ''}\n"
+                f"   触发关键词：{', '.join(keywords) if keywords else '无'}"
+            )
+        skills_text = "\n".join(skill_list)
+
+        prompt = f"""用户问题：{message}
+
+可用 Skill 列表：
+{skills_text}
+
+请判断用户问题是否匹配上述某个 Skill。
+如果匹配，返回 JSON：{{"matched": true, "skill_index": 序号}}
+如果不匹配，返回：{{"matched": false}}
+只返回 JSON，不要其他内容。"""
+
+        try:
+            from app.agents.utils import extract_json
+            response = await llm_factory.acall_with_fallback(
+                db, [{"role": "user", "content": prompt}], preferred_config_id=None
+            )
+            content = response.content if hasattr(response, 'content') else str(response)
+            result = extract_json(content.strip())
+            if result and result.get("matched"):
+                idx = int(result.get("skill_index", 0)) - 1
+                if 0 <= idx < len(skills):
+                    logger.info(f"LLM 语义匹配到 Skill: {skills[idx].name}")
+                    return skills[idx]
+        except Exception as e:
+            logger.warning(f"LLM Skill 匹配失败，降级到关键词匹配: {e}")
+
+        # 降级到关键词匹配
+        return self.match(message, project_id, db)
+
+    def match_and_register(self, message: str, project_id: Optional[int] = None,
+                           db: Optional[Session] = None, use_llm: bool = True) -> Optional[Any]:
+        """匹配 Skill 并注册其脚本为工具（同步入口，LLM 匹配需提前调用 match_llm）"""
+        skill = self.match(message, project_id, db)
+        if skill:
+            self._register_skill_scripts(skill)
+        return skill
+
+    def _register_skill_scripts(self, skill: Any):
+        """将 Skill 包中的 Python 脚本注册为工具"""
+        from app.agents.tools.skill_tool import SkillScriptTool
+        scripts = skill.scripts or {}
+        for filename, content in scripts.items():
+            if isinstance(filename, str) and filename.endswith('.py'):
+                try:
+                    tool = SkillScriptTool(skill.name, filename, content)
+                    tool_registry.register(tool)
+                    self._registered_script_tools.append(tool.name)
+                    logger.info(f"注册 Skill 脚本工具: {tool.name}")
+                except Exception as e:
+                    logger.warning(f"注册 Skill 脚本工具失败 [{filename}]: {e}")
+
+    def cleanup(self):
+        """对话结束后注销本次注册的 Skill 脚本工具"""
+        for name in self._registered_script_tools:
+            try:
+                tool_registry.unregister(name)
+            except Exception as e:
+                logger.warning(f"注销 Skill 脚本工具失败 [{name}]: {e}")
+        self._registered_script_tools.clear()
 
     def _match_trigger(self, message: str, config: Dict[str, Any]) -> bool:
         """匹配触发条件"""

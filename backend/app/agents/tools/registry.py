@@ -26,6 +26,7 @@ class ToolRegistry:
     def __init__(self):
         self._builtin: Dict[str, BaseTool] = {}
         self._mcp_tools: Dict[str, BaseTool] = {}  # 外部 MCP 工具，key 带命名空间
+        self._mcp_tool_projects: Dict[str, Optional[int]] = {}  # MCP 工具名 → project_id（None=全局）
         self._cache: Dict[str, Dict[str, Any]] = {}  # {cache_key: {"result": ..., "expire_at": ...}}
 
     # ---------- 注册 ----------
@@ -35,12 +36,19 @@ class ToolRegistry:
         self._builtin[tool.name] = tool
         logger.info(f"注册工具: {tool.name} ({tool.category})")
 
-    def register_mcp_tool(self, connector_name: str, tool: BaseTool):
+    def unregister(self, tool_name: str):
+        """注销工具（用于 Skill 脚本临时工具的清理）"""
+        if tool_name in self._builtin:
+            del self._builtin[tool_name]
+            logger.info(f"注销工具: {tool_name}")
+
+    def register_mcp_tool(self, connector_name: str, tool: BaseTool, project_id: Optional[int] = None):
         """注册外部 MCP 工具，自动加命名空间前缀"""
         namespaced_name = f"{connector_name}__{tool.name}"
         tool.name = namespaced_name
         self._mcp_tools[namespaced_name] = tool
-        logger.info(f"注册 MCP 工具: {namespaced_name}")
+        self._mcp_tool_projects[namespaced_name] = project_id
+        logger.info(f"注册 MCP 工具: {namespaced_name} (project_id={project_id})")
 
     def unregister_mcp_tools(self, connector_name: str):
         """移除某个连接器的所有 MCP 工具"""
@@ -48,6 +56,7 @@ class ToolRegistry:
         to_remove = [k for k in self._mcp_tools if k.startswith(prefix)]
         for k in to_remove:
             del self._mcp_tools[k]
+            self._mcp_tool_projects.pop(k, None)
         logger.info(f"移除 MCP 工具: {len(to_remove)} 个 (连接器: {connector_name})")
 
     # ---------- 查询 ----------
@@ -57,8 +66,14 @@ class ToolRegistry:
         return self._builtin.get(name) or self._mcp_tools.get(name)
 
     def list_tools(self, project_id: Optional[int] = None) -> List[BaseTool]:
-        """列出所有可用工具"""
-        return list(self._builtin.values()) + list(self._mcp_tools.values())
+        """列出所有可用工具（内置工具全局可用，MCP 工具按 project_id 过滤）"""
+        tools = list(self._builtin.values())
+        for name, tool in self._mcp_tools.items():
+            tool_project = self._mcp_tool_projects.get(name)
+            # 全局工具（project_id=None）或匹配当前项目的工具可用
+            if tool_project is None or tool_project == project_id:
+                tools.append(tool)
+        return tools
 
     def list_builtin_tools(self) -> List[BaseTool]:
         """仅列出内置工具"""

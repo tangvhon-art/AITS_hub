@@ -300,6 +300,12 @@ async function sendMessage() {
         scrollToBottom()
       },
       onKnowledge: (results) => { messages.value[aiIndex].knowledge_results = results; messages.value[aiIndex]._refsCollapsed = true; scrollToBottom() },
+      onProgressPlan: (steps) => {
+        messages.value[aiIndex].progressNodes = steps.map((s: any) => ({
+          node: s.node, label: s.label, status: s.status, duration: s.duration,
+        }))
+        scrollToBottom()
+      },
       onProgress: (p) => {
         if (!messages.value[aiIndex].progressNodes) messages.value[aiIndex].progressNodes = []
         const nodes = messages.value[aiIndex].progressNodes!

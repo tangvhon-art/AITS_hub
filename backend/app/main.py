@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -129,6 +130,39 @@ async def lifespan(app: FastAPI):
         logger.info(f"内置工具注册完成，共 {len(tool_registry.list_tools())} 个工具")
     except Exception as e:
         logger.warning(f"内置工具注册失败: {e}")
+
+    # 后台异步重连已启用的 MCP 连接器（不阻塞启动）
+    async def _reconnect_mcp_connectors():
+        await asyncio.sleep(2)  # 等待应用完全启动
+        try:
+            from app.models.mcp_connector import MCPConnector
+            from app.mcp.client import McpClient
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                connectors = db.query(MCPConnector).filter(
+                    MCPConnector.is_active == True,
+                    MCPConnector.is_deleted == False,
+                ).all()
+                if connectors:
+                    logger.info(f"发现 {len(connectors)} 个已启用 MCP 连接器，开始重连...")
+                for conn in connectors:
+                    try:
+                        client = McpClient(
+                            connector_id=conn.id, name=conn.name, transport=conn.transport,
+                            url=conn.url or "", command=conn.command or "",
+                            args=conn.args or [], env_vars=conn.env_vars or {},
+                        )
+                        tools = await client.connect()
+                        logger.info(f"MCP 连接器 [{conn.name}] 重连成功，注册 {len(tools)} 个工具")
+                    except Exception as e:
+                        logger.warning(f"MCP 连接器 [{conn.name}] 重连失败: {e}")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"MCP 自动重连异常: {e}")
+
+    asyncio.create_task(_reconnect_mcp_connectors())
 
     yield
     logger.info("应用关闭")

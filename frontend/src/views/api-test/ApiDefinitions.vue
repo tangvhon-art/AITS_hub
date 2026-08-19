@@ -93,6 +93,9 @@
           <template v-if="column.key === 'method'">
             <a-tag :color="getMethodColor(record.method)">{{ record.method }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'status'">
+            <a-tag :color="getStatusInfo(record.status).color">{{ getStatusInfo(record.status).text }}</a-tag>
+          </template>
           <template v-else-if="column.key === 'action'">
             <a-space>
               <a-button type="link" size="small" @click="handleDebug(record)">调试</a-button>
@@ -221,6 +224,15 @@ const getMethodColor = (method: string) => {
     GET: 'green', POST: 'blue', PUT: 'orange', DELETE: 'red', PATCH: 'purple'
   }
   return colors[method] || 'default'
+}
+
+const getStatusInfo = (status: string) => {
+  const map: Record<string, { text: string; color: string }> = {
+    draft: { text: '草稿', color: 'default' },
+    active: { text: '已启用', color: 'green' },
+    deprecated: { text: '已废弃', color: 'red' },
+  }
+  return map[status] || { text: status, color: 'default' }
 }
 
 // ====== 数据加载 ======
