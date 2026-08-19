@@ -59,6 +59,30 @@
       </a-col>
     </a-row>
 
+    <!-- Locust 标准 4 张趋势图 -->
+    <a-row :gutter="16" v-if="hasTrendData" style="margin-top: 16px">
+      <a-col :span="12">
+        <a-card title="Total Requests per Second（RPS 趋势）">
+          <div ref="rpsChartRef" class="chart-container"></div>
+        </a-card>
+      </a-col>
+      <a-col :span="12">
+        <a-card title="Response Times (ms) 响应时间趋势">
+          <div ref="respTimeChartRef" class="chart-container"></div>
+        </a-card>
+      </a-col>
+      <a-col :span="12" style="margin-top: 16px">
+        <a-card title="Number of Users 虚拟用户数趋势">
+          <div ref="usersChartRef" class="chart-container"></div>
+        </a-card>
+      </a-col>
+      <a-col :span="12" style="margin-top: 16px">
+        <a-card title="Failures per Second 每秒失败趋势">
+          <div ref="failuresChartRef" class="chart-container"></div>
+        </a-card>
+      </a-col>
+    </a-row>
+
     <a-card v-if="run.error_summary && Object.keys(run.error_summary).length > 0" title="错误汇总" style="margin-top: 16px">
       <a-table :columns="errorColumns" :data-source="errorData" :pagination="false" row-key="error" size="small" />
     </a-card>
@@ -153,6 +177,15 @@ const selectedRunId = ref<number | null>(null)
 const runPagination = ref({ current: 1, pageSize: 10, total: 0 })
 const responseChartRef = ref<HTMLElement>()
 let chartInstance: echarts.ECharts | null = null
+// Locust 标准 4 张趋势图
+const rpsChartRef = ref<HTMLElement>()
+const respTimeChartRef = ref<HTMLElement>()
+const usersChartRef = ref<HTMLElement>()
+const failuresChartRef = ref<HTMLElement>()
+let rpsChartInstance: echarts.ECharts | null = null
+let respTimeChartInstance: echarts.ECharts | null = null
+let usersChartInstance: echarts.ECharts | null = null
+let failuresChartInstance: echarts.ECharts | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const showDetailDrawer = ref(false)
@@ -194,7 +227,6 @@ const aggregateColumns = [
   { title: 'Max', dataIndex: 'max', key: 'max', width: 80 },
   { title: 'Average size', dataIndex: 'avg_size_bytes', key: 'avg_size_bytes', width: 110 },
   { title: 'RPS', dataIndex: 'throughput', key: 'throughput', width: 90 },
-  { title: 'Failures/s', dataIndex: 'failures_per_s', key: 'failures_per_s', width: 100 },
   { title: '失败率', key: 'error_pct', width: 90 },
 ]
 
@@ -325,7 +357,127 @@ function renderChart() {
       chartInstance = echarts.init(responseChartRef.value)
     }
     doRenderChart(chartInstance, run.value)
+    // 渲染 Locust 标准 4 张趋势图
+    renderLocustCharts()
   })
+}
+
+/** 从 stats_history 提取时间轴和数据序列 */
+function extractTrendData(data: Partial<PerformanceTestRun>) {
+  const raw = data.stats_history
+  const history: any[] = Array.isArray(raw) ? raw : (raw?.aggregate || [])
+  const byEndpoint: Record<string, any[]> = !Array.isArray(raw) && raw?.by_endpoint ? raw.by_endpoint : {}
+
+  // 时间戳 -> 各接口 avg 列表（兜底用）
+  const endpointAvgByTs: Record<string, number[]> = {}
+  for (const epRecords of Object.values(byEndpoint)) {
+    for (const rec of epRecords) {
+      const ts = String(rec.timestamp || '')
+      const avg = rec.avg ?? rec.average ?? rec.avg_response_time ?? 0
+      if (avg > 0) {
+        if (!endpointAvgByTs[ts]) endpointAvgByTs[ts] = []
+        endpointAvgByTs[ts].push(avg)
+      }
+    }
+  }
+
+  const categories = history.map((h: any, i: number) => {
+    if (h.timestamp) {
+      const ts = typeof h.timestamp === 'number' ? h.timestamp : parseFloat(h.timestamp)
+      if (!isNaN(ts)) {
+        const d = new Date(ts * 1000)
+        if (!isNaN(d.getTime())) return d.toLocaleTimeString('zh-CN', { hour12: false })
+      }
+    }
+    return `${i + 1}s`
+  })
+
+  const getAvg = (h: any) => {
+    const rawAvg = h.avg ?? h.average ?? h.avg_response_time ?? 0
+    if (rawAvg > 0) return rawAvg
+    const ts = String(h.timestamp || '')
+    const epAvgs = endpointAvgByTs[ts]
+    return epAvgs && epAvgs.length > 0 ? Math.round((epAvgs.reduce((a, b) => a + b, 0) / epAvgs.length) * 100) / 100 : 0
+  }
+
+  return {
+    categories,
+    rps: history.map((h: any) => h.rps || 0),
+    failuresPerS: history.map((h: any) => h.failures_per_s ?? h.failures ?? 0),
+    p50: history.map((h: any) => h.p50 ?? h.median ?? 0),
+    p95: history.map((h: any) => h.p95 || 0),
+    p99: history.map((h: any) => h.p99 || 0),
+    avg: history.map((h: any) => getAvg(h)),
+    users: history.map((h: any) => h.users || 0),
+  }
+}
+
+/** 渲染 Locust 标准 4 张趋势图 */
+function renderLocustCharts() {
+  const trend = extractTrendData(run.value)
+  const commonGrid = { left: '3%', right: '4%', bottom: '3%', containLabel: true }
+  const commonTooltip = { trigger: 'axis' }
+
+  // 1. RPS 趋势（RPS + Failures/s）
+  if (rpsChartRef.value) {
+    if (!rpsChartInstance) rpsChartInstance = echarts.init(rpsChartRef.value)
+    rpsChartInstance.setOption({
+      tooltip: commonTooltip,
+      legend: { data: ['RPS', 'Failures/s'], type: 'scroll' },
+      grid: commonGrid,
+      xAxis: { type: 'category', data: trend.categories, axisLabel: { rotate: trend.categories.length > 15 ? 30 : 0 } },
+      yAxis: { type: 'value', name: '次/秒' },
+      series: [
+        { name: 'RPS', type: 'line', data: trend.rps, smooth: true, areaStyle: { opacity: 0.1 }, itemStyle: { color: '#1677ff' } },
+        { name: 'Failures/s', type: 'line', data: trend.failuresPerS, smooth: true, itemStyle: { color: '#cf1322' }, lineStyle: { type: 'dashed' } },
+      ],
+    })
+  }
+
+  // 2. 响应时间趋势（P50 + P95 + P99）
+  if (respTimeChartRef.value) {
+    if (!respTimeChartInstance) respTimeChartInstance = echarts.init(respTimeChartRef.value)
+    respTimeChartInstance.setOption({
+      tooltip: commonTooltip,
+      legend: { data: ['Median(P50)', 'P95', 'P99'], type: 'scroll' },
+      grid: commonGrid,
+      xAxis: { type: 'category', data: trend.categories, axisLabel: { rotate: trend.categories.length > 15 ? 30 : 0 } },
+      yAxis: { type: 'value', name: 'ms' },
+      series: [
+        { name: 'Median(P50)', type: 'line', data: trend.p50, smooth: true, itemStyle: { color: '#52c41a' } },
+        { name: 'P95', type: 'line', data: trend.p95, smooth: true, itemStyle: { color: '#faad14' } },
+        { name: 'P99', type: 'line', data: trend.p99, smooth: true, itemStyle: { color: '#f5222d' } },
+      ],
+    })
+  }
+
+  // 3. 虚拟用户数趋势
+  if (usersChartRef.value) {
+    if (!usersChartInstance) usersChartInstance = echarts.init(usersChartRef.value)
+    usersChartInstance.setOption({
+      tooltip: commonTooltip,
+      grid: commonGrid,
+      xAxis: { type: 'category', data: trend.categories, axisLabel: { rotate: trend.categories.length > 15 ? 30 : 0 } },
+      yAxis: { type: 'value', name: '用户数' },
+      series: [
+        { name: '虚拟用户数', type: 'line', data: trend.users, smooth: true, areaStyle: { opacity: 0.2 }, itemStyle: { color: '#722ed1' }, step: 'end' },
+      ],
+    })
+  }
+
+  // 4. 每秒失败趋势
+  if (failuresChartRef.value) {
+    if (!failuresChartInstance) failuresChartInstance = echarts.init(failuresChartRef.value)
+    failuresChartInstance.setOption({
+      tooltip: commonTooltip,
+      grid: commonGrid,
+      xAxis: { type: 'category', data: trend.categories, axisLabel: { rotate: trend.categories.length > 15 ? 30 : 0 } },
+      yAxis: { type: 'value', name: '失败数/秒' },
+      series: [
+        { name: 'Failures/s', type: 'line', data: trend.failuresPerS, smooth: true, areaStyle: { opacity: 0.15 }, itemStyle: { color: '#cf1322' } },
+      ],
+    })
+  }
 }
 
 function renderDetailChart() {
@@ -350,6 +502,20 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
   // 兼容新旧格式：旧格式为数组，新格式为 {aggregate: [], by_endpoint: {}}
   const raw = data.stats_history
   const history: any[] = Array.isArray(raw) ? raw : (raw?.aggregate || [])
+  const byEndpoint: Record<string, any[]> = !Array.isArray(raw) && raw?.by_endpoint ? raw.by_endpoint : {}
+
+  // 构建时间戳 -> 各接口 avg 列表的映射，用于 aggregate avg 为0时兜底计算
+  const endpointAvgByTs: Record<string, number[]> = {}
+  for (const epRecords of Object.values(byEndpoint)) {
+    for (const rec of epRecords) {
+      const ts = String(rec.timestamp || '')
+      const avg = rec.avg ?? rec.average ?? rec.avg_response_time ?? 0
+      if (avg > 0) {
+        if (!endpointAvgByTs[ts]) endpointAvgByTs[ts] = []
+        endpointAvgByTs[ts].push(avg)
+      }
+    }
+  }
 
   const categories = history.map((h: any, i: number) => {
     if (h.timestamp) {
@@ -361,9 +527,33 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
     }
     return `${i + 1}s`
   })
-  const avgData = history.map((h: any) => h.avg ?? h.average ?? h.avg_response_time ?? 0)
+  const avgData = history.map((h: any) => {
+    const rawAvg = h.avg ?? h.average ?? h.avg_response_time ?? 0
+    if (rawAvg > 0) return rawAvg
+    // 兜底：用同时间戳各接口 avg 的平均值
+    const ts = String(h.timestamp || '')
+    const epAvgs = endpointAvgByTs[ts]
+    if (epAvgs && epAvgs.length > 0) {
+      return Math.round((epAvgs.reduce((a, b) => a + b, 0) / epAvgs.length) * 100) / 100
+    }
+    return 0
+  })
   const usersData = history.map((h: any) => h.users || 0)
-  const rpsData = history.map((h: any) => h.rps || 0)
+  const rpsData = history.map((h: any) => {
+    const rawRps = h.rps || 0
+    if (rawRps > 0) return rawRps
+    // 兜底：用同时间戳各接口 rps 总和
+    const ts = String(h.timestamp || '')
+    let totalRps = 0
+    for (const epRecords of Object.values(byEndpoint)) {
+      for (const rec of epRecords) {
+        if (String(rec.timestamp || '') === ts) {
+          totalRps += rec.rps || 0
+        }
+      }
+    }
+    return totalRps > 0 ? Math.round(totalRps * 100) / 100 : 0
+  })
 
   const legendData = ['虚拟用户数', 'RPS', '平均响应时间']
   const series: any[] = [
@@ -388,6 +578,10 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
 function handleResize() {
   chartInstance?.resize()
   detailChartInstance?.resize()
+  rpsChartInstance?.resize()
+  respTimeChartInstance?.resize()
+  usersChartInstance?.resize()
+  failuresChartInstance?.resize()
 }
 
 onMounted(() => {
@@ -399,6 +593,10 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   chartInstance?.dispose()
   detailChartInstance?.dispose()
+  rpsChartInstance?.dispose()
+  respTimeChartInstance?.dispose()
+  usersChartInstance?.dispose()
+  failuresChartInstance?.dispose()
 })
 </script>
 

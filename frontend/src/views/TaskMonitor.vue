@@ -284,12 +284,7 @@ import {
 } from '@ant-design/icons-vue'
 
 // Flower API 基础路径（通过 Vite 代理）
-const FLOWER_API = '/api/monitor'
-
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('token')
-  return token ? { 'Authorization': `Bearer ${token}` } : {}
-}
+const FLOWER_API = '/flower/api'
 
 const { loadFromUrl, syncToUrl } = useUrlSearch()
 
@@ -330,11 +325,10 @@ const workerList = computed(() => {
   return Object.entries(workers.value).map(([name, info]: [string, any]) => ({
     name,
     status: info.status || 'online',
-    active: info.active_count ?? (info.active || []).length,
-    processed: info.tasks_total ?? info.processed ?? 0,
+    active: (info.active || []).length,
+    processed: info.tasks_total || info.processed || 0,
     concurrency: info.concurrency || info.pool?.max_concurrency || 4,
-    pid: info.pid || info.stats?.pid || '-',
-    loadavg: info.loadavg || [],
+    pid: info.pid || info.stats?.pid || '-'
   }))
 })
 
@@ -377,7 +371,7 @@ const stats = computed(() => {
 // 获取 Workers
 async function fetchWorkers() {
   try {
-    const resp = await fetch(`${FLOWER_API}/workers`, { method: 'GET', headers: authHeaders() })
+    const resp = await fetch(`${FLOWER_API}/workers`, { method: 'GET' })
     if (resp.ok) {
       workers.value = await resp.json()
       flowerOnline.value = true
@@ -392,7 +386,7 @@ async function fetchWorkers() {
 // 获取任务列表
 async function fetchTasks() {
   try {
-    const resp = await fetch(`${FLOWER_API}/tasks?limit=100`, { method: 'GET', headers: authHeaders() })
+    const resp = await fetch(`${FLOWER_API}/tasks?limit=100`, { method: 'GET' })
     if (resp.ok) {
       tasks.value = await resp.json()
       flowerOnline.value = true
@@ -413,7 +407,7 @@ async function fetchAll() {
 async function onExpand(expanded: boolean, record: any) {
   if (expanded && (!record.result || !record.exception)) {
     try {
-      const resp = await fetch(`${FLOWER_API}/tasks/${record.uuid}`, { method: 'GET', headers: authHeaders() })
+      const resp = await fetch(`${FLOWER_API}/task/result/${record.uuid}`, { method: 'GET' })
       if (resp.ok) {
         const detail = await resp.json()
         tasks.value[record.uuid] = { ...tasks.value[record.uuid], ...detail }
@@ -429,7 +423,7 @@ async function showTaskDetail(record: any) {
   selectedTask.value = record
   detailVisible.value = true
   try {
-    const resp = await fetch(`${FLOWER_API}/tasks/${record.uuid}`, { method: 'GET', headers: authHeaders() })
+    const resp = await fetch(`${FLOWER_API}/task/result/${record.uuid}`, { method: 'GET' })
     if (resp.ok) {
       const detail = await resp.json()
       selectedTask.value = { ...record, ...detail }

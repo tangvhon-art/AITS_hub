@@ -396,6 +396,34 @@ class PerformanceTestUser(HttpUser):
                 logger.info(f"stats_history 聚合首条: users={aggregate[0].get('users')}, rps={aggregate[0].get('rps')}, avg={aggregate[0].get('avg')}, p50={aggregate[0].get('p50')}")
             logger.info(f"stats_history 解析完成: 聚合 {len(aggregate)} 条, {len(by_endpoint)} 个接口趋势 (共 {total_rows} 行)")
 
+        # 修复：Aggregated 行 avg 可能为0，用各接口同时间戳的 avg 平均值替代
+        if by_endpoint and aggregate:
+            # 按时间戳索引各接口记录
+            endpoint_by_ts = {}
+            for ep_name, ep_records in by_endpoint.items():
+                for rec in ep_records:
+                    ts = rec.get("timestamp", "")
+                    if ts not in endpoint_by_ts:
+                        endpoint_by_ts[ts] = []
+                    endpoint_by_ts[ts].append(rec)
+            # 对每条 aggregate 记录，用各接口 avg 平均值计算
+            for agg_rec in aggregate:
+                ts = agg_rec.get("timestamp", "")
+                ep_recs = endpoint_by_ts.get(ts, [])
+                if ep_recs:
+                    avg_vals = [r.get("avg", 0) for r in ep_recs if r.get("avg", 0) > 0]
+                    if avg_vals:
+                        calc_avg = sum(avg_vals) / len(avg_vals)
+                        # 如果原 avg 为0或异常，用计算值替代
+                        if not agg_rec.get("avg") or agg_rec.get("avg") == 0:
+                            agg_rec["avg"] = round(calc_avg, 2)
+                            agg_rec["average"] = round(calc_avg, 2)
+                        # 同时用各接口 rps 总和修正 aggregate rps
+                        rps_vals = [r.get("rps", 0) for r in ep_recs]
+                        if rps_vals and (not agg_rec.get("rps") or agg_rec.get("rps") == 0):
+                            agg_rec["rps"] = round(sum(rps_vals), 2)
+            logger.info(f"已用各接口平均值修复 aggregate avg，首条 avg={aggregate[0].get('avg') if aggregate else 'N/A'}")
+
         return {"aggregate": aggregate, "by_endpoint": by_endpoint}
 
     def _cleanup_csv_files(self, run_id: int):

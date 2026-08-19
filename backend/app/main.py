@@ -50,7 +50,6 @@ from app.api import (
     notifications_router,
     mcp_router,
     skills_router,
-    monitor_router,
 )
 
 logging.basicConfig(
@@ -232,7 +231,6 @@ app.include_router(prompts_router)
 app.include_router(notifications_router)
 app.include_router(mcp_router)
 app.include_router(skills_router)
-app.include_router(monitor_router)
 
 
 @app.get("/api/health", tags=["系统"])
