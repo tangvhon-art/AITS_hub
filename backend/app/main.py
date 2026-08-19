@@ -50,6 +50,7 @@ from app.api import (
     notifications_router,
     mcp_router,
     skills_router,
+    monitor_router,
 )
 
 logging.basicConfig(
@@ -136,7 +137,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)  # 等待应用完全启动
         try:
             from app.models.mcp_connector import MCPConnector
-            from app.mcp.client import McpClient
+            from app.mcp.client import MCPClient
             from app.database import SessionLocal
             db = SessionLocal()
             try:
@@ -148,7 +149,7 @@ async def lifespan(app: FastAPI):
                     logger.info(f"发现 {len(connectors)} 个已启用 MCP 连接器，开始重连...")
                 for conn in connectors:
                     try:
-                        client = McpClient(
+                        client = MCPClient(
                             connector_id=conn.id, name=conn.name, transport=conn.transport,
                             url=conn.url or "", command=conn.command or "",
                             args=conn.args or [], env_vars=conn.env_vars or {},
@@ -231,6 +232,7 @@ app.include_router(prompts_router)
 app.include_router(notifications_router)
 app.include_router(mcp_router)
 app.include_router(skills_router)
+app.include_router(monitor_router)
 
 
 @app.get("/api/health", tags=["系统"])
