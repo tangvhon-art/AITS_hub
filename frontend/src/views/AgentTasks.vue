@@ -6,10 +6,17 @@
         <a-select v-model:value="filterAgentType" placeholder="Agent类型" allow-clear style="width: 160px">
           <a-select-option value="case_generator">用例生成</a-select-option>
           <a-select-option value="case_reviewer">用例评审</a-select-option>
+          <a-select-option value="case_optimizer">用例优化</a-select-option>
+          <a-select-option value="requirement_generator">需求生成</a-select-option>
+          <a-select-option value="api_case_generator">接口用例生成</a-select-option>
+          <a-select-option value="api_doc_generator">接口文档生成</a-select-option>
           <a-select-option value="ui_execution">UI执行</a-select-option>
           <a-select-option value="defect_analyzer">缺陷分析</a-select-option>
           <a-select-option value="report_generator">报告生成</a-select-option>
           <a-select-option value="bdd_generator">BDD生成</a-select-option>
+          <a-select-option value="script_generator">脚本生成</a-select-option>
+          <a-select-option value="script_fixer">脚本修复</a-select-option>
+          <a-select-option value="knowledge_processor">知识库处理</a-select-option>
           <a-select-option value="supervisor">Supervisor</a-select-option>
           <a-select-option value="notification">通知</a-select-option>
         </a-select>
@@ -203,10 +210,17 @@ function agentTypeText(t: string) {
   const map: Record<string, string> = {
     case_generator: '用例生成',
     case_reviewer: '用例评审',
+    case_optimizer: '用例优化',
+    requirement_generator: '需求生成',
+    api_case_generator: '接口用例生成',
+    api_doc_generator: '接口文档生成',
     ui_execution: 'UI执行',
     defect_analyzer: '缺陷分析',
     report_generator: '报告生成',
     bdd_generator: 'BDD生成',
+    script_generator: '脚本生成',
+    script_fixer: '脚本修复',
+    knowledge_processor: '知识库处理',
     supervisor: 'Supervisor',
     notification: '通知',
   }

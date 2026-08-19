@@ -10,7 +10,7 @@ class AgentTask(SoftDeleteMixin, Base):
 
     id = Column(Integer, primary_key=True, index=True, comment="自增主键")
     project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=True, index=True, comment="所属项目ID")
-    agent_type = Column(String(50), nullable=False, index=True, comment="Agent类型：case_generator-用例生成，ui_execution-UI执行，reviewer-用例评审，defect_analyzer-缺陷分析，report_generator-报告生成")
+    agent_type = Column(String(50), nullable=False, index=True, comment="Agent类型：case_generator-用例生成，case_reviewer-用例评审，case_optimizer-用例优化，requirement_generator-需求生成，api_case_generator-接口用例生成，api_doc_generator-接口文档生成，ui_execution-UI执行，defect_analyzer-缺陷分析，report_generator-报告生成，bdd_generator-BDD生成，script_generator-脚本生成，script_fixer-脚本修复，knowledge_processor-知识库处理，supervisor-编排，notification-通知")
     status = Column(String(20), default="pending", index=True, comment="状态：pending-等待，running-执行中，success-成功，failed-失败，retrying-重试中")
     input_params = Column(JSON, default=dict, comment="输入参数（JSON）")
     output_result = Column(JSON, default=dict, comment="输出结果（JSON）")

@@ -46,7 +46,19 @@ async def send_debug_request(
         ).first()
         if env:
             base_url = env.base_url or ""
-            # 加载环境变量覆盖
+            # 加载环境自身配置的变量（config.variables，支持 dict 和 list 两种格式）
+            env_config = env.config or {}
+            env_variables = env_config.get("variables", {})
+            if isinstance(env_variables, dict):
+                for k, v in env_variables.items():
+                    if k not in env_vars_dict:
+                        env_vars_dict[k] = v
+            elif isinstance(env_variables, list):
+                for v in env_variables:
+                    if isinstance(v, dict) and v.get("key"):
+                        if v["key"] not in env_vars_dict:
+                            env_vars_dict[v["key"]] = v.get("value", "")
+            # 加载环境变量覆盖（优先级更高）
             overrides = db.query(EnvironmentVariableOverride).filter(
                 EnvironmentVariableOverride.environment_id == env.id,
             ).all()

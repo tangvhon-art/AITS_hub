@@ -331,8 +331,10 @@
           style="width: 240px"
           @pressEnter="scopePage = 1"
         />
-        <a-button type="primary" @click="scopePage = 1">查询</a-button>
-        <a-button @click="handleScopeReset">重置</a-button>
+        <a-space>
+          <a-button type="primary" @click="scopePage = 1">查询</a-button>
+          <a-button @click="handleScopeReset">重置</a-button>
+        </a-space>
       </div>
       <a-table
         :columns="scopeColumns"

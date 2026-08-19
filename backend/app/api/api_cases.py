@@ -340,9 +340,33 @@ async def run_case(
 
     # 变量引擎
     var_engine = VariableEngine()
-    if data.environment_vars:
-        var_engine.load_from_dict("environment", data.environment_vars)
-    base_url = data.base_url or var_engine.get("base_url") or ""
+    env_vars_dict = data.environment_vars or {}
+
+    # 加载环境配置的变量（config.variables，支持 dict 和 list 两种格式）
+    if data.environment_id:
+        from app.models.test_plan import TestEnvironment
+        env = db.query(TestEnvironment).filter(
+            TestEnvironment.id == data.environment_id,
+            TestEnvironment.project_id == project_id,
+        ).first()
+        if env:
+            if not data.base_url:
+                base_url = env.base_url or ""
+            env_config = env.config or {}
+            env_variables = env_config.get("variables", {})
+            if isinstance(env_variables, dict):
+                for k, v in env_variables.items():
+                    if k not in env_vars_dict:
+                        env_vars_dict[k] = v
+            elif isinstance(env_variables, list):
+                for v in env_variables:
+                    if isinstance(v, dict) and v.get("key"):
+                        if v["key"] not in env_vars_dict:
+                            env_vars_dict[v["key"]] = v.get("value", "")
+
+    if env_vars_dict:
+        var_engine.load_from_dict("environment", env_vars_dict)
+    base_url = data.base_url or var_engine.get("base_url") or base_url or ""
 
     # 如果关联了接口，使用接口的 method 和 path
     if case.api_id:

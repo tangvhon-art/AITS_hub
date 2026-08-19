@@ -11,7 +11,7 @@ from app.services.mock_data_generator import mock_generator
 class VariableEngine:
     """变量引擎"""
 
-    VAR_PATTERN = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
+    VAR_PATTERN = re.compile(r"\{\{\s*([\w.\-]+)\s*\}\}")
 
     def __init__(self):
         self.global_vars: Dict[str, Any] = {}
