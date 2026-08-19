@@ -38,6 +38,7 @@ from app.models.prompt import Prompt
 from app.models.notification import NotificationChannel, NotificationRule, NotificationRecord
 from app.models.mcp_connector import MCPConnector
 from app.models.skill import Skill
+from app.models.chat_history import ChatSession, ChatMessage
 
 __all__ = [
     "User",
@@ -87,4 +88,6 @@ __all__ = [
     "NotificationRecord",
     "MCPConnector",
     "Skill",
+    "ChatSession",
+    "ChatMessage",
 ]

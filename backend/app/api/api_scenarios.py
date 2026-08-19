@@ -409,6 +409,29 @@ def delete_scenario_variable(
     db.commit()
     return {"detail": "删除成功"}
 
+@router.delete("/{scenario_id}/steps/{step_id}/variables")
+def clear_step_variables(
+    project_id: int,
+    scenario_id: int,
+    step_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """清空某步骤的所有变量提取配置（保存时先清空再重建，避免重复）"""
+    get_project(project_id, db, current_user)
+    step = db.query(ApiScenarioStep).filter(
+        ApiScenarioStep.id == step_id,
+        ApiScenarioStep.scenario_id == scenario_id,
+    ).first()
+    if not step:
+        raise HTTPException(status_code=404, detail="步骤不存在")
+    db.query(ApiScenarioVariable).filter(
+        ApiScenarioVariable.step_id == step_id,
+        ApiScenarioVariable.is_deleted == False,
+    ).update({ApiScenarioVariable.is_deleted: True}, synchronize_session=False)
+    db.commit()
+    return {"detail": "已清空"}
+
 # ==================== 场景执行 ====================
 
 @router.post("/{scenario_id}/run")

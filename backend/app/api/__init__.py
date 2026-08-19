@@ -22,6 +22,7 @@ from app.api.automation_scripts import router as automation_scripts_router
 from app.api.automation_suites import router as automation_suites_router
 from app.api.automation_suites import run_router as suite_runs_router
 from app.api.chat import router as chat_router
+from app.api.chat_history import router as chat_history_router
 from app.api.api_modules import router as api_modules_router
 from app.api.api_definitions import router as api_definitions_router
 from app.api.api_debug import router as api_debug_router
@@ -67,6 +68,7 @@ __all__ = [
     "automation_suites_router",
     "suite_runs_router",
     "chat_router",
+    "chat_history_router",
     "api_modules_router",
     "api_definitions_router",
     "api_debug_router",

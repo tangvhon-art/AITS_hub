@@ -12,6 +12,33 @@ export interface ChatRequest {
   history?: ChatMessage[]
   use_knowledge?: boolean
   stream?: boolean
+  session_id?: number
+}
+
+export interface ChatSession {
+  id: number
+  user_id: number
+  project_id?: number
+  title: string
+  llm_config_id?: number
+  use_knowledge: boolean
+  message_count: number
+  last_message_at?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ChatSessionMessage {
+  id: number
+  session_id: number
+  role: string
+  content?: string
+  tool_calls?: any
+  knowledge_results?: any
+  progress?: any
+  token_usage?: any
+  sort_order: number
+  created_at?: string
 }
 
 export interface KnowledgeResult {
@@ -58,6 +85,7 @@ export async function chatStream(
     onKnowledge?: (results: KnowledgeResult[]) => void
     onProgress?: (progress: { node: string; label: string; status: string; detail?: string }) => void
     onProgressPlan?: (steps: any[]) => void
+    onSession?: (sessionId: number) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -69,6 +97,8 @@ export async function chatStream(
         onMessage: (data: any) => {
           if (data.type === 'content') {
             callbacks.onContent?.(data.content)
+          } else if (data.type === 'session') {
+            callbacks.onSession?.(data.session_id)
           } else if (data.type === 'metadata') {
             callbacks.onMetadata?.(data)
           } else if (data.type === 'tool_call') {
@@ -95,4 +125,34 @@ export async function chatStream(
       { method: 'POST', body: { ...data, stream: true }, signal },
     )
   })
+}
+
+// ==================== 聊天历史记录 API ====================
+
+export function listChatSessions(projectId?: number, page = 1, pageSize = 50): Promise<{ total: number; items: ChatSession[] }> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  if (projectId !== undefined) params.set('project_id', String(projectId))
+  return request.get(`/chat/sessions?${params.toString()}`)
+}
+
+export function getChatSession(sessionId: number): Promise<{ session: ChatSession; messages: ChatSessionMessage[] }> {
+  return request.get(`/chat/sessions/${sessionId}`)
+}
+
+export function createChatSession(data: { project_id?: number; title?: string; llm_config_id?: number; use_knowledge?: boolean }): Promise<ChatSession> {
+  return request.post('/chat/sessions', data)
+}
+
+export function renameChatSession(sessionId: number, title: string): Promise<ChatSession> {
+  return request.put(`/chat/sessions/${sessionId}`, { title })
+}
+
+export function deleteChatSession(sessionId: number): Promise<{ message: string }> {
+  return request.delete(`/chat/sessions/${sessionId}`)
+}
+
+// ==================== Skill 刷新 API ====================
+
+export function reloadSkills(): Promise<{ success: boolean; message: string; count: number }> {
+  return request.post('/skills/reload')
 }

@@ -10,6 +10,8 @@ SSE 模式遵循标准 MCP Streamable HTTP 协议：
 import json
 import logging
 import subprocess
+import asyncio
+import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -99,8 +101,9 @@ class MCPClient:
         self.command = command
         self.args = args or []
         self.env_vars = env_vars or {}
-        self._process: Optional[subprocess.Popen] = None
+        self._process = None  # subprocess.Popen 或 asyncio.subprocess.Process
         self._endpoint: Optional[str] = None  # SSE 模式下从 endpoint 事件获取
+        self._msg_id: int = 0
         self.tools: List[Dict[str, Any]] = []
 
     async def connect(self) -> List[Dict[str, Any]]:
@@ -232,23 +235,89 @@ class MCPClient:
             return {}
 
     async def _connect_stdio(self) -> List[Dict[str, Any]]:
-        """stdio 模式连接（简化实现）"""
+        """stdio 模式连接：启动子进程，完成 MCP 握手，拉取工具列表"""
         if not self.command:
             raise ValueError("stdio 模式需要配置 command")
-        self._process = subprocess.Popen(
-            [self.command] + self.args,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env={**__import__('os').environ, **self.env_vars},
-            text=True,
-        )
-        self._process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}) + "\n")
-        self._process.stdin.flush()
-        self._process.stdout.readline()
-        self._process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}) + "\n")
-        self._process.stdin.flush()
-        line = self._process.stdout.readline()
-        data = json.loads(line)
-        self.tools = data.get("result", {}).get("tools", [])
+
+        import shutil
+        # 解析命令：如果 command 包含空格（如 "npx -y xxx"），拆分
+        cmd_parts = self.command.split() if self.command else []
+        full_cmd = cmd_parts + (self.args or [])
+        if not full_cmd:
+            raise ValueError("stdio 模式命令为空")
+
+        # 检查命令是否存在
+        if not shutil.which(full_cmd[0]):
+            raise ValueError(f"命令不存在: {full_cmd[0]}，请确认已安装并在 PATH 中")
+
+        env = {**os.environ, **(self.env_vars or {})}
+        logger.info(f"MCP stdio 启动: {' '.join(full_cmd)}")
+
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *full_cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+        except FileNotFoundError as e:
+            raise ValueError(f"启动失败: {e}")
+        except Exception as e:
+            raise ValueError(f"启动子进程失败: {e}")
+
+        self._msg_id = 0
+
+        async def _send_request(method: str, params: dict = None) -> dict:
+            """发送 JSON-RPC 请求并等待响应"""
+            self._msg_id += 1
+            msg_id = self._msg_id
+            request = {"jsonrpc": "2.0", "id": msg_id, "method": method}
+            if params is not None:
+                request["params"] = params
+            line = json.dumps(request) + "\n"
+            self._process.stdin.write(line.encode())
+            await self._process.stdin.drain()
+
+            # 读取响应（跳过 notification 消息）
+            while True:
+                try:
+                    raw = await asyncio.wait_for(self._process.stdout.readline(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    # 读取 stderr 用于调试
+                    stderr_data = ""
+                    try:
+                        stderr_data = (await asyncio.wait_for(self._process.stderr.read(4096), timeout=1.0)).decode(errors="replace")
+                    except Exception:
+                        pass
+                    raise TimeoutError(f"MCP {method} 超时，stderr: {stderr_data[:500]}")
+                if not raw:
+                    raise ConnectionError("MCP 进程 stdout 已关闭")
+                try:
+                    data = json.loads(raw.decode().strip())
+                except json.JSONDecodeError:
+                    continue  # 跳过非 JSON 行
+                # 只处理对应 id 的响应，跳过 notification
+                if data.get("id") == msg_id and "result" in data:
+                    return data["result"]
+                if data.get("id") == msg_id and "error" in data:
+                    raise RuntimeError(f"MCP {method} 错误: {data['error']}")
+
+        # 1. initialize
+        await _send_request("initialize", {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "aits-hub", "version": "1.0.0"},
+        })
+
+        # 2. notifications/initialized（不需要响应）
+        self._process.stdin.write((json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n").encode())
+        await self._process.stdin.drain()
+
+        # 3. tools/list
+        result = await _send_request("tools/list")
+        self.tools = result.get("tools", [])
+        logger.info(f"MCP stdio {self.name} 连接成功，获取 {len(self.tools)} 个工具")
         return self.tools
 
     async def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
@@ -265,10 +334,27 @@ class MCPClient:
                 data = self._parse_mcp_response(resp)
                 return data.get("result", {})
         elif self.transport == "stdio" and self._process:
-            self._process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": tool_name, "arguments": args}}) + "\n")
-            self._process.stdin.flush()
-            line = self._process.stdout.readline()
-            return json.loads(line).get("result", {})
+            self._msg_id += 1
+            msg_id = self._msg_id
+            request = {"jsonrpc": "2.0", "id": msg_id, "method": "tools/call",
+                       "params": {"name": tool_name, "arguments": args}}
+            self._process.stdin.write((json.dumps(request) + "\n").encode())
+            await self._process.stdin.drain()
+            while True:
+                try:
+                    raw = await asyncio.wait_for(self._process.stdout.readline(), timeout=60.0)
+                except asyncio.TimeoutError:
+                    raise TimeoutError(f"MCP 工具调用超时: {tool_name}")
+                if not raw:
+                    raise ConnectionError("MCP 进程 stdout 已关闭")
+                try:
+                    data = json.loads(raw.decode().strip())
+                except json.JSONDecodeError:
+                    continue
+                if data.get("id") == msg_id and "result" in data:
+                    return data["result"]
+                if data.get("id") == msg_id and "error" in data:
+                    raise RuntimeError(f"MCP 工具调用错误: {data['error']}")
 
     def register_tools(self):
         """将拉取的工具注册到 ToolRegistry"""

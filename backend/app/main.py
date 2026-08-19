@@ -31,6 +31,7 @@ from app.api import (
     suite_runs_router,
     project_versions_router,
     chat_router,
+    chat_history_router,
     api_modules_router,
     api_definitions_router,
     api_debug_router,
@@ -117,6 +118,7 @@ async def lifespan(app: FastAPI):
         Prompt,
         NotificationChannel, NotificationRule, NotificationRecord,
         MCPConnector, Skill,
+        ChatSession, ChatMessage,
     )
     Base.metadata.create_all(bind=engine)
     _auto_migrate(engine)
@@ -212,6 +214,7 @@ app.include_router(automation_suites_router)
 app.include_router(suite_runs_router)
 app.include_router(project_versions_router)
 app.include_router(chat_router)
+app.include_router(chat_history_router)
 app.include_router(api_modules_router)
 app.include_router(api_definitions_router)
 app.include_router(api_debug_router)

@@ -256,6 +256,8 @@ class PerformanceTestUser(HttpUser):
             try:
                 with open(csv_path, "r") as f:
                     reader = csv.DictReader(f)
+                    if reader.fieldnames:
+                        logger.info(f"stats.csv 列名: {reader.fieldnames}")
                     for row in reader:
                         name = row.get("Name", "")
                         req_count = int(get_col(row, "Request Count", "requests", "samples"))
@@ -268,7 +270,7 @@ class PerformanceTestUser(HttpUser):
                         p99 = get_col(row, "99%", "p99")
                         rps = get_col(row, "Requests/s", "RPS", "throughput", "rps")
                         failures_per_s = get_col(row, "Failures/s", "failures_per_s", "failures_per_second")
-                        avg_size = get_col(row, "Average Content Size (bytes)", "Average Size (bytes)", "avg_size", "average_size")
+                        avg_size = get_col(row, "Average Content Size (bytes)", "Average Size (bytes)", "Content Size", "avg_size", "average_size", "Average Content Size")
                         fail_rate = round(fail_count / req_count * 100, 2) if req_count > 0 else 0.0
 
                         if name == "Aggregated":
@@ -283,6 +285,27 @@ class PerformanceTestUser(HttpUser):
                             stats["requests_per_second"] = rps
                             stats["failures_per_second"] = failures_per_s
                             stats["failure_rate"] = fail_rate
+                            # 同时添加 Total 行到聚合报告
+                            stats["endpoint_stats"].insert(0, {
+                                "label": "Total",
+                                "samples": req_count,
+                                "failures": fail_count,
+                                "average": round(avg_rt, 2),
+                                "median": round(p50, 2),
+                                "min": round(min_rt, 2),
+                                "max": round(max_rt, 2),
+                                "std_dev": round(safe_float(row.get("Std Dev", 0)), 2),
+                                "error_pct": fail_rate,
+                                "throughput": round(rps, 2),
+                                "failures_per_s": round(failures_per_s, 2),
+                                "avg_size_bytes": round(avg_size, 2),
+                                "received_kb_s": round(avg_size * rps / 1024, 2),
+                                "p50": round(p50, 2),
+                                "p90": round(safe_float(row.get("90%", 0)), 2),
+                                "p95": round(p95, 2),
+                                "p99": round(p99, 2),
+                                "is_total": True,
+                            })
                         else:
                             # 按接口统计（JMeter 聚合报告风格）
                             stats["endpoint_stats"].append({
@@ -423,6 +446,23 @@ class PerformanceTestUser(HttpUser):
                         if rps_vals and (not agg_rec.get("rps") or agg_rec.get("rps") == 0):
                             agg_rec["rps"] = round(sum(rps_vals), 2)
             logger.info(f"已用各接口平均值修复 aggregate avg，首条 avg={aggregate[0].get('avg') if aggregate else 'N/A'}")
+
+        # 修复2：Locust stats_history 的 Average 列常为0，各接口 avg 也为0，用 P50/中位数兜底
+        for agg_rec in aggregate:
+            if not agg_rec.get("avg") or agg_rec.get("avg") == 0:
+                p50 = agg_rec.get("p50") or agg_rec.get("median") or 0
+                if p50 > 0:
+                    agg_rec["avg"] = round(p50, 2)
+                    agg_rec["average"] = round(p50, 2)
+        for ep_records in by_endpoint.values():
+            for rec in ep_records:
+                if not rec.get("avg") or rec.get("avg") == 0:
+                    p50 = rec.get("p50") or rec.get("median") or 0
+                    if p50 > 0:
+                        rec["avg"] = round(p50, 2)
+                        rec["average"] = round(p50, 2)
+        if aggregate:
+            logger.info(f"P50兜底后 aggregate 首条 avg={aggregate[0].get('avg')}, 末条 avg={aggregate[-1].get('avg')}")
 
         return {"aggregate": aggregate, "by_endpoint": by_endpoint}
 

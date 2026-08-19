@@ -12,6 +12,8 @@ class VariableEngine:
     """变量引擎"""
 
     VAR_PATTERN = re.compile(r"\{\{\s*([\w.\-]+)\s*\}\}")
+    # 同时支持 ${var_name} 语法（Postman/JS 模板字符串风格）
+    DOLLAR_VAR_PATTERN = re.compile(r"\$\{\s*([\w.\-]+)\s*\}")
 
     def __init__(self):
         self.global_vars: Dict[str, Any] = {}
@@ -49,7 +51,7 @@ class VariableEngine:
                 or name in self.environment_vars or name in self.global_vars)
 
     def replace(self, text: str) -> str:
-        """替换文本中的 {{var_name}} 变量，先执行 Mock 函数替换"""
+        """替换文本中的 {{var_name}} 和 ${var_name} 变量，先执行 Mock 函数替换"""
         if not text or not isinstance(text, str):
             return text
 
@@ -65,7 +67,10 @@ class VariableEngine:
                 return json.dumps(value, ensure_ascii=False)
             return str(value)
 
-        return self.VAR_PATTERN.sub(_replace_match, text)
+        # 先替换 {{var_name}}，再替换 ${var_name}
+        text = self.VAR_PATTERN.sub(_replace_match, text)
+        text = self.DOLLAR_VAR_PATTERN.sub(_replace_match, text)
+        return text
 
     def replace_dict(self, data: Any) -> Any:
         """递归替换字典/列表中的变量"""

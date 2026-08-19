@@ -20,14 +20,14 @@
       <a-col :span="4"><a-card><a-statistic title="总请求数" :value="run.total_requests" /></a-card></a-col>
       <a-col :span="4"><a-card><a-statistic title="失败数" :value="run.total_failures || 0" :value-style="{ color: (run.total_failures || 0) > 0 ? '#cf1322' : '#3f8600' }" /></a-card></a-col>
       <a-col :span="4"><a-card><a-statistic title="失败率" :value="run.failure_rate || 0" suffix="%" /></a-card></a-col>
-      <a-col :span="4"><a-card><a-statistic title="RPS" :value="run.requests_per_second || 0" :precision="1" /></a-card></a-col>
+      <a-col :span="4"><a-card><a-statistic title="QPS" :value="run.requests_per_second || 0" :precision="1" /></a-card></a-col>
       <a-col :span="4"><a-card><a-statistic title="平均响应" :value="run.avg_response_time || 0" :precision="1" suffix="ms" /></a-card></a-col>
       <a-col :span="4"><a-card><a-statistic title="P95响应" :value="run.p95_response_time || 0" :precision="1" suffix="ms" :value-style="{ color: (run.p95_response_time || 0) > 1000 ? '#cf1322' : '#3f8600' }" /></a-card></a-col>
     </a-row>
 
     <!-- JMeter 风格聚合报告 -->
     <a-card v-if="endpointStats.length > 0" title="聚合报告（JMeter 风格）" style="margin-bottom: 16px">
-      <a-table :columns="aggregateColumns" :data-source="endpointStats" :pagination="false" row-key="label" size="small" :scroll="{ x: 1400 }">
+      <a-table :columns="aggregateColumns" :data-source="endpointStats" :pagination="false" row-key="label" size="small" :scroll="{ x: 1400 }" :row-class-name="(record: any) => record.is_total ? 'total-row' : ''">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'error_pct'">
             <span :style="{ color: record.error_pct > 0 ? '#cf1322' : '#3f8600' }">{{ record.error_pct }}%</span>
@@ -36,37 +36,42 @@
       </a-table>
     </a-card>
 
-    <a-row :gutter="16">
-      <a-col :span="12">
-        <a-card title="运行趋势（虚拟用户数 / RPS / 响应时间）">
-          <div v-if="hasTrendData" ref="responseChartRef" class="chart-container"></div>
-          <a-empty v-else :description="trendEmptyText" class="chart-empty" />
-        </a-card>
-      </a-col>
-      <a-col :span="12">
+    <!-- 性能指标汇总（整行） -->
+    <a-row :gutter="16" style="margin-bottom: 16px">
+      <a-col :span="24">
         <a-card title="性能指标汇总">
-          <a-descriptions :column="2" bordered size="small">
+          <a-descriptions :column="4" bordered size="small">
             <a-descriptions-item label="状态"><a-tag :color="statusColor(run.status)">{{ statusText(run.status) }}</a-tag></a-descriptions-item>
             <a-descriptions-item label="开始时间">{{ run.started_at || '-' }}</a-descriptions-item>
             <a-descriptions-item label="结束时间">{{ run.finished_at || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="总请求数">{{ run.total_requests || 0 }}</a-descriptions-item>
             <a-descriptions-item label="最小响应">{{ run.min_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
             <a-descriptions-item label="最大响应">{{ run.max_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
             <a-descriptions-item label="P50响应">{{ run.p50_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
             <a-descriptions-item label="P95响应">{{ run.p95_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
             <a-descriptions-item label="P99响应">{{ run.p99_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
+            <a-descriptions-item label="平均响应">{{ run.avg_response_time?.toFixed(1) || 0 }} ms</a-descriptions-item>
+            <a-descriptions-item label="QPS">{{ run.requests_per_second?.toFixed(1) || 0 }}</a-descriptions-item>
+            <a-descriptions-item label="失败率">{{ run.failure_rate || 0 }}%</a-descriptions-item>
           </a-descriptions>
         </a-card>
       </a-col>
     </a-row>
 
-    <!-- Locust 标准 4 张趋势图 -->
-    <a-row :gutter="16" v-if="hasTrendData" style="margin-top: 16px">
+    <!-- Locust 趋势图：2x2 布局 -->
+    <a-row :gutter="16" v-if="hasTrendData">
       <a-col :span="12">
-        <a-card title="Total Requests per Second（RPS 趋势）">
-          <div ref="rpsChartRef" class="chart-container"></div>
+        <a-card title="运行趋势（虚拟用户数 / QPS）">
+          <div ref="responseChartRef" class="chart-container"></div>
+          <a-empty v-if="!hasTrendData" :description="trendEmptyText" class="chart-empty" />
         </a-card>
       </a-col>
       <a-col :span="12">
+        <a-card title="Total Requests per Second（QPS 趋势）">
+          <div ref="rpsChartRef" class="chart-container"></div>
+        </a-card>
+      </a-col>
+      <a-col :span="12" style="margin-top: 16px">
         <a-card title="Response Times (ms) 响应时间趋势">
           <div ref="respTimeChartRef" class="chart-container"></div>
         </a-card>
@@ -74,11 +79,6 @@
       <a-col :span="12" style="margin-top: 16px">
         <a-card title="Number of Users 虚拟用户数趋势">
           <div ref="usersChartRef" class="chart-container"></div>
-        </a-card>
-      </a-col>
-      <a-col :span="12" style="margin-top: 16px">
-        <a-card title="Failures per Second 每秒失败趋势">
-          <div ref="failuresChartRef" class="chart-container"></div>
         </a-card>
       </a-col>
     </a-row>
@@ -124,7 +124,7 @@
           <a-col :span="8"><a-card size="small"><a-statistic title="失败率" :value="detailRun.failure_rate || 0" suffix="%" /></a-card></a-col>
         </a-row>
         <a-row :gutter="12" style="margin-bottom: 16px">
-          <a-col :span="8"><a-card size="small"><a-statistic title="RPS" :value="detailRun.requests_per_second || 0" :precision="1" /></a-card></a-col>
+          <a-col :span="8"><a-card size="small"><a-statistic title="QPS" :value="detailRun.requests_per_second || 0" :precision="1" /></a-card></a-col>
           <a-col :span="8"><a-card size="small"><a-statistic title="平均响应" :value="detailRun.avg_response_time || 0" :precision="1" suffix="ms" /></a-card></a-col>
           <a-col :span="8"><a-card size="small"><a-statistic title="P95响应" :value="detailRun.p95_response_time || 0" :precision="1" suffix="ms" :value-style="{ color: (detailRun.p95_response_time || 0) > 1000 ? '#cf1322' : '#3f8600' }" /></a-card></a-col>
         </a-row>
@@ -199,7 +199,7 @@ const runColumns = [
   { title: '状态', key: 'status', width: 100 },
   { title: '总请求', dataIndex: 'total_requests', key: 'total_requests', width: 90 },
   { title: '失败数', dataIndex: 'total_failures', key: 'total_failures', width: 80 },
-  { title: 'RPS', dataIndex: 'requests_per_second', key: 'requests_per_second', width: 80 },
+  { title: 'QPS', dataIndex: 'requests_per_second', key: 'requests_per_second', width: 80 },
   { title: 'P95(ms)', dataIndex: 'p95_response_time', key: 'p95_response_time', width: 90 },
   { title: '开始时间', dataIndex: 'started_at', key: 'started_at', width: 180 },
   { title: '操作', key: 'action', width: 80 },
@@ -226,7 +226,7 @@ const aggregateColumns = [
   { title: 'Min', dataIndex: 'min', key: 'min', width: 80 },
   { title: 'Max', dataIndex: 'max', key: 'max', width: 80 },
   { title: 'Average size', dataIndex: 'avg_size_bytes', key: 'avg_size_bytes', width: 110 },
-  { title: 'RPS', dataIndex: 'throughput', key: 'throughput', width: 90 },
+  { title: 'QPS', dataIndex: 'throughput', key: 'throughput', width: 90 },
   { title: '失败率', key: 'error_pct', width: 90 },
 ]
 
@@ -423,12 +423,12 @@ function renderLocustCharts() {
     if (!rpsChartInstance) rpsChartInstance = echarts.init(rpsChartRef.value)
     rpsChartInstance.setOption({
       tooltip: commonTooltip,
-      legend: { data: ['RPS', 'Failures/s'], type: 'scroll' },
+      legend: { data: ['QPS', 'Failures/s'], type: 'scroll' },
       grid: commonGrid,
       xAxis: { type: 'category', data: trend.categories, axisLabel: { rotate: trend.categories.length > 15 ? 30 : 0 } },
       yAxis: { type: 'value', name: '次/秒' },
       series: [
-        { name: 'RPS', type: 'line', data: trend.rps, smooth: true, areaStyle: { opacity: 0.1 }, itemStyle: { color: '#1677ff' } },
+        { name: 'QPS', type: 'line', data: trend.rps, smooth: true, areaStyle: { opacity: 0.1 }, itemStyle: { color: '#1677ff' } },
         { name: 'Failures/s', type: 'line', data: trend.failuresPerS, smooth: true, itemStyle: { color: '#cf1322' }, lineStyle: { type: 'dashed' } },
       ],
     })
@@ -530,12 +530,16 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
   const avgData = history.map((h: any) => {
     const rawAvg = h.avg ?? h.average ?? h.avg_response_time ?? 0
     if (rawAvg > 0) return rawAvg
-    // 兜底：用同时间戳各接口 avg 的平均值
+    // 兜底1：用同时间戳各接口 avg 的平均值
     const ts = String(h.timestamp || '')
     const epAvgs = endpointAvgByTs[ts]
     if (epAvgs && epAvgs.length > 0) {
-      return Math.round((epAvgs.reduce((a, b) => a + b, 0) / epAvgs.length) * 100) / 100
+      const calc = Math.round((epAvgs.reduce((a, b) => a + b, 0) / epAvgs.length) * 100) / 100
+      if (calc > 0) return calc
     }
+    // 兜底2：Locust stats_history 的 Average 列常为0，用 P50/中位数替代
+    const p50 = h.p50 ?? h.median ?? 0
+    if (p50 > 0) return Math.round(p50 * 100) / 100
     return 0
   })
   const usersData = history.map((h: any) => h.users || 0)
@@ -555,11 +559,10 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
     return totalRps > 0 ? Math.round(totalRps * 100) / 100 : 0
   })
 
-  const legendData = ['虚拟用户数', 'RPS', '平均响应时间']
+  const legendData = ['虚拟用户数', 'QPS']
   const series: any[] = [
-    { name: '虚拟用户数', type: 'line', data: usersData, smooth: true, yAxisIndex: 1, lineStyle: { type: 'dashed' } },
-    { name: 'RPS', type: 'line', data: rpsData, smooth: true, yAxisIndex: 1 },
-    { name: '平均响应时间', type: 'line', data: avgData, smooth: true, areaStyle: { opacity: 0.1 } },
+    { name: '虚拟用户数', type: 'line', data: usersData, smooth: true, lineStyle: { type: 'dashed' } },
+    { name: 'QPS', type: 'line', data: rpsData, smooth: true, areaStyle: { opacity: 0.1 } },
   ]
 
   instance.setOption({
@@ -567,10 +570,7 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
     legend: { data: legendData, type: 'scroll' },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: { type: 'category', data: categories, axisLabel: { rotate: categories.length > 15 ? 30 : 0 } },
-    yAxis: [
-      { type: 'value', name: 'ms', position: 'left' },
-      { type: 'value', name: '用户数/RPS', position: 'right' },
-    ],
+    yAxis: { type: 'value', name: '数量' },
     series,
   }, true)
 }
@@ -615,5 +615,12 @@ onUnmounted(() => {
 }
 .selected-run-row:hover > td {
   background-color: #bae0ff !important;
+}
+.total-row > td {
+  background-color: #fafafa !important;
+  font-weight: 600;
+}
+.total-row:hover > td {
+  background-color: #f0f0f0 !important;
 }
 </style>

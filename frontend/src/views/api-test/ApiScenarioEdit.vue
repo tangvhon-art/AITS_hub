@@ -60,15 +60,16 @@
       <!-- 右侧：步骤编排区 -->
       <a-col :span="18">
         <a-card title="基本信息" size="small" style="margin-bottom: 16px">
-          <a-row :gutter="16">
+          <a-form layout="vertical">
+          <a-row :gutter="16" align="top">
             <a-col :span="8">
               <a-form-item label="场景名称" style="margin-bottom: 0">
-                <a-input v-model:value="form.name" />
+                <a-input v-model:value="form.name" size="middle" />
               </a-form-item>
             </a-col>
             <a-col :span="8">
               <a-form-item label="环境" style="margin-bottom: 0">
-                <a-select v-model:value="form.environment_id" allow-clear placeholder="选择环境">
+                <a-select v-model:value="form.environment_id" allow-clear placeholder="选择环境" size="middle">
                   <a-select-option v-for="env in environments" :key="env.id" :value="env.id">{{ env.name }}</a-select-option>
                 </a-select>
               </a-form-item>
@@ -80,6 +81,7 @@
                   show-search
                   allow-clear
                   placeholder="选择数据池（可选）"
+                  size="middle"
                   :filter-option="(input: string, option: any) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())"
                   :options="poolOptions"
                 />
@@ -89,6 +91,7 @@
           <a-form-item label="描述" style="margin-top: 8px; margin-bottom: 0">
             <a-textarea v-model:value="form.description" :rows="2" />
           </a-form-item>
+          </a-form>
         </a-card>
 
         <a-card size="small">
@@ -134,6 +137,18 @@
                   <a-form-item label="步骤名称">
                     <a-input v-model:value="step.step_name" />
                   </a-form-item>
+                  <!-- 可用变量（前面步骤提取的变量，点击复制） -->
+                  <div v-if="['api', 'case'].includes(step.step_type) && getAvailableVars(index).length > 0" class="available-vars">
+                    <span class="av-label">可用变量：</span>
+                    <a-tag
+                      v-for="v in getAvailableVars(index)"
+                      :key="v"
+                      color="blue"
+                      style="cursor: pointer"
+                      @click="copyVar(v)"
+                    >${{ '{' }}{{ v }}{{ '}' }}</a-tag>
+                    <span class="av-tip">点击复制到剪贴板</span>
+                  </div>
                   <a-row :gutter="16">
                     <a-col :span="8">
                       <a-form-item label="启用">
@@ -234,8 +249,26 @@
                       description="遍历值列表中的每个值，依次执行循环体步骤。循环变量可通过 {{变量名}} 引用。" />
                   </template>
 
-                  <!-- API/用例步骤：脚本 + 响应提取 -->
+                  <!-- API/用例步骤：参数覆盖 + 脚本 + 响应提取 -->
                   <template v-if="['api', 'case'].includes(step.step_type)">
+                    <a-form-item label="请求参数覆盖（可选，深度合并到原请求体）" style="margin-bottom: 12px">
+                      <a-textarea
+                        v-model:value="step.request_config.body_override"
+                        :rows="3"
+                        style="font-family: monospace"
+                        placeholder='输入 JSON，如 {"data":{"name":"${name}"}}，将与接口原参数深度合并，支持变量引用'
+                      />
+                      <div class="override-tip">原参数中未覆盖的字段保持不变，覆盖字段以本输入为准</div>
+                    </a-form-item>
+                    <a-form-item label="Query Params 覆盖（可选，合并到原查询参数）" style="margin-bottom: 12px">
+                      <a-textarea
+                        v-model:value="step.request_config.query_params_override"
+                        :rows="2"
+                        style="font-family: monospace"
+                        placeholder='输入 JSON，如 {"name":"${name}","page":"1"}，已存在的参数更新值，不存在的新增'
+                      />
+                      <div class="override-tip">GET 请求的查询参数用此方式覆盖，支持变量引用</div>
+                    </a-form-item>
                     <a-tabs size="small">
                       <a-tab-pane key="pre" tab="前置脚本">
                         <div class="script-header">
@@ -501,6 +534,39 @@ const addExtractVar = (step: any) => {
   })
 }
 
+// 获取当前步骤之前所有步骤提取的变量名（去重）
+const getAvailableVars = (currentIndex: number): string[] => {
+  const vars: string[] = []
+  for (let i = 0; i < currentIndex; i++) {
+    const step = steps.value[i]
+    if (step && step._extract_vars) {
+      for (const v of step._extract_vars) {
+        if (v.var_name && !vars.includes(v.var_name)) {
+          vars.push(v.var_name)
+        }
+      }
+    }
+  }
+  return vars
+}
+
+// 复制变量引用到剪贴板
+const copyVar = (varName: string) => {
+  const text = '${' + varName + '}'
+  navigator.clipboard.writeText(text).then(() => {
+    message.success('已复制 ' + text)
+  }).catch(() => {
+    // 兜底：用临时 textarea
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    message.success('已复制 ' + text)
+  })
+}
+
 const handleAiGenerateScript = async (step: any, field: string) => {
   step._aiLoading = true
   try {
@@ -563,11 +629,17 @@ const loadData = async () => {
       const data = await apiScenariosApi.get(projectId, Number(scenarioId))
       Object.assign(form.value, data)
       const stepList = await apiScenariosApi.listSteps(projectId, Number(scenarioId))
-      steps.value = stepList.map((s: any) => ({
-        ...createStep(s.step_type, s),
-        loop_config: s.loop_config || {},
-        _extract_vars: [],
-      }))
+      steps.value = stepList.map((s: any) => {
+        const base = createStep(s.step_type || 'api', s)
+        return {
+          ...base,
+          id: s.id ?? base.id,
+          scenario_id: s.scenario_id ?? base.scenario_id,
+          request_config: s.request_config || {},
+          loop_config: s.loop_config || {},
+          _extract_vars: [],
+        }
+      })
       // 加载所有步骤的提取变量，按 step_id 分组
       if (steps.value.length > 0) {
         try {
@@ -609,7 +681,12 @@ const handleSave = async () => {
         const savedStep = await apiScenariosApi.createStep(projectId, savedScenario.id, stepData)
         step.id = savedStep.id
       }
-      // 保存提取变量
+      // 保存提取变量：先清空该步骤已有变量，再重建，避免重复
+      if (step.id && step.id > 0) {
+        try {
+          await apiScenariosApi.clearStepVariables(projectId, savedScenario.id, step.id)
+        } catch {}
+      }
       if (_extract_vars && _extract_vars.length > 0) {
         for (const v of _extract_vars) {
           if (v.var_name) {
@@ -772,5 +849,30 @@ onMounted(() => {
 .preview-label {
   font-size: 12px;
   color: #8c8c8c;
+}
+.available-vars {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 4px;
+}
+.av-label {
+  font-size: 12px;
+  color: #52c41a;
+  font-weight: 500;
+}
+.av-tip {
+  font-size: 11px;
+  color: #8c8c8c;
+}
+.override-tip {
+  font-size: 11px;
+  color: #8c8c8c;
+  margin-top: 4px;
 }
 </style>

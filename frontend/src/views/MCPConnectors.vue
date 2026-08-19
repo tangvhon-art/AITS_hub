@@ -180,7 +180,8 @@ async function handleJsonImport() {
     let created = 0
     let skipped = 0
     for (const [name, cfg] of Object.entries(servers) as [string, any]) {
-      const transport = cfg.type === 'stdio' ? 'stdio' : 'sse'
+      // 识别传输方式：显式 type=stdio，或有 command 字段则为 stdio
+      const transport = (cfg.type === 'stdio' || cfg.command) ? 'stdio' : 'sse'
       const payload: any = {
         name,
         description: cfg.description || `从 JSON 导入的 ${name} 连接器`,

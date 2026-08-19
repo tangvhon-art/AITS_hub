@@ -357,6 +357,9 @@ class ChatAgent(BaseAgent):
         """使用原生 bind_tools 的对话流程"""
         knowledge_context = self._build_knowledge_context(knowledge_results)
         system_content = SYSTEM_PROMPT.format(knowledge_context=knowledge_context)
+        # 无项目时追加提示，避免 LLM 调用项目相关工具
+        if not self.project_id:
+            system_content += "\n\n【当前模式】未选择项目，处于通用问答模式。项目相关工具（查询用例、缺陷、需求、接口、报告等）不可用，请勿调用。如需查询项目数据，请先选择项目。"
 
         # 如果命中 Skill，使用 Skill 的 System Prompt
         if skill and skill.skill_config:
@@ -575,6 +578,8 @@ class ChatAgent(BaseAgent):
             tool_context = f"\n【工具调用结果】\n工具: {tool_name}\n返回数据:\n{json.dumps(tool_result, ensure_ascii=False, indent=2)[:2000]}\n"
 
         system_msg = SYSTEM_PROMPT.format(knowledge_context=knowledge_context) + tool_context
+        if not self.project_id:
+            system_msg += "\n\n【当前模式】未选择项目，处于通用问答模式。项目相关工具（查询用例、缺陷、需求、接口、报告等）不可用，请勿调用。如需查询项目数据，请先选择项目。"
         messages = [{"role": "system", "content": system_msg}]
         for h in self._prepare_history(history):
             if h.get("role") in ("user", "assistant", "system"):

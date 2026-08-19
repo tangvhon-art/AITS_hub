@@ -6,7 +6,8 @@
         <a-select
           v-model:value="selectedProjectId"
           class="control-select"
-          placeholder="选择项目"
+          placeholder="选择项目（可选，不选则通用问答）"
+          allow-clear
           @change="handleProjectChange"
         >
           <a-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
@@ -22,15 +23,73 @@
         <a-button type="text" size="small" :loading="probingCaps" @click="reprobeCapabilities" title="重新检测模型能力">
           <ReloadOutlined />
         </a-button>
-        <a-checkbox v-model:checked="useKnowledge" class="knowledge-checkbox">知识库</a-checkbox>
+        <a-button type="text" size="small" :loading="reloadingSkills" @click="handleReloadSkills" title="刷新 Skill 列表">
+          <ThunderboltOutlined />
+        </a-button>
+        <a-checkbox v-model:checked="useKnowledge" class="knowledge-checkbox" :disabled="!selectedProjectId">知识库</a-checkbox>
       </div>
       <div class="top-bar-right">
         <span class="app-title">AITS 助手</span>
-        <a-button type="text" @click="newChat" title="新对话">
-          <PlusOutlined />
-        </a-button>
+        <button class="icon-btn" @click="newChat" title="新对话">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+        <button class="icon-btn" @click="openHistoryDrawer" title="历史对话">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+            <path d="M3 3v5h5"/>
+            <path d="M12 7v5l3 2"/>
+          </svg>
+        </button>
       </div>
     </div>
+
+    <!-- 历史对话抽屉 -->
+    <a-drawer
+      v-model:open="historyDrawerVisible"
+      title="历史对话"
+      placement="right"
+      :width="320"
+    >
+      <div class="drawer-search">
+        <a-input v-model:value="sessionSearch" placeholder="搜索对话" allow-clear>
+          <template #prefix><SearchOutlined /></template>
+        </a-input>
+      </div>
+      <div class="drawer-session-list">
+        <!-- 骨架屏加载 -->
+        <div v-if="loadingSessions" class="session-skeleton-list">
+          <div v-for="i in 6" :key="i" class="session-skeleton-item">
+            <div class="skeleton-line skeleton-title"></div>
+            <div class="skeleton-line skeleton-meta"></div>
+          </div>
+        </div>
+        <div v-else-if="filteredSessions.length === 0" class="session-empty">暂无对话</div>
+        <div
+          v-for="s in filteredSessions"
+          :key="s.id"
+          class="session-item"
+          :class="{ active: currentSessionId === s.id }"
+          @click="loadSession(s.id)"
+        >
+          <div class="session-item-title">{{ s.title }}</div>
+          <div class="session-item-meta">
+            <span>{{ s.message_count }} 条</span>
+            <span>{{ formatTime(s.last_message_at) }}</span>
+          </div>
+          <div class="session-item-actions" @click.stop>
+            <a-button type="text" size="small" @click="renameSession(s)" title="重命名">
+              <EditOutlined />
+            </a-button>
+            <a-button type="text" size="small" danger @click="deleteSession(s.id)" title="删除">
+              <DeleteOutlined />
+            </a-button>
+          </div>
+        </div>
+      </div>
+    </a-drawer>
 
     <!-- 模型降级提示 -->
     <div v-if="degradeWarning" class="degrade-banner">
@@ -42,7 +101,7 @@
     <!-- 聊天区域 -->
     <div class="chat-container" ref="messagesContainer">
       <!-- 空状态 -->
-      <div v-if="messages.length === 0" class="empty-state">
+      <div v-if="messages.length === 0 && !loadingMessages" class="empty-state">
         <div class="empty-logo">
           <svg viewBox="0 0 40 40" width="48" height="48">
             <circle cx="20" cy="6" r="3" fill="#1677ff"/>
@@ -54,7 +113,14 @@
           </svg>
         </div>
         <div class="empty-title">有什么可以帮你的？</div>
-        <div class="empty-desc">选择项目和模型后，开始智能问答</div>
+        <div class="empty-desc">选择模型即可开始问答，选择项目可启用工具调用和知识库</div>
+      </div>
+
+      <!-- 消息加载骨架屏 -->
+      <div v-if="loadingMessages" class="messages-loading">
+        <div v-for="i in 3" :key="i" class="msg-skeleton" :class="i % 2 === 0 ? 'right' : 'left'">
+          <div class="msg-skeleton-bubble"></div>
+        </div>
       </div>
 
       <!-- 消息列表 -->
@@ -130,14 +196,14 @@
         <span>{{ selectedProjectId ? '已关联项目 · 支持工具调用和知识库' : '未选择项目（仅通用问答）' }}</span>
       </div>
     </div>
-  </div>
+</div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
-import { message } from 'ant-design-vue'
-import { SendOutlined, StopOutlined, PlusOutlined, WarningOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
-import { chatStream, type ChatMessage, type KnowledgeResult, type ToolCall } from '@/api/chat'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { message, Modal } from 'ant-design-vue'
+import { SendOutlined, StopOutlined, WarningOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, SearchOutlined, EditOutlined, DeleteOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
+import { chatStream, listChatSessions, getChatSession, deleteChatSession, renameChatSession, reloadSkills, type ChatMessage, type KnowledgeResult, type ToolCall, type ChatSession as ChatSessionType } from '@/api/chat'
 import { getProjects, type Project } from '@/api/projects'
 import { getLLMConfigs, type LLMConfig } from '@/api/llm'
 import { llmCapabilitiesApi, type ModelCapabilities } from '@/api/llmCapabilities'
@@ -165,6 +231,21 @@ const degradeWarning = ref('')
 const probingCaps = ref(false)
 const showModelSelector = ref(false)
 
+// 历史记录相关
+const sessions = ref<ChatSessionType[]>([])
+const currentSessionId = ref<number | null>(null)
+const historyDrawerVisible = ref(false)
+const sessionSearch = ref('')
+const loadingSessions = ref(false)
+const loadingMessages = ref(false)
+const reloadingSkills = ref(false)
+
+const filteredSessions = computed(() => {
+  if (!sessionSearch.value) return sessions.value
+  const kw = sessionSearch.value.toLowerCase()
+  return sessions.value.filter(s => s.title.toLowerCase().includes(kw))
+})
+
 const toolNameMap: Record<string, string> = {
   query_project_stats: '项目统计', list_cases: '查询用例', list_defects: '查询缺陷',
   analyze_defects: '缺陷分析', search_knowledge: '知识库检索', create_defect: '创建缺陷',
@@ -177,12 +258,13 @@ const toolNameMap: Record<string, string> = {
 onMounted(async () => {
   await loadProjects()
   await loadLLMConfigs()
+  await loadSessions()
 })
 
 async function loadProjects() {
   try {
     projects.value = await getProjects()
-    if (projects.value.length > 0) selectedProjectId.value = projects.value[0].id
+    // 不自动选中项目，用户可选择项目或保持通用问答模式
   } catch (e) { console.error('加载项目失败', e) }
 }
 
@@ -226,7 +308,11 @@ async function reprobeCapabilities() {
   }
 }
 
-function handleProjectChange() {}
+function handleProjectChange() {
+  if (!selectedProjectId.value) {
+    useKnowledge.value = false
+  }
+}
 
 async function handleModelChange() {
   if (selectedLlmConfigId.value) {
@@ -237,6 +323,142 @@ async function handleModelChange() {
 function newChat() {
   messages.value = []
   inputMessage.value = ''
+  currentSessionId.value = null
+}
+
+function openHistoryDrawer() {
+  historyDrawerVisible.value = true
+  // 打开时立即加载，避免等动画结束后才加载导致抖动
+  loadSessions()
+}
+
+async function loadSessions() {
+  loadingSessions.value = true
+  try {
+    const res = await listChatSessions(undefined, 1, 100)
+    sessions.value = res.items || []
+  } catch (e) {
+    console.error('加载会话列表失败', e)
+  } finally {
+    loadingSessions.value = false
+  }
+}
+
+/**
+ * 规范化历史进度节点：按 node 去重保留最终状态，已完成消息的 running 节点强制标记为 done
+ */
+function normalizeHistoryProgress(progress: any[], hasContent: boolean): ProgressNode[] {
+  if (!progress || progress.length === 0) return []
+  const map = new Map<string, ProgressNode>()
+  for (const p of progress) {
+    const node = p.node || p.label || 'unknown'
+    map.set(node, {
+      node: p.node || node,
+      label: p.label || node,
+      status: p.status || 'done',
+      detail: p.detail,
+      duration: p.duration,
+    })
+  }
+  const nodes = Array.from(map.values())
+  // 历史消息均已完成，若存在 running 节点则强制标记为 done（异常中断场景兜底）
+  if (hasContent) {
+    for (const n of nodes) {
+      if (n.status === 'running') n.status = 'done'
+    }
+  }
+  return nodes
+}
+
+async function loadSession(sessionId: number) {
+  if (isLoading.value) {
+    message.warning('请等待当前回答完成')
+    return
+  }
+  loadingMessages.value = true
+  try {
+    const res = await getChatSession(sessionId)
+    currentSessionId.value = sessionId
+    const loaded = (res.messages || []).map((m: any) => ({
+      role: m.role,
+      content: m.content || '',
+      knowledge_results: m.knowledge_results,
+      tool_calls: m.tool_calls,
+      progressNodes: normalizeHistoryProgress(m.progress, !!(m.content)),
+      _refsCollapsed: true,
+    }))
+    if (res.session) {
+      selectedProjectId.value = res.session.project_id || undefined
+      selectedLlmConfigId.value = res.session.llm_config_id || undefined
+      useKnowledge.value = res.session.use_knowledge
+    }
+    historyDrawerVisible.value = false
+    await nextTick()
+    messages.value = loaded
+    loadingMessages.value = false
+    await nextTick()
+    await scrollToBottom()
+  } catch (e) {
+    loadingMessages.value = false
+    console.error('加载会话失败', e)
+    message.error('加载会话失败')
+  }
+}
+
+async function deleteSession(sessionId: number) {
+  Modal.confirm({
+    title: '确认删除',
+    content: '确定要删除这个对话吗？',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        await deleteChatSession(sessionId)
+        if (currentSessionId.value === sessionId) {
+          newChat()
+        }
+        await loadSessions()
+        message.success('已删除')
+      } catch (e) {
+        message.error('删除失败')
+      }
+    },
+  })
+}
+
+function renameSession(session: ChatSessionType) {
+  const newTitle = window.prompt('请输入新的对话名称', session.title)
+  if (newTitle && newTitle.trim() && newTitle.trim() !== session.title) {
+    renameChatSession(session.id, newTitle.trim()).then(() => {
+      loadSessions()
+      message.success('已重命名')
+    }).catch(() => message.error('重命名失败'))
+  }
+}
+
+async function handleReloadSkills() {
+  reloadingSkills.value = true
+  try {
+    const res = await reloadSkills()
+    message.success(res.message || `已刷新 ${res.count} 个 Skill`)
+  } catch (e) {
+    message.error('刷新 Skill 失败')
+  } finally {
+    reloadingSkills.value = false
+  }
+}
+
+function formatTime(dt?: string): string {
+  if (!dt) return ''
+  const d = new Date(dt)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`
+  return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -285,8 +507,12 @@ async function sendMessage() {
   abortController.value = new AbortController()
 
   await chatStream(
-    { message: text, project_id: selectedProjectId.value, llm_config_id: selectedLlmConfigId.value, history, use_knowledge: useKnowledge.value, stream: true },
+    { message: text, project_id: selectedProjectId.value, llm_config_id: selectedLlmConfigId.value, history, use_knowledge: useKnowledge.value, stream: true, session_id: currentSessionId.value || undefined },
     {
+      onSession: (sid: number) => {
+        currentSessionId.value = sid
+        loadSessions()
+      },
       onContent: (chunk) => { messages.value[aiIndex].content += chunk; scrollToBottom() },
       onDone: () => { isLoading.value = false; abortController.value = null; scrollToBottom() },
       onError: (error) => { messages.value[aiIndex].content += `\n\n[错误] ${error}`; isLoading.value = false; abortController.value = null; message.error(error) },
@@ -348,6 +574,102 @@ async function sendMessage() {
   flex-direction: column;
   height: calc(100vh - 64px);
   background: #fff;
+  overflow: hidden;
+}
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #4e5969;
+  transition: all 0.15s;
+}
+.icon-btn:hover {
+  background: #f2f3f5;
+  color: #1677ff;
+}
+.drawer-search {
+  margin-bottom: 12px;
+}
+.drawer-session-list {
+  height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+.session-skeleton-list {
+  padding: 4px 0;
+}
+.session-skeleton-item {
+  padding: 12px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+}
+.skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+.skeleton-title { width: 70%; margin-bottom: 8px; }
+.skeleton-meta { width: 40%; height: 10px; }
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.session-loading, .session-empty {
+  text-align: center;
+  padding: 32px 0;
+  color: #999;
+  font-size: 13px;
+}
+.session-item {
+  position: relative;
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  transition: background 0.15s;
+  border: 1px solid transparent;
+}
+.session-item:hover {
+  background: #f7f8fa;
+  border-color: #e5e6eb;
+}
+.session-item.active {
+  background: #e8f3ff;
+  border-color: #c6e2ff;
+}
+.session-item-title {
+  font-size: 13px;
+  color: #1f2329;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 48px;
+  font-weight: 500;
+}
+.session-item-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #86909c;
+  margin-top: 6px;
+}
+.session-item-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  gap: 2px;
+}
+.session-item:hover .session-item-actions {
+  display: flex;
 }
 .top-bar {
   display: flex;
@@ -357,6 +679,7 @@ async function sendMessage() {
   height: 48px;
   border-bottom: 1px solid #f0f0f0;
   background: #fff;
+  flex-shrink: 0;
 }
 .top-bar-left { display: flex; align-items: center; gap: 12px; }
 .control-select { min-width: 140px; }
@@ -367,12 +690,14 @@ async function sendMessage() {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 20px; background: #fffbe6; border-bottom: 1px solid #ffe58f;
   font-size: 13px; color: #d48806;
+  flex-shrink: 0;
 }
 .warn-icon { color: #faad14; }
 .banner-close { margin-left: auto; cursor: pointer; font-size: 18px; color: #d48806; }
 .chat-container {
   flex: 1; overflow-y: auto; padding: 24px 0;
   max-width: 860px; width: 100%; margin: 0 auto;
+  min-height: 0;
 }
 .empty-state {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -381,6 +706,16 @@ async function sendMessage() {
 .empty-logo { opacity: 0.8; }
 .empty-title { font-size: 22px; font-weight: 600; color: #1f2329; }
 .empty-desc { font-size: 14px; color: #86909c; }
+.messages-loading { padding: 0 20px; }
+.msg-skeleton { display: flex; margin-bottom: 20px; }
+.msg-skeleton.left { justify-content: flex-start; }
+.msg-skeleton.right { justify-content: flex-end; }
+.msg-skeleton-bubble {
+  width: 60%; height: 40px; border-radius: 12px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
 .message-item { display: flex; margin-bottom: 20px; padding: 0 20px; }
 .message-item.user { justify-content: flex-end; }
 .user-bubble {
@@ -438,7 +773,7 @@ async function sendMessage() {
 .ref-index { color: #95de64; }
 .ref-title { flex: 1; }
 .ref-score { color: #95de64; font-size: 11px; }
-.input-area { padding: 16px 20px 20px; border-top: 1px solid #f0f0f0; background: #fff; }
+.input-area { padding: 16px 20px 20px; border-top: 1px solid #f0f0f0; background: #fff; flex-shrink: 0; }
 .input-wrapper {
   max-width: 860px; margin: 0 auto; position: relative;
   border: 1px solid #d9d9d9; border-radius: 12px; overflow: hidden;

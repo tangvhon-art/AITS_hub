@@ -71,6 +71,8 @@ export const apiScenariosApi = {
     request.put<any>(`/projects/${projectId}/api-scenarios/variables/${variableId}`, data),
   deleteVariable: (projectId: number, variableId: number) =>
     request.delete(`/projects/${projectId}/api-scenarios/variables/${variableId}`),
+  clearStepVariables: (projectId: number, scenarioId: number, stepId: number) =>
+    request.delete(`/projects/${projectId}/api-scenarios/${scenarioId}/steps/${stepId}/variables`),
   // 执行
   run: (projectId: number, id: number, data: any) =>
     request.post<any>(`/projects/${projectId}/api-scenarios/${id}/run`, data),

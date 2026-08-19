@@ -108,6 +108,15 @@ def toggle_skill(skill_id: int, db: Session = Depends(get_db), current_user=Depe
     return skill
 
 
+@router.post("/reload")
+def reload_skills(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """刷新 Skill 缓存（新增/修改/导入 Skill 后调用，使变更立即生效）"""
+    skill_engine.invalidate_cache()
+    # 预加载到缓存
+    skills = skill_engine._load_skills(db)
+    return {"success": True, "message": f"Skill 缓存已刷新，当前启用 {len(skills)} 个 Skill", "count": len(skills)}
+
+
 # ==================== 匹配与执行 ====================
 
 @router.post("/match", response_model=SkillMatchResponse)

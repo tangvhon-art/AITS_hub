@@ -52,6 +52,7 @@ class ChatRequest(BaseModel):
     history: Optional[List[ChatMessage]] = Field(None, description="对话历史")
     use_knowledge: bool = Field(True, description="是否使用知识库检索")
     stream: bool = Field(True, description="是否流式返回")
+    session_id: Optional[int] = Field(None, description="会话ID（不传则新建会话）")
 
 
 @router.post("")
@@ -96,7 +97,59 @@ async def chat(
     # SSE 流式返回 - 在生成器内部创建独立的 db session
     async def event_generator():
         db = SessionLocal()
+        session_id = None
+        assistant_content_parts = []
+        assistant_tool_calls = []
+        assistant_knowledge = None
+        assistant_progress = []
         try:
+            # === 历史记录：创建/获取会话，保存用户消息 ===
+            from app.models.chat_history import ChatSession, ChatMessage
+            from app.core.timezone import china_now_naive
+            if req.session_id:
+                session = db.query(ChatSession).filter(
+                    ChatSession.id == req.session_id,
+                    ChatSession.user_id == current_user.id,
+                    ChatSession.is_deleted == False,
+                ).first()
+                if session:
+                    session_id = session.id
+                    session.last_message_at = china_now_naive()
+                    db.commit()
+            if not session_id:
+                # 新建会话，标题取用户消息前30字
+                title = req.message.strip()[:30]
+                if len(req.message.strip()) > 30:
+                    title += "..."
+                session = ChatSession(
+                    user_id=current_user.id,
+                    project_id=req.project_id,
+                    title=title or "新对话",
+                    llm_config_id=req.llm_config_id,
+                    use_knowledge=req.use_knowledge,
+                )
+                db.add(session)
+                db.commit()
+                db.refresh(session)
+                session_id = session.id
+
+            # 保存用户消息
+            max_sort = db.query(ChatMessage).filter(
+                ChatMessage.session_id == session_id
+            ).count()
+            user_msg = ChatMessage(
+                session_id=session_id,
+                role="user",
+                content=req.message,
+                sort_order=max_sort,
+            )
+            db.add(user_msg)
+            session.message_count = (session.message_count or 0) + 1
+            db.commit()
+
+            # 发送会话ID事件，供前端记录
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id}, ensure_ascii=False)}\n\n"
+
             agent = ChatAgent(
                 db=db,
                 project_id=req.project_id,
@@ -121,6 +174,16 @@ async def chat(
                         history=history,
                         use_knowledge=req.use_knowledge,
                     ):
+                        # 收集助手消息用于历史保存
+                        etype = event.get("type")
+                        if etype == "content":
+                            assistant_content_parts.append(event.get("content", ""))
+                        elif etype == "tool_call":
+                            assistant_tool_calls.append(event.get("tool_call", {}))
+                        elif etype == "knowledge":
+                            assistant_knowledge = event.get("results", [])
+                        elif etype == "progress":
+                            assistant_progress.append(event)
                         await event_queue.put((f"data: {json.dumps(event, ensure_ascii=False)}\n\n", False))
                 except Exception as e:
                     logger.error(f"Agent chat 生成异常: {e}", exc_info=True)
@@ -142,6 +205,46 @@ async def chat(
             finally:
                 heartbeat_task.cancel()
                 consumer_task.cancel()
+
+            # === 历史记录：保存助手消息 ===
+            try:
+                assistant_full = "".join(assistant_content_parts)
+                if assistant_full or assistant_tool_calls:
+                    # 规范化 progress：按 node 去重，保留最终状态（running 节点在已完成消息中标记为 done）
+                    normalized_progress = []
+                    if assistant_progress:
+                        p_map = {}
+                        for p in assistant_progress:
+                            node = p.get("node") or p.get("label") or "unknown"
+                            p_map[node] = {
+                                "type": "progress",
+                                "node": p.get("node") or node,
+                                "label": p.get("label") or node,
+                                "status": p.get("status") or "done",
+                                "detail": p.get("detail"),
+                                "duration": p.get("duration"),
+                            }
+                        normalized_progress = list(p_map.values())
+                        # 已生成回答内容，所有进度节点视为已完成
+                        if assistant_full:
+                            for np in normalized_progress:
+                                if np["status"] == "running":
+                                    np["status"] = "done"
+                    ai_msg = ChatMessage(
+                        session_id=session_id,
+                        role="assistant",
+                        content=assistant_full,
+                        tool_calls=assistant_tool_calls if assistant_tool_calls else None,
+                        knowledge_results=assistant_knowledge,
+                        progress=normalized_progress if normalized_progress else None,
+                        sort_order=max_sort + 1,
+                    )
+                    db.add(ai_msg)
+                    session.message_count = (session.message_count or 0) + 1
+                    session.last_message_at = china_now_naive()
+                    db.commit()
+            except Exception as e:
+                logger.warning(f"保存助手消息到历史失败: {e}")
 
             # 发送结束信号
             end_data = {"type": "done"}

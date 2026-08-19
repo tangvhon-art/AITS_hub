@@ -259,11 +259,50 @@ class ScenarioExecutor:
 
         # 变量替换
         base_url = self.variable_engine.get("base_url") or ""
-        url = self.variable_engine.replace(base_url + path)
+        raw_url = base_url + path
+        url = self.variable_engine.replace(raw_url)
+        if raw_url != url:
+            logger.info(f"步骤 {step.get('step_name')} URL变量替换: {raw_url} -> {url}")
+        elif "${" in raw_url or "{{" in raw_url:
+            logger.warning(f"步骤 {step.get('step_name')} URL含变量占位符但未替换: {raw_url}, 可用场景变量={list(self.variable_engine.scenario_vars.keys())}")
         headers = self.variable_engine.replace_headers(request_config.get("headers", api.headers))
         params = self.variable_engine.replace_params(request_config.get("query_params", api.query_params))
+
+        # Query Params 覆盖：{"name":"${name}"} 格式，合并到原参数列表
+        params_override = request_config.get("query_params_override")
+        if params_override:
+            try:
+                if isinstance(params_override, str):
+                    override_str = self.variable_engine.replace(params_override)
+                    override_dict = json.loads(override_str)
+                else:
+                    override_dict = params_override
+                if isinstance(override_dict, dict):
+                    params = self._merge_query_params(params, override_dict)
+                    logger.info(f"步骤 {step.get('step_name')} QueryParams已合并覆盖: {override_dict}")
+            except Exception as e:
+                logger.warning(f"QueryParams覆盖合并失败: {e}，使用原参数")
+
         body_type = request_config.get("body_type", api.body_type)
         body_content = self.variable_engine.replace_body(body_type, request_config.get("body_content", api.body_content))
+
+        # 请求参数覆盖：深度合并 body_override 到原请求体
+        body_override = request_config.get("body_override")
+        if body_override:
+            try:
+                if isinstance(body_override, str):
+                    # 先做变量替换，再解析 JSON
+                    override_str = self.variable_engine.replace(body_override)
+                    override_data = json.loads(override_str)
+                else:
+                    override_data = body_override
+                if isinstance(override_data, dict) and isinstance(body_content, dict):
+                    body_content = self._deep_merge(body_content, override_data)
+                    logger.info(f"步骤 {step.get('step_name')} 请求体已合并覆盖参数")
+                elif isinstance(override_data, dict):
+                    body_content = override_data
+            except Exception as e:
+                logger.warning(f"请求参数覆盖合并失败: {e}，使用原请求体")
 
         # 前置脚本
         if step.get("pre_script"):
@@ -377,9 +416,31 @@ class ScenarioExecutor:
             path = case.path or ""
 
         base_url = self.variable_engine.get("base_url") or ""
-        url = self.variable_engine.replace(base_url + path)
+        raw_url = base_url + path
+        url = self.variable_engine.replace(raw_url)
+        if raw_url != url:
+            logger.info(f"用例步骤 {step.get('step_name')} URL变量替换: {raw_url} -> {url}")
+        elif "${" in raw_url or "{{" in raw_url:
+            logger.warning(f"用例步骤 {step.get('step_name')} URL含变量占位符但未替换: {raw_url}, 可用场景变量={list(self.variable_engine.scenario_vars.keys())}")
         headers = self.variable_engine.replace_headers(case.headers)
         params = self.variable_engine.replace_params(case.query_params)
+
+        # Query Params 覆盖（用例步骤同样支持）
+        request_config = step.get("request_config", {})
+        params_override = request_config.get("query_params_override")
+        if params_override:
+            try:
+                if isinstance(params_override, str):
+                    override_str = self.variable_engine.replace(params_override)
+                    override_dict = json.loads(override_str)
+                else:
+                    override_dict = params_override
+                if isinstance(override_dict, dict):
+                    params = self._merge_query_params(params, override_dict)
+                    logger.info(f"用例步骤 {step.get('step_name')} QueryParams已合并覆盖: {override_dict}")
+            except Exception as e:
+                logger.warning(f"用例步骤 QueryParams覆盖合并失败: {e}")
+
         body_type = case.body_type
         body_content = self.variable_engine.replace_body(body_type, case.body_content)
 
@@ -428,6 +489,9 @@ class ScenarioExecutor:
             for k, v in script_result.variables.items():
                 self.variable_engine.set("scenario", k, v)
             result.console_log += script_result.output
+
+        # 提取变量（与 api 步骤一致）
+        self._extract_variables(step.get("id"), response)
 
         # 断言
         assertions = self.db.query(ApiCaseAssertion).filter(
@@ -523,16 +587,54 @@ class ScenarioExecutor:
         result.status = "passed"
         result.console_log = f"循环执行 {loop_count} 次"
 
+    @staticmethod
+    def _deep_merge(base: dict, override: dict) -> dict:
+        """深度合并两个字典，override 覆盖 base 中的同名字段，嵌套字典递归合并"""
+        result = base.copy()
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = ScenarioExecutor._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    @staticmethod
+    def _merge_query_params(original: list, override: dict) -> list:
+        """将 dict 格式的覆盖参数合并到 list 格式的原参数列表
+        original: [{"key":"id","value":"123","enabled":true}, ...]
+        override: {"name":"${name}", "page":"1"}
+        已存在的 key 更新 value，不存在的 key 新增
+        """
+        if not original:
+            original = []
+        result = [dict(item) for item in original]  # 深拷贝
+        existing_keys = {item.get("key"): idx for idx, item in enumerate(result) if item.get("key")}
+        for key, value in override.items():
+            if key in existing_keys:
+                result[existing_keys[key]]["value"] = str(value)
+                result[existing_keys[key]]["enabled"] = True
+            else:
+                result.append({"key": key, "value": str(value), "enabled": True})
+        return result
+
     def _extract_variables(self, step_id: Optional[int], response: HttpResponse):
         """从响应中提取变量"""
         if not step_id:
+            logger.warning(f"变量提取跳过: step_id 为空")
             return
 
         from app.models.api_test import ApiScenarioVariable
 
         variables = self.db.query(ApiScenarioVariable).filter(
-            ApiScenarioVariable.step_id == step_id
+            ApiScenarioVariable.step_id == step_id,
+            ApiScenarioVariable.is_deleted == False,
         ).all()
+
+        if not variables:
+            logger.info(f"步骤 {step_id} 无配置的提取变量")
+            return
+
+        logger.info(f"步骤 {step_id} 开始提取 {len(variables)} 个变量")
 
         for var in variables:
             try:
@@ -542,13 +644,26 @@ class ScenarioExecutor:
                         from jsonpath_ng import parse as jsonpath_parse
                         data = response.json()
                         if data:
-                            matches = [m.value for m in jsonpath_parse(var.extract_expr).find(data)]
+                            expr = var.extract_expr
+                            # 兼容 $data.xxx 写法（自动补全为 $.data.xxx）
+                            if expr.startswith("$") and not expr.startswith("$.") and not expr.startswith("$["):
+                                expr = "$." + expr[1:]
+                            try:
+                                matches = [m.value for m in jsonpath_parse(expr).find(data)]
+                            except Exception:
+                                # 兜底：再试原始表达式
+                                matches = [m.value for m in jsonpath_parse(var.extract_expr).find(data)]
                             value = matches[0] if matches else var.default_value
+                            logger.info(f"变量提取 {var.var_name}: expr={expr}, matches={len(matches)}, value={value}")
+                        else:
+                            logger.warning(f"变量提取 {var.var_name}: 响应体为空或非JSON")
                     except ImportError:
                         value = var.default_value
+                    except Exception as je:
+                        logger.warning(f"变量提取 {var.var_name}: JSON解析失败 {je}, body前200字={response.body[:200] if response.body else 'empty'}")
                 elif var.extract_type == "regex":
                     import re
-                    match = re.search(var.extract_expr, response.body)
+                    match = re.search(var.extract_expr, response.body or "")
                     value = match.group(1) if match else var.default_value
                 elif var.extract_type == "header":
                     value = response.headers.get(var.extract_expr, var.default_value)
@@ -559,5 +674,8 @@ class ScenarioExecutor:
                 if value is not None:
                     scope = var.scope if var.scope in ("scenario", "global") else "scenario"
                     self.variable_engine.set(scope, var.var_name, value)
+                    logger.info(f"变量已设置: {var.var_name}={value} (scope={scope})")
+                else:
+                    logger.warning(f"变量提取 {var.var_name}: 值为None，使用默认值={var.default_value}")
             except Exception as e:
                 logger.warning(f"变量提取失败 {var.var_name}: {e}")
