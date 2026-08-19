@@ -76,7 +76,7 @@
             </a-form-item>
           </a-col>
           <a-col :span="8">
-            <a-form-item label="每秒启动用户数">
+            <a-form-item label="Spawn Rate（每秒拉起用户数）">
               <a-input-number v-model:value="form.spawn_rate" :min="1" :max="1000" style="width: 100%" />
             </a-form-item>
           </a-col>

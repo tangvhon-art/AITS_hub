@@ -374,23 +374,6 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
     { name: 'RPS', type: 'line', data: rpsData, smooth: true, yAxisIndex: 1, lineStyle: { type: 'dashed' } },
   ]
 
-  // 各接口平均响应时间趋势（多接口测试时展示）
-  const endpointColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4']
-  let colorIdx = 0
-  for (const [name, epHistory] of Object.entries(byEndpoint)) {
-    if (!Array.isArray(epHistory) || epHistory.length === 0) continue
-    legendData.push(name)
-    series.push({
-      name,
-      type: 'line',
-      data: epHistory.map((h: any) => h.avg || 0),
-      smooth: true,
-      lineStyle: { width: 1, type: 'dotted' },
-      itemStyle: { color: endpointColors[colorIdx % endpointColors.length] },
-    })
-    colorIdx++
-  }
-
   instance.setOption({
     tooltip: { trigger: 'axis' },
     legend: { data: legendData, type: 'scroll' },

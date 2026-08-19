@@ -72,6 +72,7 @@ const columns = [
   { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
   { title: '目标类型', key: 'target_type', width: 120 },
   { title: '并发数', dataIndex: 'users', key: 'users', width: 80 },
+  { title: 'Spawn Rate', dataIndex: 'spawn_rate', key: 'spawn_rate', width: 100 },
   { title: '持续时间(s)', dataIndex: 'duration', key: 'duration', width: 110 },
   { title: '状态', key: 'status', width: 100 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180 },

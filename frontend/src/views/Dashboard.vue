@@ -142,6 +142,7 @@ import { getProjects, type Project } from '@/api/projects'
 import { getLLMConfigs, type LLMConfig } from '@/api/llm'
 import { llmCapabilitiesApi, type ModelCapabilities } from '@/api/llmCapabilities'
 import ChatProgress, { type ProgressNode } from '@/components/ChatProgress.vue'
+import { marked } from 'marked'
 
 interface DisplayMessage extends ChatMessage {
   knowledge_results?: KnowledgeResult[]
@@ -243,9 +244,12 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 function formatContent(content: string): string {
-  return content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br/>').replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  if (!content) return ''
+  try {
+    return marked.parse(content) as string
+  } catch {
+    return content
+  }
 }
 
 function getToolDisplayName(name: string): string {
@@ -405,8 +409,26 @@ async function sendMessage() {
 .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
 .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
 @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
-.message-content { font-size: 14px; line-height: 1.7; color: #1f2329; }
-.message-content :deep(code) { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+.message-content { font-size: 14px; line-height: 1.7; color: #1f2329; word-break: break-word; }
+.message-content :deep(h1) { font-size: 20px; margin: 16px 0 8px; font-weight: 600; border-bottom: 1px solid #e8e8e8; padding-bottom: 6px; }
+.message-content :deep(h2) { font-size: 17px; margin: 14px 0 8px; font-weight: 600; color: #1677ff; border-left: 3px solid #1677ff; padding-left: 8px; }
+.message-content :deep(h3) { font-size: 15px; margin: 12px 0 6px; font-weight: 600; }
+.message-content :deep(h4), .message-content :deep(h5), .message-content :deep(h6) { font-size: 14px; margin: 10px 0 4px; font-weight: 600; }
+.message-content :deep(p) { margin: 8px 0; }
+.message-content :deep(ul), .message-content :deep(ol) { margin: 8px 0; padding-left: 24px; }
+.message-content :deep(li) { margin: 4px 0; }
+.message-content :deep(strong) { font-weight: 600; }
+.message-content :deep(em) { font-style: italic; }
+.message-content :deep(blockquote) { margin: 8px 0; padding: 8px 12px; border-left: 4px solid #d9d9d9; background: #fafafa; color: #666; border-radius: 0 4px 4px 0; }
+.message-content :deep(code) { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; }
+.message-content :deep(pre) { background: #1e1e1e; color: #d4d4d4; padding: 12px 16px; border-radius: 8px; overflow-x: auto; margin: 10px 0; font-size: 13px; line-height: 1.5; }
+.message-content :deep(pre code) { background: none; padding: 0; color: inherit; font-size: 13px; }
+.message-content :deep(table) { border-collapse: collapse; margin: 10px 0; width: 100%; }
+.message-content :deep(th), .message-content :deep(td) { border: 1px solid #e8e8e8; padding: 8px 12px; text-align: left; }
+.message-content :deep(th) { background: #fafafa; font-weight: 600; }
+.message-content :deep(a) { color: #1677ff; text-decoration: none; }
+.message-content :deep(a:hover) { text-decoration: underline; }
+.message-content :deep(hr) { border: none; border-top: 1px solid #e8e8e8; margin: 16px 0; }
 .knowledge-refs { margin-top: 12px; background: #f6ffed; border-radius: 8px; border: 1px solid #b7eb8f; overflow: hidden; }
 .refs-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; cursor: pointer; }
 .refs-title { font-size: 12px; color: #52c41a; font-weight: 600; }
