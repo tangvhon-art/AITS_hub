@@ -4,6 +4,8 @@ UI 自愈引擎 — L1/L2/L3 三级自愈策略
 L1: 同属性回退（从元素指纹库匹配备选定位器，本地即时）
 L2: AI 修复推理（截图 + DOM 树 + 页面知识，大模型推理候选定位器）
 L3: 视觉坐标点击（视觉模型识别目标区域，coordinate click 兜底）
+
+自愈前置：当页面无现有知识时，即时采集页面元素并聚合，确保 L1/L2 有知识可用。
 """
 import json
 import re
@@ -35,35 +37,29 @@ def extract_selector_info(selector: str) -> Dict[str, Any]:
     if not selector:
         return info
 
-    # text=登录
     m = re.match(r'text=(.+)', selector)
     if m:
         info["text"] = m.group(1).strip().strip('"\'')
         return info
 
-    # has-text=
     m = re.match(r'.*:has-text\(["\']?(.+?)["\']?\)\s*$', selector)
     if m:
         info["text"] = m.group(1)
 
-    # CSS 选择器中的属性
     for attr_match in re.finditer(r'\[([\w-]+)=["\']?([^"\'\]]+)["\']?\]', selector):
         attr_name, attr_val = attr_match.group(1), attr_match.group(2)
         info["attributes"][attr_name] = attr_val
         if attr_name in ("aria-label", "placeholder", "title", "value"):
             info["text"] = attr_val
 
-    # 标签名
     tag_match = re.match(r'^([a-zA-Z]\w*)', selector)
     if tag_match:
         info["tag"] = tag_match.group(1)
 
-    # ID
     id_match = re.search(r'#([\w-]+)', selector)
     if id_match:
         info["attributes"]["id"] = id_match.group(1)
 
-    # class
     class_match = re.search(r'\.([\w-]+)', selector)
     if class_match:
         info["attributes"]["class"] = class_match.group(1)
@@ -74,14 +70,13 @@ def extract_selector_info(selector: str) -> Dict[str, Any]:
 class HealingEngine:
     """自愈引擎"""
 
-    # L1 备选定位器属性优先级
     L1_ATTR_PRIORITY = ["data-testid", "data-test", "id", "name", "aria-label", "placeholder", "title", "role"]
 
     def __init__(self, db: Session, project_id: int):
         self.db = db
         self.project_id = project_id
 
-    def heal(
+    async def heal(
         self,
         page,
         selector: str,
@@ -93,14 +88,6 @@ class HealingEngine:
         """
         执行自愈流程
 
-        Args:
-            page: Playwright Page 对象
-            selector: 失败的定位器
-            action_type: click/fill/select/wait
-            action_value: fill 的值
-            page_url: 当前页面URL
-            timeout: 每次尝试超时（毫秒）
-
         Returns:
             (是否成功, 修复后的定位器, 自愈等级, 策略描述, 候选列表)
         """
@@ -108,34 +95,79 @@ class HealingEngine:
         sel_info = extract_selector_info(selector)
         candidates: List[Dict] = []
 
+        # === 前置：确保页面知识存在 ===
+        await self._ensure_page_knowledge(page, page_identifier, page_url)
+
         # === L1: 同属性回退 ===
-        l1_result = self._l1_attribute_fallback(page, selector, sel_info, page_identifier, timeout)
+        l1_result = await self._l1_attribute_fallback(page, selector, sel_info, page_identifier, timeout)
         if l1_result:
             healed_selector, strategy, cands = l1_result
             candidates.extend(cands)
-            logger.info(f"L1 自愈成功: {selector} → {healed_selector} ({strategy})")
+            logger.info(f"L1 自愈成功: {selector} -> {healed_selector} ({strategy})")
             return True, healed_selector, "L1", strategy, candidates
 
         # === L2: AI 修复推理 ===
-        l2_result = self._l2_ai_healing(page, selector, sel_info, action_type, page_identifier, page_url, timeout)
+        l2_result = await self._l2_ai_healing(page, selector, sel_info, action_type, page_identifier, page_url, timeout)
         if l2_result:
             healed_selector, strategy, cands = l2_result
             candidates.extend(cands)
-            logger.info(f"L2 自愈成功: {selector} → {healed_selector} ({strategy})")
+            logger.info(f"L2 自愈成功: {selector} -> {healed_selector} ({strategy})")
             return True, healed_selector, "L2", strategy, candidates
 
         # === L3: 视觉坐标点击 ===
         if action_type in ("click",):
-            l3_result = self._l3_visual_click(page, selector, sel_info, action_value, timeout)
+            l3_result = await self._l3_visual_click(page, selector, sel_info, action_value, timeout)
             if l3_result:
                 healed_selector, strategy, cands = l3_result
                 candidates.extend(cands)
-                logger.info(f"L3 自愈成功: {selector} → {healed_selector} ({strategy})")
+                logger.info(f"L3 自愈成功: {selector} -> {healed_selector} ({strategy})")
                 return True, healed_selector, "L3", strategy, candidates
 
         return False, "", "L4", "所有自愈策略均失败", candidates
 
-    def _l1_attribute_fallback(
+    async def _ensure_page_knowledge(self, page, page_identifier: str, page_url: str):
+        """
+        自愈前置：检查页面知识是否存在，不存在则即时采集+聚合
+
+        这解决了"自愈时无页面知识导致 L1 指纹查询为空、L2 页面画像缺失"的问题。
+        """
+        try:
+            profile = self.db.query(UIPageProfile).filter(
+                UIPageProfile.project_id == self.project_id,
+                UIPageProfile.page_identifier == page_identifier,
+            ).first()
+
+            if profile and profile.key_elements:
+                return
+
+            logger.info(f"页面无知识，开始即时采集: {page_identifier}")
+
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=3000)
+            except Exception:
+                pass
+
+            elements = await self._collect_interactive_elements(page)
+            if not elements:
+                logger.debug(f"即时采集: 页面 {page_identifier} 无可交互元素")
+                return
+
+            from app.services.ui_healing.knowledge_aggregator import collect_and_aggregate_now
+            success = collect_and_aggregate_now(
+                db=self.db,
+                project_id=self.project_id,
+                page_identifier=page_identifier,
+                page_url=page_url,
+                elements=elements,
+                action_type="healing_collect",
+            )
+
+            if success:
+                logger.info(f"即时采集聚合完成: {page_identifier} ({len(elements)} 个元素)")
+        except Exception as e:
+            logger.warning(f"自愈前置采集失败（不影响自愈流程）: {e}")
+
+    async def _l1_attribute_fallback(
         self, page, selector: str, sel_info: Dict, page_identifier: str, timeout: float
     ) -> Optional[Tuple[str, str, List[Dict]]]:
         """L1: 从元素指纹库和当前页面查找备选定位器"""
@@ -163,13 +195,13 @@ class HealingEngine:
                                     "confidence": sel.get("confidence", 0.7),
                                     "reason": f"元素指纹库匹配（成功{fp.success_count}次）",
                                     "source": "fingerprint",
+                                    "_text": target_text,
                                 })
 
         # 2. 在当前页面上按文本/属性查找备选
         try:
-            # 按文本查找
             if target_text:
-                alt_selectors = self._find_by_text(page, target_text, timeout)
+                alt_selectors = await self._find_by_text(page, target_text, timeout)
                 for alt in alt_selectors:
                     if alt != selector and alt not in [c["selector"] for c in candidates]:
                         candidates.append({
@@ -180,7 +212,6 @@ class HealingEngine:
                             "source": "page_scan",
                         })
 
-            # 按属性查找（aria-label, placeholder, name, data-testid 等）
             for attr_name, attr_val in target_attrs.items():
                 if attr_name in self.L1_ATTR_PRIORITY and attr_val:
                     alt = f'[{attr_name}="{attr_val}"]'
@@ -195,7 +226,7 @@ class HealingEngine:
         except Exception as e:
             logger.debug(f"L1 页面扫描失败: {e}")
 
-        # 3. 生成通用备选（text → role → placeholder 等）
+        # 3. 生成通用备选
         if target_text and not candidates:
             generic_alts = [
                 f'button:has-text("{target_text}")',
@@ -218,8 +249,8 @@ class HealingEngine:
         for cand in candidates:
             try:
                 loc = page.locator(cand["selector"]).first
-                loc.wait_for(state="visible", timeout=timeout)
-                count = page.locator(cand["selector"]).count()
+                await loc.wait_for(state="visible", timeout=timeout)
+                count = await page.locator(cand["selector"]).count()
                 if count == 1:
                     return cand["selector"], cand["reason"], candidates
             except Exception:
@@ -227,18 +258,16 @@ class HealingEngine:
 
         return None
 
-    def _find_by_text(self, page, text: str, timeout: float) -> List[str]:
+    async def _find_by_text(self, page, text: str, timeout: float) -> List[str]:
         """在当前页面上按文本查找元素，返回备选CSS选择器"""
         alts = []
         try:
-            # 使用 Playwright 的 text= 引擎
-            count = page.locator(f'text="{text}"').count()
+            count = await page.locator(f'text="{text}"').count()
             if count == 1:
                 alts.append(f'text="{text}"')
             elif count > 1:
-                # 多个匹配，尝试更精确的
                 for tag in ["button", "a", "input", "[role=button]"]:
-                    c = page.locator(f'{tag}:has-text("{text}")').count()
+                    c = await page.locator(f'{tag}:has-text("{text}")').count()
                     if c == 1:
                         alts.append(f'{tag}:has-text("{text}")')
                         break
@@ -246,7 +275,7 @@ class HealingEngine:
             pass
         return alts
 
-    def _l2_ai_healing(
+    async def _l2_ai_healing(
         self, page, selector: str, sel_info: Dict, action_type: str,
         page_identifier: str, page_url: str, timeout: float
     ) -> Optional[Tuple[str, str, List[Dict]]]:
@@ -256,11 +285,11 @@ class HealingEngine:
             from app.agents.utils import extract_json
 
             # 1. 收集页面元素列表
-            elements = self._collect_interactive_elements(page)
+            elements = await self._collect_interactive_elements(page)
             if not elements:
                 return None
 
-            # 2. 查询页面知识
+            # 2. 查询页面知识（_ensure_page_knowledge 可能已创建）
             page_profile = self.db.query(UIPageProfile).filter(
                 UIPageProfile.project_id == self.project_id,
                 UIPageProfile.page_identifier == page_identifier,
@@ -319,8 +348,8 @@ class HealingEngine:
                     continue
                 try:
                     loc = page.locator(cand_sel).first
-                    loc.wait_for(state="visible", timeout=timeout)
-                    count = page.locator(cand_sel).count()
+                    await loc.wait_for(state="visible", timeout=timeout)
+                    count = await page.locator(cand_sel).count()
                     if count == 1:
                         return cand_sel, f"AI推理: {cand.get('reason', '')}", ai_candidates
                 except Exception:
@@ -332,22 +361,20 @@ class HealingEngine:
             logger.warning(f"L2 AI 修复失败: {e}")
             return None
 
-    def _l3_visual_click(
+    async def _l3_visual_click(
         self, page, selector: str, sel_info: Dict, action_value: str, timeout: float
     ) -> Optional[Tuple[str, str, List[Dict]]]:
         """L3: 视觉坐标点击 — 截图 + 视觉模型识别目标坐标"""
         try:
+            import base64
             from app.agents.llm_factory import llm_factory
             from app.agents.utils import extract_json
-            import base64
 
             target_text = sel_info.get("text", "") or selector
 
-            # 截图
-            screenshot_bytes = page.screenshot(type="png", full_page=False)
+            screenshot_bytes = await page.screenshot(type="png", full_page=False)
             screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
 
-            # 获取视口尺寸
             viewport = page.viewport_size or {"width": 1280, "height": 720}
 
             prompt = f"""这是一张网页截图。请找到目标元素的位置。
@@ -361,7 +388,6 @@ class HealingEngine:
 如果找不到，返回: {{"found": false}}
 只输出JSON。"""
 
-            # 尝试使用支持视觉的模型
             response, _token_usage, _config_id = llm_factory.call_with_fallback(
                 self.db,
                 [{"role": "user", "content": [
@@ -382,8 +408,7 @@ class HealingEngine:
             if confidence < 0.5:
                 return None
 
-            # 执行坐标点击
-            page.mouse.click(x, y)
+            await page.mouse.click(x, y)
 
             coord_selector = f"coordinate({x},{y})"
             return coord_selector, f"视觉定位点击({x},{y}), 置信度{confidence}", [{
@@ -397,36 +422,92 @@ class HealingEngine:
             logger.warning(f"L3 视觉点击失败: {e}")
             return None
 
-    def _collect_interactive_elements(self, page) -> List[Dict]:
-        """收集页面上的可交互元素"""
+    async def _collect_interactive_elements(self, page) -> List[Dict]:
+        """收集页面上的可交互元素（含 Shadow DOM 和 iframe）"""
+        elements = []
+
+        # 1. 主文档 + Shadow DOM
         try:
-            elements = page.evaluate("""() => {
-                const selectors = 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick], [data-testid], [data-test]';
-                const nodes = document.querySelectorAll(selectors);
+            main_elements = await page.evaluate("""() => {
+                const SELECTOR = 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick], [data-testid], [data-test]';
                 const results = [];
-                nodes.forEach((el, i) => {
-                    if (i >= 50) return;
-                    const rect = el.getBoundingClientRect();
-                    if (rect.width === 0 || rect.height === 0) return;
-                    const attrs = {};
-                    for (const attr of el.attributes) {
-                        if (['id','name','class','type','placeholder','aria-label','role','title','data-testid','data-test','value','href'].includes(attr.name)) {
-                            attrs[attr.name] = attr.value.substring(0, 100);
-                        }
-                    }
-                    results.push({
-                        tag: el.tagName.toLowerCase(),
-                        text: (el.innerText || el.value || '').substring(0, 80).trim(),
-                        attrs: attrs,
-                        visible: rect.width > 0 && rect.height > 0,
-                    });
-                });
+
+                function collectFromNode(root, depth) {
+                    if (depth > 3 || results.length >= 50) return;
+                    try {
+                        root.querySelectorAll(SELECTOR).forEach(el => {
+                            if (results.length >= 50) return;
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width === 0 || rect.height === 0) return;
+                            const attrs = {};
+                            for (const attr of el.attributes) {
+                                if (['id','name','class','type','placeholder','aria-label','role','title','data-testid','data-test','value','href'].includes(attr.name)) {
+                                    attrs[attr.name] = attr.value.substring(0, 100);
+                                }
+                            }
+                            results.push({
+                                tag: el.tagName.toLowerCase(),
+                                text: (el.innerText || el.value || '').substring(0, 80).trim(),
+                                attrs: attrs,
+                                visible: rect.width > 0 && rect.height > 0,
+                                in_shadow_dom: depth > 0,
+                            });
+                        });
+                    } catch(e) {}
+                    try {
+                        root.querySelectorAll('*').forEach(el => {
+                            if (el.shadowRoot) {
+                                collectFromNode(el.shadowRoot, depth + 1);
+                            }
+                        });
+                    } catch(e) {}
+                }
+
+                collectFromNode(document, 0);
                 return results;
             }""")
-            return elements if isinstance(elements, list) else []
+            if isinstance(main_elements, list):
+                elements.extend(main_elements)
         except Exception as e:
             logger.debug(f"收集页面元素失败: {e}")
-            return []
+
+        # 2. iframe 内容
+        try:
+            for frame in page.frames:
+                if frame == page.main_frame:
+                    continue
+                try:
+                    frame_elements = await frame.evaluate("""() => {
+                        const SELECTOR = 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick], [data-testid], [data-test]';
+                        const results = [];
+                        document.querySelectorAll(SELECTOR).forEach((el, i) => {
+                            if (i >= 20) return;
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width === 0 || rect.height === 0) return;
+                            const attrs = {};
+                            for (const attr of el.attributes) {
+                                if (['id','name','class','type','placeholder','aria-label','role','title','data-testid','data-test','value','href'].includes(attr.name)) {
+                                    attrs[attr.name] = attr.value.substring(0, 100);
+                                }
+                            }
+                            results.push({
+                                tag: el.tagName.toLowerCase(),
+                                text: (el.innerText || el.value || '').substring(0, 80).trim(),
+                                attrs: attrs,
+                                visible: rect.width > 0 && rect.height > 0,
+                                in_iframe: true,
+                            });
+                        });
+                        return results;
+                    }""")
+                    if isinstance(frame_elements, list):
+                        elements.extend(frame_elements)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return elements
 
     def save_healing_record(
         self,
@@ -475,7 +556,6 @@ class HealingEngine:
             return 0
 
 
-# 全局引擎缓存（按 project_id）
 _engines: Dict[int, HealingEngine] = {}
 
 

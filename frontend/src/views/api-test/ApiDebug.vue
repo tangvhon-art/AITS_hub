@@ -64,7 +64,10 @@
               </template>
             </template>
           </a-table>
-          <a-button type="dashed" block style="margin-top: 8px" @click="request.query_params.push({ key: '', value: '', enabled: true })">+ 添加参数</a-button>
+          <div class="kv-actions">
+            <a-button type="dashed" @click="request.query_params.push({ key: '', value: '', enabled: true })">+ 添加参数</a-button>
+            <a-button @click="openBatchEdit('params')">批量编辑</a-button>
+          </div>
         </a-tab-pane>
         <a-tab-pane key="headers" tab="Headers">
           <a-table :data-source="request.headers" :columns="paramColumns" :row-key="(_r: any, index: number) => index" size="small" :pagination="false">
@@ -86,7 +89,10 @@
               </template>
             </template>
           </a-table>
-          <a-button type="dashed" block style="margin-top: 8px" @click="request.headers.push({ key: '', value: '', enabled: true })">+ 添加 Header</a-button>
+          <div class="kv-actions">
+            <a-button type="dashed" @click="request.headers.push({ key: '', value: '', enabled: true })">+ 添加 Header</a-button>
+            <a-button @click="openBatchEdit('headers')">批量编辑</a-button>
+          </div>
         </a-tab-pane>
         <a-tab-pane key="body" tab="Body">
           <a-radio-group v-model:value="request.body_type" style="margin-bottom: 12px">
@@ -132,13 +138,10 @@
               </template>
             </template>
           </a-table>
-          <a-button
-            v-if="request.body_type === 'form-data' || request.body_type === 'x-www-form-urlencoded'"
-            type="dashed"
-            block
-            style="margin-top: 8px"
-            @click="bodyParams.push({ key: '', value: '', enabled: true })"
-          >+ 添加字段</a-button>
+          <div v-if="request.body_type === 'form-data' || request.body_type === 'x-www-form-urlencoded'" class="kv-actions">
+            <a-button type="dashed" @click="bodyParams.push({ key: '', value: '', enabled: true })">+ 添加字段</a-button>
+            <a-button @click="openBatchEdit('body')">批量编辑</a-button>
+          </div>
         </a-tab-pane>
         <a-tab-pane key="pre-script" tab="Pre-request">
           <a-textarea v-model:value="request.pre_script" :rows="8" placeholder="// 请求前执行的脚本" style="font-family: monospace" />
@@ -237,6 +240,13 @@ curl 'http://localhost:5173/api/projects/3/requirements' \
         style="font-family: monospace; font-size: 12px"
       />
     </a-modal>
+
+    <!-- 批量编辑弹窗 -->
+    <BatchEditModal
+      v-model:open="batchEditOpen"
+      :title="batchEditTitle"
+      @confirm="handleBatchConfirm"
+    />
   </div>
 </template>
 
@@ -249,6 +259,7 @@ import { apiDebugApi, apiDefinitionsApi } from '@/api/apiTest'
 import { getEnvironments } from '@/api/environments'
 import { formatDateTime } from '@/utils/date'
 import MockDataInserter from './MockDataInserter.vue'
+import BatchEditModal from '@/components/BatchEditModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -281,6 +292,34 @@ const request = ref<any>({
 })
 
 const bodyParams = ref<any[]>([])
+
+const batchEditOpen = ref(false)
+const batchEditType = ref<string | null>(null)
+const batchEditTitle = computed(() => {
+  const titles: Record<string, string> = {
+    params: '批量编辑 Params',
+    headers: '批量编辑 Headers',
+    body: '批量编辑 Body 参数',
+  }
+  return batchEditType.value ? titles[batchEditType.value] : '批量编辑'
+})
+
+const openBatchEdit = (type: string) => {
+  batchEditType.value = type
+  batchEditOpen.value = true
+}
+
+const handleBatchConfirm = (data: any[]) => {
+  if (!batchEditType.value) return
+  if (batchEditType.value === 'body') {
+    bodyParams.value = data
+    syncBodyContent()
+  } else if (batchEditType.value === 'params') {
+    request.value.query_params = data
+  } else if (batchEditType.value === 'headers') {
+    request.value.headers = data
+  }
+}
 
 const syncBodyContent = () => {
   if (request.value.body_type === 'form-data' || request.value.body_type === 'x-www-form-urlencoded') {
@@ -682,6 +721,11 @@ onMounted(() => {
 .header-actions {
   display: flex;
   gap: 8px;
+}
+.kv-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 .request-line {
   display: flex;

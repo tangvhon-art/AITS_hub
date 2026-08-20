@@ -64,9 +64,7 @@ dist-ssr/
 /playwright/.cache/
 /docs/
 /D8BB371A-3565-472C-B958-B74F03B39A37.md
-/backend/migrations/soft_delete_fields.sql
-/docs/UI自动化脚本保存与编排模块设计方案.md
-/backend/migrations/add_suite_step_auto_fix.sql
+/backend/migrations/
 /backend/dump.rdb
 /backend/data/knowledge_base/project_3/chunks.json
 /backend/data/knowledge_base/project_3/faiss.index
@@ -74,3 +72,5 @@ dist-ssr/
 /fix_mysql_metadata_locks.sh
 /dump.rdb
 
+/backend/app/uploads/
+/backend/uploads/

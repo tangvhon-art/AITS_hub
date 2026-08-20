@@ -15,9 +15,9 @@ from playwright.async_api import async_playwright, Browser, Page
 from app.agents.llm_factory import llm_factory
 from app.agents.base_agent import BaseAgent
 
-# 截图存储目录
+# 截图存储目录（需到达 backend/ 根目录，与 main.py 静态文件服务一致）
 _SCREENSHOT_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "uploads", "execution",
 )
 

@@ -257,9 +257,27 @@ app.include_router(ui_healing_router)
 
 # 静态文件服务（截图等上传文件）
 import os as _os
+from fastapi import HTTPException
+from starlette.responses import FileResponse as _FileResponse
+
 _uploads_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "uploads")
 _os.makedirs(_uploads_dir, exist_ok=True)
-app.mount("/api/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+_legacy_uploads_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "uploads")
+
+
+@app.get("/api/uploads/{filepath:path}", tags=["文件"])
+async def serve_upload(filepath: str):
+    """提供上传文件的静态访问，兼容新旧路径"""
+    safe = _os.path.normpath(filepath)
+    if safe.startswith(".."):
+        raise HTTPException(status_code=404, detail="File not found")
+    full_path = _os.path.join(_uploads_dir, safe)
+    if _os.path.isfile(full_path):
+        return _FileResponse(full_path)
+    legacy_path = _os.path.join(_legacy_uploads_dir, safe)
+    if _os.path.isfile(legacy_path):
+        return _FileResponse(legacy_path)
+    raise HTTPException(status_code=404, detail="File not found")
 
 
 @app.get("/api/health", tags=["系统"])

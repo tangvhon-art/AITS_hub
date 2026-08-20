@@ -80,8 +80,8 @@
               <a-tag :color="getStatusColor(currentScript.status)">{{ getStatusText(currentScript.status) }}</a-tag>
             </div>
           </template>
-          <template #extra>
-            <a-space>
+          <div class="detail-actions">
+            <a-space wrap>
               <a-button v-if="currentScript.status === 'generating'" @click="refreshCurrentScript" :loading="refreshing">
                 <ReloadOutlined /> 刷新
               </a-button>
@@ -92,20 +92,20 @@
                 <MedicineBoxOutlined /> 自愈记录
               </a-button>
               <a-button @click="handleDuplicate">复制</a-button>
-              <a-tooltip title="执行失败时自动调用AI修复脚本并重试">
-                <a-space size="small" style="margin-right: 8px">
+              <a-tooltip title="执行失败时自动调用AI重写整个脚本并重试（脚本级修复，自愈无法解决时兜底）">
+                <a-space size="small">
                   <a-switch v-model:checked="autoFixEnabled" size="small" :disabled="running" />
                   <span style="font-size: 12px; color: #666">自动修复</span>
                 </a-space>
               </a-tooltip>
               <a-tooltip title="关闭后将以可视化浏览器窗口运行">
-                <a-space size="small" style="margin-right: 8px">
+                <a-space size="small">
                   <a-switch v-model:checked="headlessEnabled" size="small" :disabled="running" />
                   <span style="font-size: 12px; color: #666">无头模式</span>
                 </a-space>
               </a-tooltip>
-              <a-tooltip title="元素定位失败时自动尝试备选定位器/AI推理/视觉定位">
-                <a-space size="small" style="margin-right: 8px">
+              <a-tooltip title="执行中元素定位失败时自动尝试备选定位器/AI推理/视觉定位（元素级修复，优先于自动修复）">
+                <a-space size="small">
                   <a-switch v-model:checked="healEnabled" size="small" :disabled="running" @change="toggleHealEnabled" />
                   <span style="font-size: 12px; color: #666">自愈</span>
                 </a-space>
@@ -120,7 +120,7 @@
                 <a-button danger>删除</a-button>
               </a-popconfirm>
             </a-space>
-          </template>
+          </div>
 
           <a-descriptions :column="3" size="small" bordered style="margin-bottom: 16px">
             <a-descriptions-item label="脚本类型">{{ getTypeText(currentScript.script_type) }}</a-descriptions-item>
@@ -883,6 +883,7 @@ onUnmounted(() => {
 .script-pagination { margin-top: 12px; text-align: center; }
 
 .detail-title { display: flex; align-items: center; gap: 8px; }
+.detail-actions { margin-bottom: 16px; }
 .editor-toolbar { margin-bottom: 8px; }
 .script-editor {
   width: 100%;

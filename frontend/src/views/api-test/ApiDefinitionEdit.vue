@@ -93,7 +93,10 @@
                 </template>
               </template>
             </a-table>
-            <a-button type="dashed" block style="margin-top: 8px" @click="addParam('headers')">+ 添加 Header</a-button>
+            <div class="kv-actions">
+              <a-button type="dashed" @click="addParam('headers')">+ 添加 Header</a-button>
+              <a-button @click="openBatchEdit('headers')">批量编辑</a-button>
+            </div>
           </a-tab-pane>
           <a-tab-pane key="query" tab="Query Params">
             <a-table :data-source="form.query_params" :columns="paramColumns" :row-key="(_r: any, index: number) => index" size="small" pagination="false">
@@ -115,7 +118,10 @@
                 </template>
               </template>
             </a-table>
-            <a-button type="dashed" block style="margin-top: 8px" @click="addParam('query_params')">+ 添加参数</a-button>
+            <div class="kv-actions">
+              <a-button type="dashed" @click="addParam('query_params')">+ 添加参数</a-button>
+              <a-button @click="openBatchEdit('query_params')">批量编辑</a-button>
+            </div>
           </a-tab-pane>
           <a-tab-pane key="body" tab="Body">
             <a-radio-group v-model:value="form.body_type" style="margin-bottom: 12px">
@@ -158,7 +164,10 @@
                 </template>
               </template>
             </a-table>
-            <a-button v-if="form.body_type !== 'none'" type="dashed" block style="margin-top: 8px" @click="addBodyParam">+ 添加字段</a-button>
+            <div v-if="form.body_type !== 'none'" class="kv-actions">
+              <a-button type="dashed" @click="addBodyParam">+ 添加字段</a-button>
+              <a-button @click="openBatchEdit('body')">批量编辑</a-button>
+            </div>
           </a-tab-pane>
         </a-tabs>
       </a-card>
@@ -211,6 +220,14 @@
         </a-button>
       </div>
     </a-modal>
+
+    <!-- 批量编辑弹窗 -->
+    <BatchEditModal
+      v-model:open="batchEditOpen"
+      :show-description="true"
+      :title="batchEditTitle"
+      @confirm="handleBatchConfirm"
+    />
   </div>
 </template>
 
@@ -223,6 +240,7 @@ import { apiDefinitionsApi, apiModulesApi, type ApiDefinition, type ApiModule } 
 import { getLLMConfigs } from '@/api/llm'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import { marked } from 'marked'
+import BatchEditModal from '@/components/BatchEditModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -299,6 +317,31 @@ const addBodyParam = () => {
 const removeBodyParam = (index: number) => {
   if (Array.isArray(form.value.body_content)) {
     form.value.body_content.splice(index, 1)
+  }
+}
+
+const batchEditOpen = ref(false)
+const batchEditType = ref<string | null>(null)
+const batchEditTitle = computed(() => {
+  const titles: Record<string, string> = {
+    headers: '批量编辑 Headers',
+    query_params: '批量编辑 Query 参数',
+    body: '批量编辑 Body 参数',
+  }
+  return batchEditType.value ? titles[batchEditType.value] : '批量编辑'
+})
+
+const openBatchEdit = (type: string) => {
+  batchEditType.value = type
+  batchEditOpen.value = true
+}
+
+const handleBatchConfirm = (data: any[]) => {
+  if (!batchEditType.value) return
+  if (batchEditType.value === 'body') {
+    bodyParams.value = data
+  } else {
+    form.value[batchEditType.value] = data
   }
 }
 
@@ -399,6 +442,11 @@ onMounted(() => {
 }
 .page-header h2 {
   margin: 0;
+}
+.kv-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 .form-actions {
   margin-top: 24px;

@@ -8,12 +8,13 @@
 |------|------|------|
 | 项目管理 | 创建/编辑/删除项目 | 数据按项目隔离，支持多项目管理，卡片式列表分页 |
 | 版本管理 | 版本生命周期管理 | draft → active → released → archived |
-| 需求管理 | 手动创建 + 文档上传 + 功能点拆分 + 变更传导 + 同步知识库 | 支持 Word/PDF/TXT/MD 自动解析，AI 异步拆分功能点（按模块分组），用户勾选功能点后 AI 自主生成用例，需求变更标记关联用例，一键同步到知识库向量检索 |
-| 用例管理 | CRUD + AI 生成 + 关联需求筛选 + 批量操作 | 基于需求功能点自动生成结构化测试用例（P0-P3），支持按关联需求下拉筛选，用例与需求/模块强关联，覆盖率统计 |
+| 需求管理 | 手动创建 + 文档上传 + 功能点拆分 + 变更传导 + 同步知识库 | 支持 Word/PDF/TXT/MD 自动解析，AI 异步拆分功能点（按模块分组），用户勾选功能点后 AI 自主生成用例，需求变更标记关联用例，一键同步到知识库向量检索，支持标题/来源/状态/版本筛选 |
+| 用例管理 | CRUD + AI 生成 + 关联需求筛选 + 批量操作 | 基于需求功能点自动生成结构化测试用例（P0-P3），支持按关联需求下拉筛选，用例与需求/模块强关联，覆盖率统计，支持用例名称/类型/状态/优先级/模块筛选 |
 | 用例评审 | 多选需求/模块 + AI 评审 + 优化补充 + 评审范围查看 | 支持多选需求和模块自动查询关联用例，7 维度评审（需求覆盖度/完整性/场景覆盖/可执行性/规范性/冗余性/数据合理），分组评价+遗漏场景，基于评审报告一键优化/补充用例，评审范围弹窗支持查询翻页 |
-| 测试计划 | 混合编排 + 异步执行 + 完整报告 | 接口用例与 UI 场景混合编排，Celery 异步执行，自动生成测试报告 |
+| 测试计划 | 混合编排 + 异步执行 + 完整报告 | 接口用例与 UI 场景混合编排，Celery 异步执行，自动生成测试报告，支持计划名称/所属版本/状态/优先级筛选 |
 | UI 自动化 | Playwright + Agent 驱动执行 | SSE 实时日志流、截图记录、步骤转指令、AI 自动修复 |
-| 自动化脚本 | 脚本库管理 + 单步执行 | 自动保存执行成功的脚本，支持版本追溯与 AI 自动修复，脚本列表分页 |
+| 自愈能力 | 元素定位自愈 + 页面知识 + AI 修复 | L1 同属性回退/L2 AI 推理/L3 视觉坐标三级自愈，旁路采集页面快照，Celery 定时聚合页面画像，人工确认回写脚本 |
+| 自动化脚本 | 脚本库管理 + 单步执行 | 自动保存执行成功的脚本，支持版本追溯与 AI 自动修复，自愈开关/自愈次数，脚本列表分页 |
 | 自动化编排 | 套件管理 + 批量执行 | 编排多脚本/用例顺序执行，支持重试、AI 自动修复、无头模式，套件列表分页 |
 | 接口管理 | 接口目录 + 接口定义 | 接口模块化管理、CRUD 维护、AI 生成接口文档、树形分组 |
 | 接口调试 | 在线调试 + 历史记录 | 发送请求调试，支持 Pre-request/Tests JS 脚本（AI 生成）、Mock 数据、保存历史 |
@@ -26,8 +27,8 @@
 | 性能测试 | Locust 压测 + 多接口 + 聚合报告 + AI 分析 | 支持多接口混合压测，JMeter 风格聚合报告，响应时间趋势图，异步 AI 性能分析生成性能报告 |
 | 数据池 | 测试数据管理 | 数据工厂生成测试数据，支持环境变量覆盖 |
 | 覆盖率分析 | API 覆盖率统计 | 分析已测/未测接口，覆盖率趋势，支持排除配置 |
-| 缺陷管理 | 缺陷全生命周期 | 状态流转、严重程度/根因分类、版本关联、执行失败自动创建 |
-| 测试报告 | AI 生成 + 版本关联 + 多源聚合 | 按版本聚合 UI/接口/计划执行数据，支持 Markdown 渲染、HTML/JUnit 导出，性能报告独立展示性能指标 |
+| 缺陷管理 | 缺陷全生命周期 | 状态流转、严重程度/根因分类、版本关联、执行失败自动创建，支持标题/所属版本/严重程度/优先级/状态/根因分类筛选 |
+| 测试报告 | AI 生成 + 版本关联 + 多源聚合 | 按版本聚合 UI/接口/计划执行数据，支持 Markdown 渲染、HTML/JUnit 导出，性能报告独立展示性能指标，支持标题/类型/状态/版本筛选，类型中文显示 |
 | 质量看板 | 核心指标 + 趋势图表 + 风险预警 | 通过率/缺陷分布/模块覆盖率，纳入接口测试数据，AI 洞察 |
 | 知识库 | RAG 向量检索 + 内容管理 + 需求同步 | FAISS + Sentence-Transformer，文档管理 + 知识内容（切片）列表页，需求一键同步，辅助用例生成与 AI 回答 |
 | 智能助手 | AI 对话 + 工具调用 + 知识库引用 | 沉浸式问答界面，SSE 流式对话，支持 Function Calling / MCP / Skill 三种工具调用方式，执行进度实时展示，模型能力检测与降级提醒 |
@@ -136,7 +137,7 @@ AITS_hub/
 │   │   │   ├── chat_agent.py         #   智能助手 Agent（SSE 流式 + Function Calling + MCP + Skill）
 │   │   │   ├── mcp_tools.py          #   Agent 工具集（18+ MCP 工具）
 │   │   │   └── supervisor.py         #   Supervisor 多 Agent 编排
-│   │   ├── api/                      # API 路由（36 个模块，271 个端点）
+│   │   ├── api/                      # API 路由（37 个模块，280+ 个端点，列表查询统一 POST /search）
 │   │   │   ├── auth.py               #   用户认证（注册/登录/JWT）
 │   │   │   ├── projects.py           #   项目管理
 │   │   │   ├── project_versions.py   #   版本管理
@@ -159,6 +160,7 @@ AITS_hub/
 │   │   │   ├── chat.py               #   智能助手（SSE + 工具调用）
 │   │   │   ├── mcp.py                #   MCP 连接器管理
 │   │   │   ├── skills.py             #   Skill 包管理（导入/导出/匹配测试）
+│   │   │   ├── ui_healing.py         #   UI 自愈（记录/统计/页面画像/元素指纹/聚合）
 │   │   │   ├── coverage.py           #   覆盖率分析
 │   │   │   ├── data_pools.py         #   数据池管理
 │   │   │   ├── env_variables.py      #   环境变量管理
@@ -176,7 +178,7 @@ AITS_hub/
 │   │   ├── mcp/                      # MCP 模块
 │   │   │   ├── client.py             #   MCP SSE 客户端（连接/握手/工具发现/调用）
 │   │   │   └── server.py             #   MCP 服务端（内置工具暴露）
-│   │   ├── models/                   # SQLAlchemy 数据模型（47 张表）
+│   │   ├── models/                   # SQLAlchemy 数据模型（51 张表）
 │   │   │   ├── api_test.py           #   接口测试（11 张表）
 │   │   │   ├── test_plan.py          #   测试计划（4 张表）
 │   │   │   ├── automation_suite.py   #   自动化编排（5 张表）
@@ -184,6 +186,7 @@ AITS_hub/
 │   │   │   ├── test_coverage.py      #   覆盖率（2 张表）
 │   │   │   ├── test_data_pool.py     #   数据池（2 张表）
 │   │   │   ├── knowledge_doc.py      #   知识库（文档+切片 2 张表）
+│   │   │   ├── ui_healing.py          #   UI 自愈（页面访问/页面画像/元素指纹/自愈记录 4 张表）
 │   │   │   ├── notification.py       #   事件通知（渠道/规则/记录 3 张表）
 │   │   │   ├── mcp_connector.py      #   MCP 连接器
 │   │   │   ├── skill.py              #   Skill 包（文件树/脚本/提示词）
@@ -214,6 +217,9 @@ AITS_hub/
 │   │   │   ├── api_case_generator.py #   接口用例 AI 生成器
 │   │   │   ├── mock_data_generator.py#   Mock 数据生成器（13 种函数）
 │   │   │   ├── script_runner.py      #   脚本执行统一服务（AI修复重试）
+│   │   │   ├── ui_healing/            #   UI 自愈服务（L1/L2/L3 引擎 + Playwright 包装器）
+│   │   │   │   ├── healing_engine.py #     自愈引擎（L1属性回退/L2 AI推理/L3视觉坐标）
+│   │   │   │   └── healing_wrapper.py#     Playwright Page 方法 monkey-patch + 旁路采集
 │   │   │   ├── performance_runner.py #   Locust 性能测试执行器（多接口+聚合统计）
 │   │   │   ├── coverage_analyzer.py  #   覆盖率分析器
 │   │   │   ├── data_factory.py       #   测试数据工厂
@@ -227,7 +233,7 @@ AITS_hub/
 │   │   │   ├── notification_service.py#  通知服务（规则匹配+异步派发）
 │   │   │   ├── ai_creation_service.py#  AI 用例批量创建服务
 │   │   │   └── importers/            #   接口导入解析器（5 种格式）
-│   │   ├── tasks/                    # Celery 异步任务（18 个）
+│   │   ├── tasks/                    # Celery 异步任务（19 个）
 │   │   │   ├── script_tasks.py       #   脚本/编排执行
 │   │   │   ├── test_plan_tasks.py    #   测试计划异步执行
 │   │   │   ├── api_case_tasks.py     #   AI 生成用例
@@ -238,18 +244,19 @@ AITS_hub/
 │   │   │   ├── review_tasks.py       #   用例评审 + 评审优化用例
 │   │   │   ├── requirement_tasks.py  #   AI 需求生成
 │   │   │   ├── api_doc_tasks.py      #   AI 接口文档生成
+│   │   │   ├── ui_healing_tasks.py  #   页面知识聚合（Celery beat 每小时）
 │   │   │   └── notification_tasks.py #   通知异步发送（重试2次）
 │   │   ├── config.py                 # Pydantic Settings 配置
 │   │   ├── database.py               # 数据库连接 + Mixin（SoftDelete/Timestamp/ProjectScoped/CreatedBy）
 │   │   ├── celery_app.py             # Celery 实例
 │   │   ├── flowerconfig.py           # Flower 监控配置
-│   │   └── main.py                   # FastAPI 入口（自动建表+迁移，271 路由）
+│   │   └── main.py                   # FastAPI 入口（自动建表+迁移，280 路由）
 │   ├── start_celery_worker.sh
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/                         # 前端应用
 │   ├── src/
-│   │   ├── views/                    # 页面组件（51 个页面）
+│   │   ├── views/                    # 页面组件（53 个页面）
 │   │   │   ├── Layout.vue            #   主布局（菜单从路由派生+多标签页）
 │   │   │   ├── Login.vue             #   登录/注册
 │   │   │   ├── Dashboard.vue         #   智能助手（沉浸式问答+工具调用进度+知识库引用）
@@ -272,6 +279,8 @@ AITS_hub/
 │   │   │   ├── Prompts.vue           #   Prompt 模板管理
 │   │   │   ├── McpConnectors.vue     #   MCP 连接器管理
 │   │   │   ├── Skills.vue            #   Skill 管理（导入/导出/文件浏览/匹配测试）
+│   │   │   ├── UiHealingRecords.vue  #   自愈记录（统计+列表+详情+确认+截图对比）
+│   │   │   ├── UiHealingProfiles.vue #   页面知识（画像列表+详情+手动聚合）
 │   │   │   ├── TaskMonitor.vue       #   任务监控（Flower Worker 状态）
 │   │   │   ├── performance/          #   性能测试页面（多接口配置+聚合报告+AI分析）
 │   │   │   ├── data/                 #   数据池页面
@@ -302,7 +311,7 @@ AITS_hub/
 │   │   │   ├── PageHeader.vue        #   页头
 │   │   │   ├── StatusTag.vue         #   状态标签
 │   │   │   └── ConfirmDelete.vue     #   删除确认
-│   │   ├── api/                      # API 封装（按资源拆分，40 个模块）
+│   │   ├── api/                      # API 封装（按资源拆分，41 个模块）
 │   │   │   ├── base.ts               #   BaseAPI 泛型基类
 │   │   │   ├── types.ts              #   共享类型定义
 │   │   │   ├── knowledge.ts          #   知识库 API
@@ -311,6 +320,7 @@ AITS_hub/
 │   │   │   ├── agentTasks.ts         #   Agent 任务 API
 │   │   │   ├── mcp.ts                #   MCP 连接器 API
 │   │   │   ├── skills.ts             #   Skill 管理 API
+│   │   │   ├── uiHealing.ts           #   UI 自愈 API（记录/统计/画像/指纹/聚合）
 │   │   │   └── ...
 │   │   ├── stores/                   # Pinia 状态管理
 │   │   │   ├── project.ts            #   项目全局状态
@@ -319,7 +329,7 @@ AITS_hub/
 │   │   │   ├── useMenu.ts            #   路由派生菜单
 │   │   │   ├── useList.ts            #   列表数据 composable（分页+搜索）
 │   │   │   ├── useCRUD.ts            #   CRUD 操作 composable
-│   │   │   └── useUrlSearch.ts       #   URL 参数同步
+│   │   │   └── useUrlSearch.ts       #   URL 参数同步（已停用，筛选条件仅在前端内存维护）
 │   │   ├── utils/
 │   │   │   ├── date.ts               #   日期格式化
 │   │   │   ├── sse.ts                #   SSE 统一封装
@@ -327,11 +337,11 @@ AITS_hub/
 │   │   │   ├── download.ts           #   下载工具
 │   │   │   └── copy.ts               #   复制工具
 │   │   ├── constants/index.ts        # 枚举常量
-│   │   ├── router/index.ts           # Vue Router（60+ 条路由）
+│   │   ├── router/index.ts           # Vue Router（62+ 条路由）
 │   │   └── main.ts
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/                             # 项目文档
+├── docs/                             # 项目文档（含 UI 自愈设计文档等）
 ├── start.sh / start_backend.sh / start_frontend.sh
 └── .env.example
 ```
@@ -515,6 +525,48 @@ AI 性能分析（异步）→ 生成性能报告（写入 TestReport）
 - 执行失败时 AI 自动修复脚本并重试
 - 执行日志持久化，脚本自动版本升级
 
+### UI 自动化脚本自愈能力
+
+参考 AliExpress「自更新知识库」思想，实现元素定位失败时自动修复，减少脚本维护成本：
+
+```
+Playwright 操作失败（click/fill 超时或 not found）
+        ↓
+自愈拦截器触发（healing_wrapper.py monkey-patch Page 方法）
+        ↓
+┌─────────────────────────────────────────────┐
+│ L1: 同属性回退                                │
+│  从元素指纹库匹配 text/aria-label/placeholder │
+│  → 成功则自动回写脚本 selector                 │
+└──────────────────┬──────────────────────────┘
+                   ↓ L1 失败
+┌──────────────────┴──────────────────────────┐
+│ L2: AI 修复推理                               │
+│  收集页面交互元素 + 页面画像知识               │
+│  → LLM 输出候选定位器（带置信度）              │
+│  → 按置信度依次尝试 → 标记待人工确认           │
+└──────────────────┬──────────────────────────┘
+                   ↓ L2 失败
+┌──────────────────┴──────────────────────────┐
+│ L3: 视觉坐标点击（兜底）                      │
+│  截图 → LLM 视觉模型识别目标坐标              │
+│  → page.mouse.click(x, y) → 标记人工复核     │
+└──────────────────┬──────────────────────────┘
+                   ↓ 全部失败
+              L4: 采集快照 → 通知人工修复
+```
+
+- **旁路采集**：每次执行异步记录页面快照、元素树、操作结果，不影响主执行链路（守护线程 + 超时丢弃）
+- **页面知识聚合**：Celery 每小时聚合原始记录为页面画像（关键元素、成功路径、失败模式），AI 丰富页面名称和描述
+- **元素指纹库**：多维度特征（tag/text/属性/结构/视觉哈希），稳定性标记（出现率 >90%）
+- **脚本回写**：L1 自动回写脚本 selector；L2/L3 人工确认后回写
+- **自愈记录管理**：统计看板（总数/成功率/L1-L4 分布/已回写数）、前后截图对比、AI 推理过程展示
+- **页面知识管理**：画像列表/详情、关键元素定位器、手动触发聚合
+- **AI 脚本修复**：整脚本执行失败时，LLM 修复脚本内容并重试（独立于元素级自愈）
+- **通知集成**：L4 失败时自动发送飞书/钉钉通知
+
+> 详细设计见 `docs/UI自动化脚本自愈能力设计文档.md`
+
 ### 质量看板
 
 提供项目级质量数据可视化，UI 自动化与接口测试数据统一聚合：
@@ -530,6 +582,24 @@ AI 性能分析（异步）→ 生成性能报告（写入 TestReport）
 - **任务统计**：成功/失败/等待中的任务数量
 - **Flower 集成**：通过 Vite 代理访问 Flower API，实时刷新
 - **启动保障**：start.sh 启动 Worker 后自动 ping 检测就绪，再启动 Flower
+
+### 统一列表查询设计
+
+所有列表页采用统一的查询架构，确保一致的筛选体验：
+
+```
+筛选栏（.filter-bar 统一布局 gap:8px + flex-wrap）
+    ↓ 点击「查询」
+request.post('/xxx/search', filterParams) → 后端 Body 参数接收
+    ↓
+返回列表数据 → 渲染表格
+```
+
+- **POST /search 接口**：所有列表查询接口从 GET 改为 `POST /search`，筛选参数通过 JSON Body 传递，避免 URL 长度限制，支持复杂嵌套筛选条件
+- **筛选条件内存维护**：筛选条件仅在前端内存中维护（`useUrlSearch` composable 已停用，函数签名保留兼容但不再写入 URL）
+- **统一筛选栏布局**：所有列表页使用 `.filter-bar`（`display:flex; flex-wrap:wrap; gap:8px`），筛选项自动换行，间距统一
+- **查询/重置按钮**：所有筛选栏配备查询和重置按钮，重置时清空全部筛选条件并重新加载
+- **覆盖 20+ 个列表页**：需求、用例、缺陷、报告、测试计划、接口定义/用例/执行/场景/Mock、性能测试、数据池、脚本、编排、通知记录/渠道/规则、审计日志、Agent 任务等
 
 ## Mock 数据生成器
 
@@ -589,7 +659,7 @@ DEFAULT_LLM_MODEL=deepseek-chat
 
 - 后端启动时通过 `Base.metadata.create_all()` 自动创建新表
 - 新增字段通过 main.py 中的轻量自动迁移逻辑（ALTER TABLE ADD COLUMN IF NOT EXISTS）
-- 47 张数据表覆盖全部业务模块
+- 51 张数据表覆盖全部业务模块
 - 所有表包含软删除字段（`is_deleted`/`deleted_at`）和时间戳（`created_at`/`updated_at`）
 
 ## 常见问题

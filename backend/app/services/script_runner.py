@@ -77,6 +77,13 @@ def run_script_sync(content: str, script_id: int, project_id: int = None, run_id
         return True, ""
     except Exception as e:
         return False, str(e)
+    finally:
+        if project_id:
+            try:
+                from app.tasks.ui_healing_tasks import aggregate_page_knowledge
+                aggregate_page_knowledge.delay(project_id)
+            except Exception:
+                pass
 
 
 async def execute_script_async(content: str, script_id: int, project_id: int = None, run_id: int = None) -> tuple[bool, str]:
