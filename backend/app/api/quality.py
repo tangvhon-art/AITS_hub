@@ -103,15 +103,16 @@ def _calculate_metrics(project_id: int, db: Session, version_id: Optional[int] =
 
     pass_rate = round((passed_runs / total_runs * 100), 2) if total_runs > 0 else 0.0
 
-    # 接口自动化执行统计
+    # 接口自动化执行统计（仅统计用例执行类型）
     api_exec_base = db.query(ApiExecution).filter(
         ApiExecution.project_id == project_id,
         ApiExecution.is_deleted == False,
+        ApiExecution.execution_type == "case",
     )
     if version_id is not None:
         api_case_ids = _get_version_api_case_ids(project_id, version_id, db)
         if api_case_ids:
-            api_exec_base = api_exec_base.filter(ApiExecution.case_id.in_(api_case_ids))
+            api_exec_base = api_exec_base.filter(ApiExecution.ref_id.in_(api_case_ids))
         else:
             api_exec_base = api_exec_base.filter(ApiExecution.id == -1)  # 无匹配，返回空
     api_total_runs = api_exec_base.count()

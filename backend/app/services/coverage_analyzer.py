@@ -30,7 +30,40 @@ class CoverageAnalyzer:
             ApiDefinition.is_deleted == False,
         )
         if version_id:
-            query = query.filter(ApiDefinition.version_id == version_id)
+            # 通过测试计划 → 测试计划条目 → 接口用例 → 接口定义 来获取版本关联的接口
+            from app.models.test_plan import TestPlan, TestPlanItem
+            from app.models.api_test import ApiTestCase
+
+            plan_ids = [
+                p[0] for p in self.db.query(TestPlan.id).filter(
+                    TestPlan.project_id == project_id,
+                    TestPlan.version_id == version_id,
+                ).all()
+            ]
+            if plan_ids:
+                api_case_ids = [
+                    r[0] for r in self.db.query(TestPlanItem.ref_id).filter(
+                        TestPlanItem.plan_id.in_(plan_ids),
+                        TestPlanItem.item_type == "case",
+                        TestPlanItem.is_deleted == False,
+                    ).distinct().all()
+                ]
+                if api_case_ids:
+                    api_ids = [
+                        r[0] for r in self.db.query(ApiTestCase.api_id).filter(
+                            ApiTestCase.id.in_(api_case_ids),
+                            ApiTestCase.is_deleted == False,
+                            ApiTestCase.api_id.isnot(None),
+                        ).distinct().all()
+                    ]
+                    if api_ids:
+                        query = query.filter(ApiDefinition.id.in_(api_ids))
+                    else:
+                        query = query.filter(ApiDefinition.id == -1)
+                else:
+                    query = query.filter(ApiDefinition.id == -1)
+            else:
+                query = query.filter(ApiDefinition.id == -1)
 
         all_defs = query.all()
 
