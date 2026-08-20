@@ -12,12 +12,14 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { useUserStore } from '@/stores/user'
 
 export interface MenuItem {
   key: string
   title: string
   icon?: string
   projectScoped: boolean
+  requireAdmin?: boolean
   children?: MenuItem[]
 }
 
@@ -126,6 +128,7 @@ function extractMenuItems(routes: RouteRecordRaw[]): MenuItem[] {
         title: '接口测试',
         icon: meta.icon as string || 'ApiOutlined',
         projectScoped: isProjectScoped(route),
+        requireAdmin: meta.requireAdmin as boolean | undefined,
       })
       continue
     }
@@ -135,9 +138,25 @@ function extractMenuItems(routes: RouteRecordRaw[]): MenuItem[] {
       title: meta.title as string,
       icon: meta.icon as string | undefined,
       projectScoped: isProjectScoped(route),
+      requireAdmin: meta.requireAdmin as boolean | undefined,
     })
   }
   return groupMenuItems(items)
+}
+
+/** 递归过滤掉 requireAdmin 的菜单项（非管理员不可见） */
+function filterAdminItems(items: MenuItem[]): MenuItem[] {
+  return items
+    .map(item => {
+      if (item.children) {
+        return { ...item, children: filterAdminItems(item.children) }
+      }
+      return item
+    })
+    .filter(item => {
+      if (item.children) return item.children.length > 0
+      return !item.requireAdmin
+    })
 }
 
 /**
@@ -147,12 +166,18 @@ function extractMenuItems(routes: RouteRecordRaw[]): MenuItem[] {
  */
 export function useMenu(projectId?: () => number | string | undefined) {
   const router = useRouter()
+  const userStore = useUserStore()
 
   const menuItems = computed<MenuItem[]>(() => {
     // 找到主布局路由（path: '/'）的 children
     const layoutRoute = router.options.routes.find(r => r.path === '/')
     if (!layoutRoute || !layoutRoute.children) return []
-    return extractMenuItems(layoutRoute.children)
+    let items = extractMenuItems(layoutRoute.children)
+    // 非管理员过滤掉 requireAdmin 菜单项
+    if (!userStore.userInfo?.is_admin) {
+      items = filterAdminItems(items)
+    }
+    return items
   })
 
   /** 全局菜单（不依赖项目 ID） */

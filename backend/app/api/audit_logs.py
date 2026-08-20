@@ -5,12 +5,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_admin
 from app.models.user import User
 from app.models.audit_log import AuditLog
 from app.schemas.test_plan import AuditLogResponse, AuditLogListResponse
 
-router = APIRouter(prefix="/api/audit-logs")
+router = APIRouter(prefix="/api/audit-logs", tags=["审计日志"], dependencies=[Depends(require_admin)])
 
 
 @router.post("/search", response_model=AuditLogListResponse)

@@ -1,5 +1,6 @@
 from app.models.user import User
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.requirement import TestRequirement, RequirementFeature
 from app.models.test_case import TestCase
 from app.models.test_run import TestRun
@@ -44,6 +45,7 @@ from app.models.ui_healing import UIPageVisit, UIPageProfile, UIElementFingerpri
 __all__ = [
     "User",
     "Project",
+    "ProjectMember",
     "TestRequirement",
     "RequirementFeature",
     "TestCase",

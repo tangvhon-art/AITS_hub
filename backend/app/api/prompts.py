@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_admin
 from app.core.audit import log_audit
 from app.core.crud import CRUDBase
 from app.core.timezone import china_now_naive
@@ -13,7 +13,7 @@ from app.models.user import User
 from app.models.prompt import Prompt
 from app.schemas.prompt import PromptCreate, PromptUpdate, PromptResponse
 
-router = APIRouter(prefix="/api/prompts", tags=["Prompt 管理"])
+router = APIRouter(prefix="/api/prompts", tags=["Prompt 管理"], dependencies=[Depends(require_admin)])
 
 # 全局资源，project_id=None
 prompt_crud = CRUDBase(Prompt, "Prompt")

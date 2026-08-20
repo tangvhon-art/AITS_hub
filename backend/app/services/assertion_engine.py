@@ -2,10 +2,14 @@
 断言引擎
 支持9种断言类型: status_code, response_time, header, jsonpath, xpath, contains, equals, regex, script
 操作符: equals, not_equals, contains, not_contains, less_than, greater_than, matches, in_range
+JSONPath 提取依赖 jsonpath-ng 库
 """
 import re
 import json
+import logging
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 try:
     from jsonpath_ng import parse as jsonpath_parse
@@ -86,6 +90,7 @@ class AssertionEngine:
             passed, message = op_func(actual, expected)
             return AssertionResult(passed, assert_type, target, operator, expected, actual, message)
         except Exception as e:
+            logger.warning(f"断言执行异常: type={assert_type}, target={target}, error={e}")
             return AssertionResult(False, assert_type, target, operator, expected, None,
                                    f"断言执行异常: {e}")
 
@@ -123,9 +128,11 @@ class AssertionEngine:
             matches = [m.value for m in jsonpath_expr.find(data)]
             if len(matches) == 1:
                 return matches[0]
+            if len(matches) == 0:
+                raise ValueError(f"JSONPath '{expr}' 未匹配到任何值，响应体: {json.dumps(data, ensure_ascii=False)[:200]}")
             return matches
         except Exception:
-            return None
+            raise
 
     def _extract_xpath(self, expr: str, response) -> Any:
         """XPath 提取"""
@@ -144,6 +151,8 @@ class AssertionEngine:
     def _op_equals(self, actual: Any, expected: Any) -> Tuple[bool, str]:
         """等于"""
         try:
+            if actual is None:
+                return False, f"期望 {expected}，实际 None（提取失败，请检查路径）"
             # 尝试类型转换
             if isinstance(expected, str):
                 if expected.isdigit() and isinstance(actual, (int, float)):

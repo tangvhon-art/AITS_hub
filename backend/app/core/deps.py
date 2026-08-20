@@ -5,6 +5,7 @@ from app.database import get_db
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -38,6 +39,23 @@ def get_project(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != user.id and not user.is_admin:
+    if user.is_admin:
+        return project
+    membership = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == user.id,
+    ).first()
+    if not membership:
         raise HTTPException(status_code=403, detail="无权访问该项目")
     return project
+
+
+def require_admin(
+    user: User = Depends(get_current_user),
+) -> User:
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="此功能仅管理员可访问",
+        )
+    return user

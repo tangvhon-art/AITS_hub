@@ -25,3 +25,26 @@ class ProjectResponse(ProjectBase):
 
     class Config:
         from_attributes = True
+
+
+class ProjectMemberResponse(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    username: str
+    full_name: str = ""
+    email: str
+    role: str
+    joined_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProjectMemberCreate(BaseModel):
+    user_id: int
+    role: str = "tester"
+
+
+class ProjectMemberUpdate(BaseModel):
+    role: str

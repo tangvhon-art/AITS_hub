@@ -100,13 +100,34 @@ def _auto_migrate(engine):
                 logger.info(f"自动迁移：{table}.{column} 已添加")
 
 
+def _migrate_project_members(engine):
+    """将存量项目的 owner 迁移到 project_members 表"""
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    if "project_members" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        count = conn.execute(text(
+            "SELECT COUNT(*) FROM project_members"
+        )).scalar()
+        if count > 0:
+            return
+        result = conn.execute(text(
+            "INSERT INTO project_members (project_id, user_id, role, joined_at, created_at) "
+            "SELECT id, owner_id, 'owner', created_at, created_at "
+            "FROM test_projects WHERE is_deleted = 0"
+        ))
+        if result.rowcount > 0:
+            logger.info(f"数据迁移：已将 {result.rowcount} 个项目的 owner 迁移到 project_members 表")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时创建数据库表"""
     logger.info("正在初始化数据库表...")
     # 导入所有模型确保 Base.metadata 包含所有表
     from app.models import (
-        User, Project, TestRequirement, RequirementFeature, TestCase, TestRun,
+        User, Project, ProjectMember, TestRequirement, RequirementFeature, TestCase, TestRun,
         AgentTask, LLMConfig, Defect, TestReport, KnowledgeDoc,
         TestPlan, TestPlanCase, TestEnvironment, AuditLog,
         TestPlanItem, TestPlanExecution, TestPlanExecutionResult,
@@ -128,6 +149,7 @@ async def lifespan(app: FastAPI):
     )
     Base.metadata.create_all(bind=engine)
     _auto_migrate(engine)
+    _migrate_project_members(engine)
     logger.info("数据库表初始化完成")
 
     # 注册内置工具

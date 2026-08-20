@@ -54,7 +54,7 @@ const routes: RouteRecordRaw[] = [
         path: 'prompts',
         name: 'Prompts',
         component: () => import('@/views/Prompts.vue'),
-        meta: { title: 'Prompt 管理', icon: 'MessageOutlined' }
+        meta: { title: 'Prompt 管理', icon: 'MessageOutlined', requireAdmin: true }
       },
       {
         path: 'projects/:id/execution',
@@ -213,6 +213,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '数据导入导出', icon: 'ImportOutlined', hideInMenu: true }
       },
       {
+        path: 'projects/:id/members',
+        name: 'ProjectMembers',
+        component: () => import('@/views/ProjectMembers.vue'),
+        meta: { title: '成员管理', icon: 'TeamOutlined' }
+      },
+      {
         path: 'agent-tasks',
         name: 'AgentTasks',
         component: () => import('@/views/AgentTasks.vue'),
@@ -222,7 +228,7 @@ const routes: RouteRecordRaw[] = [
         path: 'audit-logs',
         name: 'AuditLogs',
         component: () => import('@/views/AuditLogs.vue'),
-        meta: { title: '审计日志', icon: 'FileSearchOutlined' }
+        meta: { title: '审计日志', icon: 'FileSearchOutlined', requireAdmin: true }
       },
       {
         path: 'llm-config',
@@ -275,12 +281,21 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore()
   if (to.meta.requiresAuth && !userStore.token) {
     next('/login')
   } else if (to.path === '/login' && userStore.token) {
     next('/')
+  } else if (to.meta.requireAdmin) {
+    if (!userStore.userInfo) {
+      await userStore.fetchUserInfo()
+    }
+    if (!userStore.userInfo?.is_admin) {
+      next('/dashboard')
+    } else {
+      next()
+    }
   } else {
     next()
   }
