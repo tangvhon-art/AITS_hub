@@ -40,7 +40,21 @@
         row-key="id"
         size="middle"
         :scroll="{ x: 1200 }"
+        :row-selection="{ selectedRowKeys: selectedRowKeys, onChange: onSelectChange }"
       >
+        <template #title>
+          <div v-if="selectedRowKeys.length > 0" style="display: flex; align-items: center; gap: 8px;">
+            <span>已选 {{ selectedRowKeys.length }} 项</span>
+            <a-select
+              v-model:value="batchStatus"
+              placeholder="批量修改状态"
+              style="width: 140px"
+              :options="statusOptions"
+              @change="onBatchStatusChange"
+            />
+            <a-button size="small" @click="selectedRowKeys = []">取消选择</a-button>
+          </div>
+        </template>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'priority'">
             <a-tag :color="priorityColor(record.priority)">{{ record.priority }}</a-tag>
@@ -231,7 +245,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements, getFeatures, splitFeatures, type FeatureModuleGroup } from '@/api/cases'
+import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements, getFeatures, splitFeatures, batchUpdateStatus, type FeatureModuleGroup } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
 import { promptsApi, type Prompt } from '@/api/prompts'
 
@@ -243,6 +257,31 @@ const { loadFromUrl, syncToUrl } = useUrlSearch()
 const loading = ref(false)
 const saving = ref(false)
 const cases = ref<any[]>([])
+
+const selectedRowKeys = ref<number[]>([])
+const batchStatus = ref<string | undefined>(undefined)
+
+function onSelectChange(keys: number[]) {
+  selectedRowKeys.value = keys
+}
+
+async function onBatchStatusChange(val: string) {
+  if (selectedRowKeys.value.length === 0) {
+    message.warning('请先勾选用例')
+    batchStatus.value = undefined
+    return
+  }
+  try {
+    const res = await batchUpdateStatus(projectId, selectedRowKeys.value, val)
+    message.success(`成功更新 ${res.updated} 条用例状态`)
+    selectedRowKeys.value = []
+    batchStatus.value = undefined
+    fetchCases()
+  } catch {
+    message.error('批量更新失败')
+    batchStatus.value = undefined
+  }
+}
 
 const pagination = reactive({
   current: 1,

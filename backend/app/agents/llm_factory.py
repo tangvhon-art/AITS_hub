@@ -278,6 +278,11 @@ class LLMFactory:
             if preferred:
                 configs.remove(preferred)
                 configs.insert(0, preferred)
+        else:
+            default_config = next((c for c in configs if c.is_default), None)
+            if default_config:
+                configs.remove(default_config)
+                configs.insert(0, default_config)
 
         if not configs:
             # 使用默认配置
@@ -301,7 +306,30 @@ class LLMFactory:
                     })
                     response = llm.invoke(messages)
                     usage = self._extract_token_usage(response)
-                    logger.info(f"LLM 调用成功: config={config.name}, model={config.model_name}")
+
+                    # 检测垃圾输出：completion_tokens 异常高但内容极短或无意义
+                    raw = response.content if hasattr(response, "content") else str(response)
+                    completion_tokens = usage.get("completion_tokens", 0)
+                    if completion_tokens > 5000 and len(raw.strip()) < 100:
+                        logger.warning(
+                            f"LLM 输出疑似垃圾 (config={config.name}, tokens={completion_tokens}, len={len(raw)}), 跳过此配置"
+                        )
+                        last_error = RuntimeError(f"垃圾输出: tokens={completion_tokens}, content_len={len(raw)}")
+                        break  # 跳过此 config，不重试
+
+                    # 检测重复字符垃圾（如无限空格）
+                    if len(raw) > 200:
+                        stripped = raw.strip()
+                        # 检查是否大量重复同一字符
+                        unique_chars = len(set(stripped[:500]))
+                        if unique_chars < 15 and len(stripped) > 100:
+                            logger.warning(
+                                f"LLM 输出疑似垃圾 (config={config.name}, unique_chars={unique_chars}), 跳过此配置"
+                            )
+                            last_error = RuntimeError(f"重复字符垃圾: unique_chars={unique_chars}")
+                            break
+
+                    logger.info(f"LLM 调用成功: config={config.name}, model={config.model_name}, tokens={usage}")
                     return response, usage, config.id
                 except Exception as e:
                     last_error = e
@@ -335,6 +363,11 @@ class LLMFactory:
             if preferred:
                 configs.remove(preferred)
                 configs.insert(0, preferred)
+        else:
+            default_config = next((c for c in configs if c.is_default), None)
+            if default_config:
+                configs.remove(default_config)
+                configs.insert(0, default_config)
 
         if not configs:
             # 使用默认配置

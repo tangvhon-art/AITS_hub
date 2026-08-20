@@ -35,6 +35,7 @@ class TestCaseBase(BaseModel):
 
 class TestCaseCreate(TestCaseBase):
     req_id: Optional[int] = None
+    status: Optional[str] = None
 
 
 class TestCaseUpdate(BaseModel):

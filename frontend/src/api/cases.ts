@@ -28,6 +28,10 @@ export function batchCreateCases(projectId: number, cases: any[]) {
   return request.post<TestCase[]>(`/projects/${projectId}/cases/batch`, { cases })
 }
 
+export function batchUpdateStatus(projectId: number, caseIds: number[], status: string) {
+  return request.post<{ updated: number }>(`/projects/${projectId}/cases/batch-update-status`, { case_ids: caseIds, status })
+}
+
 export function updateCase(projectId: number, caseId: number, data: Partial<TestCase>) {
   return request.put<TestCase>(`/projects/${projectId}/cases/${caseId}`, data)
 }

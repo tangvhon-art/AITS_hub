@@ -128,6 +128,38 @@ def batch_create_cases(
         db.refresh(case)
     return cases
 
+@router.post("/batch-update-status")
+def batch_update_status(
+    project_id: int,
+    data: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """批量修改用例状态"""
+    get_project(project_id, db, current_user)
+    case_ids = data.get("case_ids", [])
+    new_status = data.get("status", "")
+    if not case_ids or not new_status:
+        raise HTTPException(status_code=400, detail="case_ids 和 status 不能为空")
+    if new_status not in ("draft", "active", "archived"):
+        raise HTTPException(status_code=400, detail="status 必须是 draft/active/archived")
+
+    updated = db.query(TestCase).filter(
+        TestCase.id.in_(case_ids),
+        TestCase.project_id == project_id,
+        TestCase.is_deleted == False,
+    ).update({TestCase.status: new_status}, synchronize_session=False)
+    db.commit()
+    log_audit(
+        db, action="batch_update_status", resource_type="case",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "case_ids": case_ids, "status": new_status, "updated": updated},
+    )
+    return {"updated": updated}
+
 @router.get("/{case_id}", response_model=TestCaseResponse)
 def get_case(
     project_id: int,
