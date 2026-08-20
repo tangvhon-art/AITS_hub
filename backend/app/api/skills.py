@@ -79,6 +79,12 @@ def update_skill(skill_id: int, data: SkillUpdate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(skill)
     skill_engine.invalidate_cache()
+    # 如果已注册为工具，更新后重新注册以刷新描述等信息
+    if skill.is_active and skill_engine.is_registered(skill.name):
+        try:
+            skill_engine.resync_skill_tool(skill)
+        except Exception as e:
+            logger.warning(f"更新 Skill 后重新注册工具失败 [{skill.name}]: {e}")
     return skill
 
 
@@ -93,6 +99,8 @@ def delete_skill(skill_id: int, db: Session = Depends(get_db), current_user=Depe
     skill.deleted_at = china_now_naive()
     db.commit()
     skill_engine.invalidate_cache()
+    # 删除时自动注销工具
+    skill_engine.unregister_skill_tool(skill.name)
     return {"message": "删除成功"}
 
 
@@ -105,6 +113,14 @@ def toggle_skill(skill_id: int, db: Session = Depends(get_db), current_user=Depe
     db.commit()
     db.refresh(skill)
     skill_engine.invalidate_cache()
+    # 启用时自动注册工具，禁用时自动注销
+    if skill.is_active:
+        try:
+            skill_engine.register_skill_as_tool(skill)
+        except Exception as e:
+            logger.warning(f"启用 Skill 时自动注册工具失败 [{skill.name}]: {e}")
+    else:
+        skill_engine.unregister_skill_tool(skill.name)
     return skill
 
 
@@ -114,7 +130,87 @@ def reload_skills(db: Session = Depends(get_db), current_user=Depends(get_curren
     skill_engine.invalidate_cache()
     # 预加载到缓存
     skills = skill_engine._load_skills(db)
-    return {"success": True, "message": f"Skill 缓存已刷新，当前启用 {len(skills)} 个 Skill", "count": len(skills)}
+    # 同步重新注册所有启用的 Skill 为工具
+    try:
+        registered = skill_engine.register_all_active_skills(db)
+    except Exception as e:
+        logger.warning(f"刷新时重新注册 Skill 工具失败: {e}")
+        registered = 0
+    return {"success": True, "message": f"Skill 缓存已刷新，当前启用 {len(skills)} 个 Skill，已注册 {registered} 个工具", "count": len(skills), "registered": registered}
+
+
+# ==================== Skill 工具注册（暴露给大模型 Function Calling） ====================
+
+@router.post("/{skill_id}/register")
+def register_skill_tool(skill_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """
+    将 Skill 注册为大模型可调用的工具。
+    注册后，大模型可通过 Function Calling 调用 skill_{name} 工具，
+    工具内部加载 Skill 的 system_prompt + 工具白名单执行完整流程。
+    """
+    skill = db.query(Skill).filter(Skill.id == skill_id, Skill.is_deleted == False).first()
+    if not skill:
+        raise HTTPException(404, "Skill 不存在")
+    if not skill.is_active:
+        raise HTTPException(400, "仅启用状态的 Skill 可注册，请先启用")
+    try:
+        tool_name = skill_engine.register_skill_as_tool(skill)
+        return {
+            "success": True,
+            "message": f"Skill 已注册为工具: {tool_name}",
+            "skill_id": skill.id,
+            "skill_name": skill.name,
+            "tool_name": tool_name,
+            "description": skill.description,
+        }
+    except Exception as e:
+        logger.error(f"注册 Skill 工具失败: {e}", exc_info=True)
+        raise HTTPException(500, f"注册失败: {e}")
+
+
+@router.post("/{skill_id}/unregister")
+def unregister_skill_tool(skill_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """注销 Skill 对应的大模型工具"""
+    skill = db.query(Skill).filter(Skill.id == skill_id, Skill.is_deleted == False).first()
+    if not skill:
+        raise HTTPException(404, "Skill 不存在")
+    try:
+        ok = skill_engine.unregister_skill_tool(skill.name)
+        if ok:
+            return {"success": True, "message": f"Skill 工具已注销: {skill.name}"}
+        else:
+            return {"success": False, "message": f"Skill 未注册或注销失败: {skill.name}"}
+    except Exception as e:
+        logger.error(f"注销 Skill 工具失败: {e}", exc_info=True)
+        raise HTTPException(500, f"注销失败: {e}")
+
+
+@router.get("/registered/list")
+def list_registered_skill_tools(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """列出所有已注册为工具的 Skill"""
+    registered = skill_engine.list_registered_skills()
+    # 补充 Skill 详情
+    result = []
+    for item in registered:
+        skill = db.query(Skill).filter(Skill.name == item["skill_name"], Skill.is_deleted == False).first()
+        result.append({
+            **item,
+            "title": skill.title if skill else "",
+            "description": skill.description if skill else "",
+            "is_active": skill.is_active if skill else False,
+        })
+    return {"total": len(result), "items": result}
+
+
+@router.post("/register-all")
+def register_all_active_skills(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """批量注册所有启用的 Skill 为工具（系统启动时已自动调用，此接口用于手动重同步）"""
+    try:
+        count = skill_engine.register_all_active_skills(db)
+        return {"success": True, "message": f"已注册 {count} 个 Skill 为工具", "count": count}
+    except Exception as e:
+        logger.error(f"批量注册 Skill 工具失败: {e}", exc_info=True)
+        raise HTTPException(500, f"注册失败: {e}")
 
 
 # ==================== 匹配与执行 ====================

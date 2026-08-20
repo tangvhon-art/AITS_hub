@@ -46,12 +46,27 @@ def apply_params(content: str, params: Optional[dict]) -> str:
     return content
 
 
-def run_script_sync(content: str, script_id: int) -> tuple[bool, str]:
+def run_script_sync(content: str, script_id: int, project_id: int = None, run_id: int = None) -> tuple[bool, str]:
     """
     同步执行脚本（在独立事件循环中）
     返回 (是否成功, 错误信息)
     """
     try:
+        # 安装 UI 自愈包装器（monkey-patch Playwright Page）
+        if project_id:
+            try:
+                from app.services.ui_healing.healing_wrapper import install_healing_wrapper
+                from app.database import SessionLocal
+                install_healing_wrapper(
+                    db_session_factory=SessionLocal,
+                    project_id=project_id,
+                    script_id=script_id,
+                    run_id=run_id,
+                    enabled=True,
+                )
+            except Exception as e:
+                logger.warning(f"自愈包装器安装失败（不影响执行）: {e}")
+
         local_vars = {}
         exec(compile(content, f"script_{script_id}.py", "exec"), local_vars)
 
@@ -64,9 +79,9 @@ def run_script_sync(content: str, script_id: int) -> tuple[bool, str]:
         return False, str(e)
 
 
-async def execute_script_async(content: str, script_id: int) -> tuple[bool, str]:
+async def execute_script_async(content: str, script_id: int, project_id: int = None, run_id: int = None) -> tuple[bool, str]:
     """异步执行脚本，使用线程池避免阻塞"""
-    return await asyncio.to_thread(run_script_sync, content, script_id)
+    return await asyncio.to_thread(run_script_sync, content, script_id, project_id, run_id)
 
 
 async def execute_script_with_ai_fix(
@@ -127,7 +142,7 @@ async def execute_script_with_ai_fix(
     ]
 
     # 首次执行
-    success, error_msg = await execute_script_async(current_content, script_id)
+    success, error_msg = await execute_script_async(current_content, script_id, project_id, run_id)
     duration = time.time() - start_time
 
     if success:
@@ -219,7 +234,7 @@ async def execute_script_with_ai_fix(
 
                 # 使用修复后的脚本重新执行
                 retry_start = time.time()
-                success, error_msg = await execute_script_async(current_content, script_id)
+                success, error_msg = await execute_script_async(current_content, script_id, project_id, run_id)
                 retry_duration = time.time() - retry_start
 
                 if success:

@@ -88,6 +88,9 @@
               <a-button @click="openEditInfo" :disabled="currentScript.status === 'generating'">
                 <EditOutlined /> 编辑信息
               </a-button>
+              <a-button @click="goHealingRecords">
+                <MedicineBoxOutlined /> 自愈记录
+              </a-button>
               <a-button @click="handleDuplicate">复制</a-button>
               <a-tooltip title="执行失败时自动调用AI修复脚本并重试">
                 <a-space size="small" style="margin-right: 8px">
@@ -99,6 +102,12 @@
                 <a-space size="small" style="margin-right: 8px">
                   <a-switch v-model:checked="headlessEnabled" size="small" :disabled="running" />
                   <span style="font-size: 12px; color: #666">无头模式</span>
+                </a-space>
+              </a-tooltip>
+              <a-tooltip title="元素定位失败时自动尝试备选定位器/AI推理/视觉定位">
+                <a-space size="small" style="margin-right: 8px">
+                  <a-switch v-model:checked="healEnabled" size="small" :disabled="running" @change="toggleHealEnabled" />
+                  <span style="font-size: 12px; color: #666">自愈</span>
                 </a-space>
               </a-tooltip>
               <a-button type="primary" @click="handleRun" :loading="running" :disabled="currentScript.status === 'generating'">
@@ -122,6 +131,7 @@
             <a-descriptions-item label="来源执行">{{ currentScript.source_run_id || '手动创建' }}</a-descriptions-item>
             <a-descriptions-item label="标签">{{ currentScript.tags || '-' }}</a-descriptions-item>
             <a-descriptions-item label="累计运行">{{ currentScript.total_runs || 0 }} 次</a-descriptions-item>
+            <a-descriptions-item label="自愈次数">{{ currentScript.heal_count || 0 }} 次</a-descriptions-item>
             <a-descriptions-item label="通过/失败">{{ currentScript.pass_count || 0 }} / {{ currentScript.fail_count || 0 }}</a-descriptions-item>
             <a-descriptions-item label="最近运行" :span="3">
               <span v-if="currentScript.last_run_at">
@@ -367,11 +377,11 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import {
-  PlusOutlined, SearchOutlined, PlayCircleOutlined, ReloadOutlined, EditOutlined, HistoryOutlined
+  PlusOutlined, SearchOutlined, PlayCircleOutlined, ReloadOutlined, EditOutlined, HistoryOutlined, MedicineBoxOutlined
 } from '@ant-design/icons-vue'
 import {
   getScripts, createScript, updateScript, deleteScript,
@@ -383,8 +393,17 @@ import { promptsApi, type Prompt } from '@/api/prompts'
 import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
+const router = useRouter()
 const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = Number(route.params.id)
+
+function goHealingRecords() {
+  if (currentScript.value?.id) {
+    router.push({ name: 'UiHealingRecords', params: { id: projectId }, query: { script_id: currentScript.value.id } })
+  } else {
+    router.push({ name: 'UiHealingRecords', params: { id: projectId } })
+  }
+}
 
 const loading = ref(false)
 const scripts = ref<AutomationScript[]>([])
@@ -416,6 +435,7 @@ const runResult = ref<{ status: string; duration: number; error?: string; auto_f
 const refreshing = ref(false)
 const autoFixEnabled = ref(true)  // 自动修复开关
 const headlessEnabled = ref(true)  // 无头模式开关
+const healEnabled = ref(true)  // 自愈开关
 const currentRunId = ref<number | null>(null)  // 当前后台执行的run_id
 let runPollingTimer: any = null  // 轮询定时器
 
@@ -507,6 +527,7 @@ async function selectScript(script: AutomationScript) {
   currentScript.value = script
   editing.value = false
   editContent.value = script.script_content || ''
+  healEnabled.value = script.heal_enabled !== false
   // 获取关联的编排套件信息
   try {
     scriptSuites.value = await getScriptSuites(projectId, script.id!)
@@ -602,6 +623,18 @@ async function refreshCurrentScript() {
     message.error(e.response?.data?.detail || '刷新失败')
   } finally {
     refreshing.value = false
+  }
+}
+
+async function toggleHealEnabled(checked: boolean) {
+  if (!currentScript.value?.id) return
+  try {
+    await updateScript(projectId, currentScript.value.id, { heal_enabled: checked })
+    currentScript.value.heal_enabled = checked
+    message.success(checked ? '已开启自愈' : '已关闭自愈')
+  } catch (e) {
+    healEnabled.value = !checked
+    message.error('设置失败')
   }
 }
 

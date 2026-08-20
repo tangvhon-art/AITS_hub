@@ -75,6 +75,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '自动化编排', icon: 'AppstoreOutlined' }
       },
       {
+        path: 'projects/:id/ui-healing/records',
+        name: 'UiHealingRecords',
+        component: () => import('@/views/UiHealingRecords.vue'),
+        meta: { title: '自愈记录', icon: 'MedicineBoxOutlined' }
+      },
+      {
+        path: 'projects/:id/ui-healing/profiles',
+        name: 'UiHealingProfiles',
+        component: () => import('@/views/UiHealingProfiles.vue'),
+        meta: { title: '页面知识', icon: 'ClusterOutlined' }
+      },
+      {
         path: 'projects/:id/suite-runs/:runId',
         name: 'SuiteRunDetail',
         component: () => import('@/views/SuiteRunDetail.vue'),

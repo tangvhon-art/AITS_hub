@@ -32,6 +32,7 @@ celery_app = Celery(
         "app.tasks.report_tasks",
         "app.tasks.review_tasks",
         "app.tasks.execution_tasks",
+        "app.tasks.ui_healing_tasks",
     ],
 )
 
@@ -68,6 +69,14 @@ celery_app.conf.update(
     # 启用事件发送，Flower 依赖事件流检测 worker 和任务状态
     worker_send_task_events=True,
     task_send_sent_event=True,
+    # 定时任务
+    beat_schedule={
+        "aggregate-ui-healing-knowledge": {
+            "task": "app.tasks.ui_healing_tasks.aggregate_page_knowledge",
+            "schedule": 3600.0,  # 每小时执行一次
+            "args": (),
+        },
+    },
 )
 
 

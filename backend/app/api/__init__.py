@@ -42,6 +42,7 @@ from app.api.prompts import router as prompts_router
 from app.api.notifications import router as notifications_router
 from app.api.mcp import router as mcp_router
 from app.api.skills import router as skills_router
+from app.api.ui_healing import router as ui_healing_router
 
 __all__ = [
     "auth_router",
@@ -88,4 +89,5 @@ __all__ = [
     "notifications_router",
     "mcp_router",
     "skills_router",
+    "ui_healing_router",
 ]

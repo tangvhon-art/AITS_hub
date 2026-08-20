@@ -30,6 +30,7 @@ class AutomationScriptUpdate(BaseModel):
     target_url: Optional[str] = None
     status: Optional[str] = None
     tags: Optional[str] = None
+    heal_enabled: Optional[bool] = None
 
 
 class AutomationScriptResponse(BaseModel):
@@ -46,6 +47,9 @@ class AutomationScriptResponse(BaseModel):
     status: Optional[str] = ""
     version: Optional[int] = 1
     tags: Optional[str] = ""
+    heal_enabled: Optional[bool] = True
+    heal_count: Optional[int] = 0
+    last_healed_at: Optional[datetime] = None
     last_run_status: Optional[str] = None
     last_run_at: Optional[datetime] = None
     total_runs: Optional[int] = 0

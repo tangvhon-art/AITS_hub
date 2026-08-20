@@ -2,6 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
@@ -51,6 +52,7 @@ from app.api import (
     notifications_router,
     mcp_router,
     skills_router,
+    ui_healing_router,
 )
 
 logging.basicConfig(
@@ -84,6 +86,9 @@ def _auto_migrate(engine):
         ("performance_test_runs", "endpoint_stats", "JSON"),
         ("test_requirements", "feature_split_status", "VARCHAR(20) DEFAULT 'pending'"),
         ("test_cases", "feature_id", "INTEGER"),
+        ("automation_scripts", "heal_enabled", "BOOLEAN DEFAULT 1"),
+        ("automation_scripts", "heal_count", "INTEGER DEFAULT 0"),
+        ("automation_scripts", "last_healed_at", "DATETIME"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:
@@ -119,6 +124,7 @@ async def lifespan(app: FastAPI):
         NotificationChannel, NotificationRule, NotificationRecord,
         MCPConnector, Skill,
         ChatSession, ChatMessage,
+        UIPageVisit, UIPageProfile, UIElementFingerprint, UIHealingRecord,
     )
     Base.metadata.create_all(bind=engine)
     _auto_migrate(engine)
@@ -132,6 +138,19 @@ async def lifespan(app: FastAPI):
         logger.info(f"内置工具注册完成，共 {len(tool_registry.list_tools())} 个工具")
     except Exception as e:
         logger.warning(f"内置工具注册失败: {e}")
+
+    # 注册所有启用的 Skill 为大模型工具
+    try:
+        from app.database import SessionLocal
+        from app.agents.skill_engine import skill_engine
+        db = SessionLocal()
+        try:
+            skill_count = skill_engine.register_all_active_skills(db)
+            logger.info(f"Skill 工具注册完成，共 {skill_count} 个 Skill")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Skill 工具注册失败: {e}")
 
     # 后台异步重连已启用的 MCP 连接器（不阻塞启动）
     async def _reconnect_mcp_connectors():
@@ -234,6 +253,13 @@ app.include_router(prompts_router)
 app.include_router(notifications_router)
 app.include_router(mcp_router)
 app.include_router(skills_router)
+app.include_router(ui_healing_router)
+
+# 静态文件服务（截图等上传文件）
+import os as _os
+_uploads_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "uploads")
+_os.makedirs(_uploads_dir, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
 
 
 @app.get("/api/health", tags=["系统"])

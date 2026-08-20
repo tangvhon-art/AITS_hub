@@ -3,6 +3,7 @@
     <div class="page-header">
       <h2>Skill 管理</h2>
       <div class="header-actions">
+        <a-button @click="handleRegisterAll" title="将所有启用的 Skill 注册为大模型工具">全部注册</a-button>
         <a-button @click="openImport">导入 Skill 包</a-button>
         <a-button type="primary" @click="openCreate">新建 Skill</a-button>
       </div>
@@ -44,7 +45,26 @@
         <template v-else-if="column.key === 'is_active'">
           <a-switch :checked="record.is_active" :disabled="record.is_builtin" @change="toggleSkill(record)" />
         </template>
+        <template v-else-if="column.key === 'registered'">
+          <a-tag v-if="isRegistered(record)" color="green">已注册</a-tag>
+          <a-tag v-else color="default">未注册</a-tag>
+        </template>
         <template v-else-if="column.key === 'action'">
+          <a-button
+            v-if="isRegistered(record)"
+            type="link" size="small"
+            :loading="registeringIds.has(record.id)"
+            @click="handleUnregister(record)"
+            title="注销大模型工具注册"
+          >注销</a-button>
+          <a-button
+            v-else
+            type="link" size="small"
+            :disabled="!record.is_active"
+            :loading="registeringIds.has(record.id)"
+            @click="handleRegister(record)"
+            title="注册为大模型可调用工具"
+          >注册</a-button>
           <a-button type="link" size="small" @click="openEdit(record)">编辑</a-button>
           <a-button type="link" size="small" @click="handleExport(record)">导出</a-button>
           <a-button type="link" size="small" @click="openFileViewer(record)" :disabled="!record.files || Object.keys(record.files).length === 0">文件</a-button>
@@ -370,6 +390,8 @@ const previewMeta = ref<Record<string, any>>({})
 const previewBody = ref('')
 const previewFiles = ref<string[]>([])
 const allTools = ref<any[]>([])
+const registeredSkillNames = ref<Set<string>>(new Set())
+const registeringIds = ref<Set<number>>(new Set())
 
 const filteredList = computed(() => {
   let result = list.value
@@ -403,7 +425,8 @@ const columns = [
   { title: '触发', key: 'trigger', width: 100 },
   { title: '版本', dataIndex: 'version', key: 'version', width: 80 },
   { title: '启用', key: 'is_active', width: 80 },
-  { title: '操作', key: 'action', width: 260 },
+  { title: '工具注册', key: 'registered', width: 100 },
+  { title: '操作', key: 'action', width: 320 },
 ]
 
 function sourceColor(s: string) { return { builtin: 'blue', manual: 'green', imported: 'orange' }[s] || 'default' }
@@ -470,18 +493,21 @@ async function handleSave() {
     message.success('保存成功')
     modalVisible.value = false
     loadData()
+    loadRegistered()
   } finally { saving.value = false }
 }
 
 async function toggleSkill(record: Skill) {
   await skillsApi.toggle(record.id)
   loadData()
+  loadRegistered()
 }
 
 async function handleDelete(record: Skill) {
   await skillsApi.remove(record.id)
   message.success('删除成功')
   loadData()
+  loadRegistered()
 }
 
 async function handleExport(record: Skill) {
@@ -491,6 +517,53 @@ async function handleExport(record: Skill) {
   } catch (e: any) {
     message.error(e.message || '导出失败')
   }
+}
+
+async function loadRegistered() {
+  try {
+    const res = await skillsApi.listRegistered()
+    registeredSkillNames.value = new Set(res.items.map(i => i.skill_name))
+  } catch {}
+}
+
+async function handleRegister(record: Skill) {
+  registeringIds.value.add(record.id)
+  try {
+    const res = await skillsApi.register(record.id)
+    message.success(res.message || '注册成功')
+    registeredSkillNames.value.add(record.name)
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || e.message || '注册失败')
+  } finally {
+    registeringIds.value.delete(record.id)
+  }
+}
+
+async function handleUnregister(record: Skill) {
+  registeringIds.value.add(record.id)
+  try {
+    const res = await skillsApi.unregister(record.id)
+    message.success(res.message || '注销成功')
+    registeredSkillNames.value.delete(record.name)
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || e.message || '注销失败')
+  } finally {
+    registeringIds.value.delete(record.id)
+  }
+}
+
+async function handleRegisterAll() {
+  try {
+    const res = await skillsApi.registerAll()
+    message.success(res.message || `已注册 ${res.count} 个 Skill`)
+    loadRegistered()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || e.message || '批量注册失败')
+  }
+}
+
+function isRegistered(record: Skill) {
+  return registeredSkillNames.value.has(record.name)
 }
 
 function openFileViewer(record: Skill) {
@@ -604,12 +677,13 @@ async function handleImport() {
     if (importResult.value.success) {
       message.success('导入成功')
       loadData()
+      loadRegistered()
       importVisible.value = false
     }
   } finally { importing.value = false }
 }
 
-onMounted(() => { loadData(); loadTools() })
+onMounted(() => { loadData(); loadTools(); loadRegistered() })
 </script>
 
 <style scoped>

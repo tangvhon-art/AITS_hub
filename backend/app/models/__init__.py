@@ -39,6 +39,7 @@ from app.models.notification import NotificationChannel, NotificationRule, Notif
 from app.models.mcp_connector import MCPConnector
 from app.models.skill import Skill
 from app.models.chat_history import ChatSession, ChatMessage
+from app.models.ui_healing import UIPageVisit, UIPageProfile, UIElementFingerprint, UIHealingRecord
 
 __all__ = [
     "User",
@@ -90,4 +91,8 @@ __all__ = [
     "Skill",
     "ChatSession",
     "ChatMessage",
+    "UIPageVisit",
+    "UIPageProfile",
+    "UIElementFingerprint",
+    "UIHealingRecord",
 ]

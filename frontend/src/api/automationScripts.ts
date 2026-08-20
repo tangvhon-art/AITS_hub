@@ -14,6 +14,9 @@ export interface AutomationScript {
   status?: string
   version?: number
   tags?: string
+  heal_enabled?: boolean
+  heal_count?: number
+  last_healed_at?: string | null
   last_run_status?: string | null
   last_run_at?: string | null
   total_runs?: number

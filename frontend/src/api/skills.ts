@@ -43,6 +43,18 @@ export const skillsApi = {
   toggle: (id: number) =>
     request.post<Skill>(`/skills/${id}/toggle`),
 
+  register: (id: number) =>
+    request.post<{ success: boolean; message: string; skill_id: number; skill_name: string; tool_name: string; description: string }>(`/skills/${id}/register`),
+
+  unregister: (id: number) =>
+    request.post<{ success: boolean; message: string }>(`/skills/${id}/unregister`),
+
+  listRegistered: () =>
+    request.get<{ total: number; items: Array<{ skill_name: string; tool_name: string; title: string; description: string; is_active: boolean }> }>('/skills/registered/list'),
+
+  registerAll: () =>
+    request.post<{ success: boolean; message: string; count: number }>('/skills/register-all'),
+
   match: (message: string, project_id?: number) =>
     request.post<{ matched: boolean; skill: Skill | null; reason: string }>('/skills/match', { message, project_id }),
 
