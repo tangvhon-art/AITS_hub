@@ -80,7 +80,7 @@ function groupMenuItems(items: MenuItem[]): MenuItem[] {
     result.push({
       key: 'ua-group',
       title: 'UI自动化',
-      icon: 'RobotOutlined',
+      icon: 'ControlOutlined',
       projectScoped: true,
       children: uiAutomationChildren,
     })
