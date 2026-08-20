@@ -233,31 +233,38 @@ steps 是数组，每个元素必须且只能有两个字段：
         features: List[Dict[str, Any]],
         existing_cases: Optional[List[str]] = None,
         system_prompt: str = "",
+        progress_callback=None,
     ) -> Dict[str, Any]:
         """
-        基于功能点生成测试用例 — 按单个功能点逐条调用 LLM，确保每次输出小且可靠。
+        基于功能点生成测试用例 — 按单个功能点并行调用 LLM，确保每次输出小且可靠。
 
-        每次只给 LLM 一个功能点，生成 3-8 条用例，JSON 输出极小（< 2K tokens），
-        从根本上避免截断和格式错乱。
+        使用 ThreadPoolExecutor(max_workers=3) 并行调用，大幅缩短总耗时。
+        progress_callback(idx, total, feat_name, case_count) 用于报告进度。
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else self.FEATURE_CASE_SYSTEM_PROMPT
 
-        logger.info(f"基于功能点生成用例（逐个功能点）: {requirement_title}, 功能点数: {len(features)}")
+        # 截断需求内容，避免每次调用都传超长文本
+        if len(requirement_content) > 2000:
+            requirement_content = requirement_content[:2000] + "\n...（已截断）"
 
+        logger.info(f"基于功能点生成用例（逐个功能点并行）: {requirement_title}, 功能点数: {len(features)}")
+
+        total = len(features)
         all_cases: List[Dict[str, Any]] = []
-        all_existing = list(existing_cases or [])
         success_count = 0
         fail_count = 0
+        completed_count = 0
+        existing_titles_set = set(existing_cases or [])
 
-        for idx, feat in enumerate(features, 1):
-            feat_name = feat.get("name", f"功能点{idx}")
+        def _generate_one(feat_idx: int, feat: Dict) -> tuple[int, str, List[Dict], bool]:
+            """单个功能点的 LLM 调用（线程内独立执行）。"""
+            feat_name = feat.get("name", f"功能点{feat_idx}")
             feat_module = feat.get("module_name", "未分组")
             feat_priority = feat.get("priority", "P1")
             feat_preconditions = feat.get("preconditions", "")
 
-            logger.info(f"生成功能点 [{idx}/{len(features)}]: {feat_name} (模块: {feat_module})")
-
-            # 构建单个功能点的文本
             methods = feat.get("design_methods", [])
             if isinstance(methods, str):
                 methods_str = methods
@@ -270,7 +277,7 @@ steps 是数组，每个元素必须且只能有两个字段：
 - 建议设计方法：{methods_str}
 - 前置条件：{feat_preconditions or '无'}"""
 
-            existing_text = "无" if not all_existing else "\n".join(f"- {t}" for t in all_existing[:20])
+            existing_text = "无" if not existing_titles_set else "\n".join(f"- {t}" for t in list(existing_titles_set)[:20])
 
             messages = [
                 SystemMessage(content=effective_system_prompt),
@@ -282,80 +289,79 @@ steps 是数组，每个元素必须且只能有两个字段：
                 )),
             ]
 
+            # 线程内独立 DB session
+            from app.database import SessionLocal
+            thread_db = SessionLocal()
             try:
-                response, token_usage, config_id = llm_factory.call_with_fallback(
-                    self.db,
+                thread_llm_factory = llm_factory
+                logger.info(f"[线程] 功能点 [{feat_idx}/{total}] [{feat_name}] 开始调用 LLM")
+                response, token_usage, _ = thread_llm_factory.call_with_fallback(
+                    thread_db,
                     messages=messages,
                     preferred_config_id=self.llm_config_id,
                     temperature=0.3,
                     max_tokens=4096,
                 )
-
-                if token_usage:
-                    self.token_usage["prompt_tokens"] += token_usage.get("prompt_tokens", 0)
-                    self.token_usage["completion_tokens"] += token_usage.get("completion_tokens", 0)
-                    self.token_usage["total_tokens"] += token_usage.get("total_tokens", 0)
-                self.llm_config_id = config_id or self.llm_config_id
+                logger.info(f"[线程] 功能点 [{feat_name}] LLM 调用完成, tokens={token_usage}")
 
                 raw = response.content if hasattr(response, "content") else str(response)
-                logger.info(f"功能点 [{feat_name}] LLM 输出长度: {len(raw)}")
+                logger.info(f"功能点 [{feat_idx}/{total}] [{feat_name}] LLM 输出长度: {len(raw)}, tokens: {token_usage}")
 
-                # 解析并修复用例
-                feat_cases = self._parse_and_repair_cases(raw, feat_name, feat_module, feat_priority, feat_preconditions)
+                feat_cases = CaseGeneratorAgent._parse_and_repair_cases(raw, feat_name, feat_module, feat_priority, feat_preconditions)
 
-                if feat_cases:
-                    all_cases.extend(feat_cases)
-                    all_existing.extend(c.get("title", "") for c in feat_cases)
-                    success_count += 1
-                    logger.info(f"功能点 [{feat_name}] 成功: {len(feat_cases)} 条用例")
-                else:
-                    fail_count += 1
-                    logger.warning(f"功能点 [{feat_name}] 解析失败，尝试重试")
-
-                    # 重试一次
-                    retry_messages = [
-                        SystemMessage(content=effective_system_prompt),
-                        HumanMessage(content=self.FEATURE_CASE_HUMAN_TEMPLATE.format(
-                            title=requirement_title or "未命名需求",
-                            content=requirement_content or "（无详细内容）",
-                            features_text=features_text,
-                            existing_cases=existing_text,
-                        )),
-                        HumanMessage(content="上一次输出格式有误。请重新输出完整的 JSON。确保 steps 中每个元素用 action 和 expected 两个英文键名。"),
+                if not feat_cases:
+                    logger.warning(f"功能点 [{feat_name}] 首次解析失败，重试")
+                    retry_messages = messages + [
+                        HumanMessage(content="上一次输出格式有误。请重新输出完整的 JSON。确保 steps 中每个元素用 action 和 expected 两个英文键名。")
                     ]
-                    retry_response, retry_usage, _ = llm_factory.call_with_fallback(
-                        self.db,
+                    retry_response, _, _ = thread_llm_factory.call_with_fallback(
+                        thread_db,
                         messages=retry_messages,
                         preferred_config_id=self.llm_config_id,
                         temperature=0.3,
                         max_tokens=4096,
                     )
-                    if retry_usage:
-                        self.token_usage["prompt_tokens"] += retry_usage.get("prompt_tokens", 0)
-                        self.token_usage["completion_tokens"] += retry_usage.get("completion_tokens", 0)
-                        self.token_usage["total_tokens"] += retry_usage.get("total_tokens", 0)
                     raw = retry_response.content if hasattr(retry_response, "content") else str(retry_response)
-                    feat_cases = self._parse_and_repair_cases(raw, feat_name, feat_module, feat_priority, feat_preconditions)
-                    if feat_cases:
-                        all_cases.extend(feat_cases)
-                        all_existing.extend(c.get("title", "") for c in feat_cases)
-                        success_count += 1
-                        logger.info(f"功能点 [{feat_name}] 重试成功: {len(feat_cases)} 条用例")
-                    else:
-                        logger.warning(f"功能点 [{feat_name}] 重试仍失败，跳过")
+                    feat_cases = CaseGeneratorAgent._parse_and_repair_cases(raw, feat_name, feat_module, feat_priority, feat_preconditions)
 
+                return feat_idx, feat_name, feat_cases or [], bool(feat_cases)
             except Exception as e:
-                fail_count += 1
                 logger.error(f"功能点 [{feat_name}] 生成异常: {e}")
+                return feat_idx, feat_name, [], False
+            finally:
+                thread_db.close()
 
-        logger.info(f"全部功能点生成完成: 成功 {success_count}/{len(features)}, 失败 {fail_count}, 共 {len(all_cases)} 条用例")
+        max_workers = min(3, total)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_generate_one, idx, feat): (idx, feat)
+                for idx, feat in enumerate(features, 1)
+            }
+            for future in as_completed(futures):
+                idx, feat_name, feat_cases, ok = future.result()
+                completed_count += 1
+                if ok:
+                    all_cases.extend(feat_cases)
+                    success_count += 1
+                    logger.info(f"功能点 [{idx}/{total}] [{feat_name}] 成功: {len(feat_cases)} 条用例 (已完成 {completed_count}/{total})")
+                else:
+                    fail_count += 1
+                    logger.warning(f"功能点 [{idx}/{total}] [{feat_name}] 失败 (已完成 {completed_count}/{total})")
+
+                if progress_callback:
+                    try:
+                        progress_callback(completed_count, total, feat_name, len(feat_cases))
+                    except Exception:
+                        pass
+
+        logger.info(f"全部功能点生成完成: 成功 {success_count}/{total}, 失败 {fail_count}, 共 {len(all_cases)} 条用例")
 
         return {
             "raw_content": json.dumps({"cases": all_cases}, ensure_ascii=False),
             "cases": all_cases,
             "token_usage": self.get_token_usage(),
             "llm_config_id": self.llm_config_id,
-            "feature_count": len(features),
+            "feature_count": total,
             "success_count": success_count,
             "fail_count": fail_count,
         }

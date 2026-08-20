@@ -103,6 +103,19 @@ def split_features_task(self, requirement_id: int, llm_config_id=None):
         db.close()
 
 
+def _update_progress(db, task, done: int, total: int, feat_name: str, case_count: int):
+    """更新用例生成进度到 task.output_result。"""
+    try:
+        task.output_result = {
+            "progress": f"{done}/{total}",
+            "current_feature": feat_name,
+            "case_count_so_far": case_count,
+        }
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 @celery_app.task(bind=True, name="generate_cases", max_retries=2)
 def generate_cases_task(self, task_id: int):
     """AI 生成测试用例任务"""
@@ -111,7 +124,7 @@ def generate_cases_task(self, task_id: int):
         task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
         if not task:
             logger.error(f"AgentTask not found: {task_id}")
-            return
+            raise ValueError(f"AgentTask not found: {task_id}")
 
         task.status = "running"
         db.commit()
@@ -123,6 +136,8 @@ def generate_cases_task(self, task_id: int):
         content = input_params.get("content", "")
         prompt_id = input_params.get("prompt_id")
         feature_ids = input_params.get("feature_ids") or []
+
+        logger.info(f"[generate_cases v2] task_id={task_id}, project_id={project_id}, req_id={req_id}, feature_ids={feature_ids}")
 
         # 获取需求信息
         requirement_content = content
@@ -197,13 +212,18 @@ def generate_cases_task(self, task_id: int):
                 ).limit(50).all()
             ]
 
+            logger.info(f"[generate_cases v2] 开始按功能点并行生成: {len(features_data)} 个功能点")
+
             result = agent.generate_by_features(
                 requirement_title=requirement_title,
                 requirement_content=requirement_content,
                 features=features_data,
                 existing_cases=existing_titles,
                 system_prompt=system_prompt,
+                progress_callback=lambda done, total, name, cnt: _update_progress(db, task, done, total, name, cnt),
             )
+
+            logger.info(f"[generate_cases v2] 生成完成: {result.get('success_count', 0)} 成功, {result.get('fail_count', 0)} 失败, {len(result.get('cases', []))} 条用例")
         else:
             # ── 传统数量驱动生成（兼容旧逻辑） ──
             result = agent.generate(
@@ -286,5 +306,7 @@ def generate_cases_task(self, task_id: int):
                 )
         except Exception:
             pass
+        # 必须 re-raise，否则 Celery 会误标记为 SUCCESS
+        raise
     finally:
         db.close()
