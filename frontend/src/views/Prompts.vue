@@ -53,7 +53,7 @@
         <template v-else-if="column.key === 'system_prompt'">
           <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '800px' }">
             <template #title>
-              <div style="white-space: pre-wrap; max-height: 500px; overflow-y: auto">{{ record.system_prompt }}</div>
+              <div class="md-tooltip" v-html="renderMarkdown(record.system_prompt)"></div>
             </template>
             <span class="prompt-preview">{{ record.system_prompt.slice(0, 80) }}{{ record.system_prompt.length > 80 ? '...' : '' }}</span>
           </a-tooltip>
@@ -98,11 +98,17 @@
           <a-input v-model:value="formData.description" placeholder="Prompt 描述说明" />
         </a-form-item>
         <a-form-item label="System 提示词" required>
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <a-switch v-model:checked="previewMode" size="small" />
+            <span style="color: #999; font-size: 12px;">{{ previewMode ? '预览模式（只读）' : '编辑模式' }}</span>
+          </div>
           <a-textarea
+            v-if="!previewMode"
             v-model:value="formData.system_prompt"
             :rows="8"
             placeholder="作为 system 角色的提示词，定义 AI 的行为和输出要求"
           />
+          <div v-else class="md-preview" v-html="renderMarkdown(formData.system_prompt)"></div>
         </a-form-item>
         <a-form-item label="设为默认">
           <a-switch v-model:checked="formData.is_default" />
@@ -117,6 +123,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
+import { marked } from 'marked'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { useCRUD } from '@/composables/useCRUD'
 import { promptsApi, type Prompt, type PromptCreate } from '@/api/prompts'
@@ -128,6 +135,16 @@ const dataSource = ref<Prompt[]>([])
 const filterCategory = ref<string>()
 const searchKeyword = ref('')
 const seeding = ref(false)
+const previewMode = ref(false)
+
+function renderMarkdown(text: string): string {
+  if (!text) return '<span style="color:#999">（空）</span>'
+  try {
+    return marked.parse(text) as string
+  } catch {
+    return text.replace(/\n/g, '<br>')
+  }
+}
 
 // 新建时的默认表单值
 const defaultForm: PromptCreate = {
@@ -261,4 +278,95 @@ onMounted(() => {
   color: #666;
   font-size: 13px;
 }
+</style>
+
+<style>
+.md-tooltip {
+  max-height: 500px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.md-tooltip h1, .md-tooltip h2, .md-tooltip h3 {
+  margin: 8px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.md-tooltip p { margin: 4px 0; }
+.md-tooltip table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 4px 0;
+}
+.md-tooltip th, .md-tooltip td {
+  border: 1px solid #555;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.md-tooltip th { background: #333; }
+.md-tooltip code {
+  background: #333;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.md-tooltip pre {
+  background: #222;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.md-tooltip ul, .md-tooltip ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.md-preview {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: #fafafa;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.md-preview h1, .md-preview h2, .md-preview h3 {
+  margin: 10px 0 6px;
+  font-weight: 600;
+}
+.md-preview h1 { font-size: 18px; }
+.md-preview h2 { font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+.md-preview h3 { font-size: 14px; }
+.md-preview p { margin: 6px 0; }
+.md-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+.md-preview th, .md-preview td {
+  border: 1px solid #d9d9d9;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.md-preview th { background: #f5f5f5; font-weight: 600; }
+.md-preview code {
+  background: #f0f0f0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: #c41d7f;
+}
+.md-preview pre {
+  background: #f5f5f5;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+.md-preview ul, .md-preview ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.md-preview li { margin: 2px 0; }
 </style>

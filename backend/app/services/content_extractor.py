@@ -343,7 +343,11 @@ class ContentExtractor:
     @staticmethod
     def extract_review(content: str) -> Dict[str, Any]:
         """
-        从 LLM 输出提取评审结果。
+        从 LLM 输出提取评审结果（Markdown 格式）。
+
+        支持两种格式：
+        1. 新格式：Markdown 章节（## 评分、## 问题列表、## 遗漏场景、## 整体改进建议、## 分组评价）
+        2. 旧格式：JSON（向后兼容）
 
         Returns:
             {"score", "passed", "summary", "issues", "overall_suggestions", "group_reviews", "missing_scenarios"}
@@ -362,10 +366,10 @@ class ContentExtractor:
             logger.warning("评审提取: 内容为空")
             return defaults
 
-        # 策略 1: JSON 解析
+        # 策略 1: 尝试 JSON 解析（向后兼容旧格式）
         parsed = extract_json(content)
-        if parsed and isinstance(parsed, dict):
-            logger.info("评审提取: JSON 解析成功")
+        if parsed and isinstance(parsed, dict) and ("score" in parsed or "issues" in parsed):
+            logger.info("评审提取: JSON 解析成功（旧格式兼容）")
             score = parsed.get("score")
             try:
                 score = int(score) if score is not None else 60
@@ -381,80 +385,210 @@ class ContentExtractor:
                 "missing_scenarios": parsed.get("missing_scenarios") or [],
             }
 
-        # JSON 解析失败，记录原始内容用于排查
-        logger.warning(f"评审提取: JSON 解析失败，原始内容前500字: {content[:500]}")
-
-        # 策略 2: 正则提取评分 + 从文本中提取问题和建议
+        # 策略 2: Markdown 解析（新格式）
+        logger.info("评审提取: 使用 Markdown 解析")
         result = {**defaults}
 
-        # 提取评分
-        score_match = re.search(r'["\']?score["\']?\s*[:：]\s*(\d+)', content)
-        if not score_match:
-            score_match = re.search(r'(\d+)\s*分', content)
-        if score_match:
-            score = int(score_match.group(1))
-            result["score"] = max(0, min(100, score))
-            result["passed"] = score >= 70
-            logger.info(f"评审提取: 正则提取评分成功, score={score}")
+        # 去除代码块标记
+        clean = content.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r'^```\w*\n?', '', clean)
+            clean = re.sub(r'\n?```$', '', clean)
 
-        # 提取 summary
-        summary_match = re.search(r'["\']?summary["\']?\s*[:：]\s*["\']([^"\']+)["\']', content)
-        if summary_match:
-            result["summary"] = summary_match.group(1)[:200]
+        # 按 ## 标题分割章节
+        sections = re.split(r'\n##\s+', clean)
 
-        # 提取 issues（尝试从文本中匹配问题条目）
+        # 如果没有 ## 分割，尝试按 # 分割
+        if len(sections) <= 1:
+            sections = re.split(r'\n#\s+', clean)
+
+        # 去除开头的空 section
+        sections = [s.strip() for s in sections if s.strip()]
+
+        for section in sections:
+            first_line = section.split('\n')[0].strip().lower()
+
+            # 提取评分
+            if 'score' in first_line or '评分' in first_line:
+                score_match = re.search(r'score\s*[:：]\s*(\d+)', section, re.IGNORECASE)
+                if score_match:
+                    score = int(score_match.group(1))
+                    result["score"] = max(0, min(100, score))
+                    result["passed"] = score >= 70
+                else:
+                    # 尝试匹配 "评分：85" 或 "85分"
+                    score_match = re.search(r'(\d+)\s*分?', section)
+                    if score_match:
+                        score = int(score_match.group(1))
+                        if 0 <= score <= 100:
+                            result["score"] = score
+                            result["passed"] = score >= 70
+
+                passed_match = re.search(r'passed\s*[:：]\s*(true|false)', section, re.IGNORECASE)
+                if passed_match:
+                    result["passed"] = passed_match.group(1).lower() == "true"
+
+                summary_match = re.search(r'summary\s*[:：]\s*(.+)', section, re.IGNORECASE)
+                if summary_match:
+                    result["summary"] = summary_match.group(1).strip()[:200]
+
+            # 提取问题列表
+            elif '问题' in first_line or 'issue' in first_line:
+                issues = ContentExtractor._parse_markdown_issues_table(section)
+                if issues:
+                    result["issues"] = issues
+                    logger.info(f"评审提取: Markdown 表格解析到 {len(issues)} 个问题")
+
+            # 提取遗漏场景
+            elif '遗漏' in first_line or 'missing' in first_line or '缺失' in first_line:
+                missing = ContentExtractor._parse_numbered_list(section)
+                if missing:
+                    result["missing_scenarios"] = missing
+                    logger.info(f"评审提取: 解析到 {len(missing)} 个遗漏场景")
+
+            # 提取整体改进建议
+            elif '建议' in first_line or 'suggestion' in first_line:
+                suggestions = ContentExtractor._parse_numbered_list(section)
+                if suggestions:
+                    result["overall_suggestions"] = suggestions
+                    logger.info(f"评审提取: 解析到 {len(suggestions)} 条改进建议")
+
+            # 提取分组评价
+            elif '分组' in first_line or 'group' in first_line:
+                groups = ContentExtractor._parse_markdown_groups_table(section)
+                if groups:
+                    result["group_reviews"] = groups
+
+        # 如果 Markdown 解析也没有提取到 issues，尝试正则兜底
+        if not result["issues"]:
+            issue_pattern = re.findall(
+                r'(?:问题|issue)[\s\d]*[:：]\s*(.+?)(?=(?:问题|issue|建议|suggestion|遗漏|$))',
+                content, re.IGNORECASE | re.DOTALL
+            )
+            for i, desc in enumerate(issue_pattern[:10]):
+                desc = desc.strip().strip('"').strip("'")
+                if desc and len(desc) > 5:
+                    result["issues"].append({
+                        "case_index": i,
+                        "case_title": "",
+                        "requirement_title": "",
+                        "module": "",
+                        "issue_type": "完整性",
+                        "severity": "medium",
+                        "description": desc[:200],
+                        "suggestion": "",
+                    })
+
+        if not result["overall_suggestions"]:
+            sug_pattern = re.findall(
+                r'(?:建议|suggestion)[\s\d]*[:：]\s*(.+?)(?=(?:建议|suggestion|问题|issue|遗漏|缺少|缺失|missing|$))',
+                content, re.IGNORECASE | re.DOTALL
+            )
+            for s in sug_pattern[:5]:
+                s = s.strip().strip('"').strip("'")
+                if s and len(s) > 5:
+                    result["overall_suggestions"].append(s[:200])
+
+        logger.info(
+            f"评审提取完成: score={result['score']}, issues={len(result['issues'])}, "
+            f"suggestions={len(result['overall_suggestions'])}, missing={len(result['missing_scenarios'])}"
+        )
+        return result
+
+    @staticmethod
+    def _parse_markdown_issues_table(section: str) -> list:
+        """从 Markdown 章节中解析问题列表表格。"""
         issues = []
-        # 匹配 "问题1：" 或 "1. 问题：" 格式
-        issue_pattern = re.findall(
-            r'(?:问题|issue)[\s\d]*[:：]\s*(.+?)(?=(?:问题|issue|建议|suggestion|$))',
-            content, re.IGNORECASE | re.DOTALL
-        )
-        for i, desc in enumerate(issue_pattern[:10]):
-            desc = desc.strip().strip('"').strip("'")
-            if desc and len(desc) > 5:
-                issues.append({
-                    "case_index": i,
-                    "case_title": "",
-                    "requirement_title": "",
-                    "module": "",
-                    "issue_type": "完整性",
-                    "severity": "medium",
-                    "description": desc[:200],
-                    "suggestion": "",
-                })
-        result["issues"] = issues
+        lines = section.split('\n')
+        col_order = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped.startswith('|'):
+                continue
+            cells = [c.strip() for c in stripped.split('|')[1:-1]]
+            if not cells:
+                continue
+            # 表头行
+            if not col_order and ('case_index' in cells[0].lower() or 'case_title' in ''.join(cells).lower()):
+                col_order = [c.lower().strip() for c in cells]
+                continue
+            # 分割行
+            if not col_order and all(re.match(r'^[-:]+$', c) for c in cells):
+                continue
+            if not col_order:
+                continue
+            # 数据行
+            if all(re.match(r'^[-:]+$', c) for c in cells):
+                continue
+            issue = {}
+            for i, val in enumerate(cells):
+                if i < len(col_order):
+                    issue[col_order[i]] = val
+            if issue.get('case_index') is not None or issue.get('case_title'):
+                # 尝试转换 case_index 为 int
+                ci = issue.get('case_index', '')
+                try:
+                    issue['case_index'] = int(ci)
+                except (ValueError, TypeError):
+                    pass
+                issues.append(issue)
+        return issues
 
-        # 提取 overall_suggestions
-        suggestions = []
-        sug_pattern = re.findall(
-            r'(?:建议|suggestion)[\s\d]*[:：]\s*(.+?)(?=(?:建议|suggestion|问题|issue|遗漏|缺少|缺失|missing|$))',
-            content, re.IGNORECASE | re.DOTALL
-        )
-        for s in sug_pattern[:5]:
-            s = s.strip().strip('"').strip("'")
-            if s and len(s) > 5:
-                suggestions.append(s[:200])
-        result["overall_suggestions"] = suggestions
+    @staticmethod
+    def _parse_numbered_list(section: str) -> list:
+        """从 Markdown 章节中解析编号列表（1. xxx 2. xxx 或 - xxx）。"""
+        items = []
+        lines = section.split('\n')
+        for line in lines:
+            stripped = line.strip()
+            # 匹配 "1. xxx" 或 "1、xxx"
+            m = re.match(r'^\d+[.、]\s*(.+)', stripped)
+            if m:
+                val = m.group(1).strip()
+                if val and len(val) > 3:
+                    items.append(val[:200])
+                continue
+            # 匹配 "- xxx" 或 "* xxx"
+            m = re.match(r'^[-*]\s+(.+)', stripped)
+            if m:
+                val = m.group(1).strip()
+                if val and len(val) > 3:
+                    items.append(val[:200])
+        return items
 
-        # 提取 missing_scenarios
-        missing = []
-        miss_pattern = re.findall(
-            r'(?:遗漏|缺少|缺失|missing)[\s\d]*[:：]\s*(.+?)(?=(?:遗漏|缺少|缺失|missing|建议|$))',
-            content, re.IGNORECASE | re.DOTALL
-        )
-        for m in miss_pattern[:5]:
-            m = m.strip().strip('"').strip("'")
-            if m and len(m) > 3:
-                missing.append(m[:200])
-        result["missing_scenarios"] = missing
-
-        if issues or suggestions or missing:
-            logger.info(f"评审提取: 正则提取到 issues={len(issues)}, suggestions={len(suggestions)}, missing={len(missing)}")
-            return result
-
-        # 策略 3: 原文兜底
-        logger.info("评审提取: 使用原文兜底")
-        return {**defaults, "summary": content.strip()[:200]}
+    @staticmethod
+    def _parse_markdown_groups_table(section: str) -> list:
+        """从 Markdown 章节中解析分组评价表格。"""
+        groups = []
+        lines = section.split('\n')
+        col_order = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped.startswith('|'):
+                continue
+            cells = [c.strip() for c in stripped.split('|')[1:-1]]
+            if not cells:
+                continue
+            if not col_order and ('requirement_title' in cells[0].lower() or 'module' in ''.join(cells).lower()):
+                col_order = [c.lower().strip() for c in cells]
+                continue
+            if not col_order:
+                continue
+            if all(re.match(r'^[-:]+$', c) for c in cells):
+                continue
+            group = {}
+            for i, val in enumerate(cells):
+                if i < len(col_order):
+                    group[col_order[i]] = val
+            if group:
+                # 尝试转换 case_count
+                cc = group.get('case_count', '0')
+                try:
+                    group['case_count'] = int(cc)
+                except (ValueError, TypeError):
+                    pass
+                groups.append(group)
+        return groups
 
     # ==================== 报告提取 ====================
 
