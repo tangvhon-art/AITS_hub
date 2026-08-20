@@ -366,24 +366,30 @@ class ContentExtractor:
             logger.warning("评审提取: 内容为空")
             return defaults
 
-        # 策略 1: 尝试 JSON 解析（向后兼容旧格式）
-        parsed = extract_json(content)
-        if parsed and isinstance(parsed, dict) and ("score" in parsed or "issues" in parsed):
-            logger.info("评审提取: JSON 解析成功（旧格式兼容）")
-            score = parsed.get("score")
-            try:
-                score = int(score) if score is not None else 60
-            except (ValueError, TypeError):
-                score = 60
-            return {
-                "score": max(0, min(100, score)),
-                "passed": bool(parsed.get("passed", score >= 70)),
-                "summary": str(parsed.get("summary") or "评审完成")[:200],
-                "issues": parsed.get("issues") or [],
-                "overall_suggestions": parsed.get("overall_suggestions") or [],
-                "group_reviews": parsed.get("group_reviews") or [],
-                "missing_scenarios": parsed.get("missing_scenarios") or [],
-            }
+        # 检测是否为 Markdown 格式（包含 ## 标题）
+        is_markdown = bool(re.search(r'^##\s+', content.strip(), re.MULTILINE))
+
+        # 策略 1: 仅当不是 Markdown 格式时才尝试 JSON 解析（向后兼容旧格式）
+        if not is_markdown:
+            parsed = extract_json(content)
+            if parsed and isinstance(parsed, dict) and ("score" in parsed or "issues" in parsed):
+                logger.info("评审提取: JSON 解析成功（旧格式兼容）")
+                score = parsed.get("score")
+                try:
+                    score = int(score) if score is not None else 60
+                except (ValueError, TypeError):
+                    score = 60
+                return {
+                    "score": max(0, min(100, score)),
+                    "passed": bool(parsed.get("passed", score >= 70)),
+                    "summary": str(parsed.get("summary") or "评审完成")[:200],
+                    "issues": parsed.get("issues") or [],
+                    "overall_suggestions": parsed.get("overall_suggestions") or [],
+                    "group_reviews": parsed.get("group_reviews") or [],
+                    "missing_scenarios": parsed.get("missing_scenarios") or [],
+                }
+        else:
+            logger.info(f"评审提取: 检测到 Markdown 格式, 内容前200字: {content[:200]}")
 
         # 策略 2: Markdown 解析（新格式）
         logger.info("评审提取: 使用 Markdown 解析")
@@ -394,13 +400,14 @@ class ContentExtractor:
         if clean.startswith("```"):
             clean = re.sub(r'^```\w*\n?', '', clean)
             clean = re.sub(r'\n?```$', '', clean)
+        clean = clean.strip()
 
-        # 按 ## 标题分割章节
-        sections = re.split(r'\n##\s+', clean)
+        # 按 ## 标题分割章节（兼容行首 ## 和换行后 ##）
+        sections = re.split(r'(?:^|\n)##\s+', clean)
 
         # 如果没有 ## 分割，尝试按 # 分割
         if len(sections) <= 1:
-            sections = re.split(r'\n#\s+', clean)
+            sections = re.split(r'(?:^|\n)#\s+', clean)
 
         # 去除开头的空 section
         sections = [s.strip() for s in sections if s.strip()]

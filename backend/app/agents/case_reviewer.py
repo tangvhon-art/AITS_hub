@@ -114,8 +114,8 @@ class CaseReviewerAgent(BaseAgent):
         ]
 
         try:
-            # 使用 _call_llm，它会自动初始化 LLM（ModelRouter 路由）并统计 token
-            response = self._call_llm(messages, temperature=0.2)
+            # 使用 _call_llm，max_tokens=8192 确保评审输出不被截断
+            response = self._call_llm(messages, temperature=0.2, max_tokens=8192)
             self._log_step("llm_call", {}, "success")
 
             content = response.content if hasattr(response, "content") else str(response)
@@ -130,7 +130,7 @@ class CaseReviewerAgent(BaseAgent):
                     SystemMessage(content=system_content),
                     HumanMessage(content=human_text + "\n\n请严格按照输出格式输出：评分、问题列表、遗漏场景、整体改进建议、分组评价共 5 个部分，用 ## 标题分隔。"),
                 ]
-                retry_response = self._call_llm(retry_messages, temperature=0.1)
+                retry_response = self._call_llm(retry_messages, temperature=0.1, max_tokens=8192)
                 retry_content = retry_response.content if hasattr(retry_response, "content") else str(retry_response)
                 retry_content = self._clean_output(retry_content)
                 if "score" in retry_content.lower() and ("问题列表" in retry_content or "issues" in retry_content.lower()):

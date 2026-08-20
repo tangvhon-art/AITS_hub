@@ -7,7 +7,7 @@ from app.celery_app import celery_app
 from app.database import SessionLocal
 from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
-from app.agents.case_reviewer import CaseReviewerAgent
+from app.agents.case_reviewer import REVIEW_SYSTEM_PROMPT
 from app.services.content_extractor import ContentExtractor
 from app.services.notification_service import notify_event, notify_ai_task_failed
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(bind=True, name="review_cases", max_retries=2)
 def review_cases_task(self, task_id: int):
-    """AI 用例评审任务"""
+    """AI 用例评审任务 — 直接使用 call_with_fallback，不经过 CaseReviewerAgent"""
     db = SessionLocal()
     try:
         task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
@@ -36,7 +36,6 @@ def review_cases_task(self, task_id: int):
         # 兼容旧版：单个 requirement 文本
         requirement_text = input_params.get("requirement", "")
         if requirements:
-            # 多需求：拼接所有需求内容
             req_parts = []
             for r in requirements:
                 req_parts.append(f"【需求：{r.get('title', '')}】\n{r.get('content', '')}")
@@ -51,29 +50,63 @@ def review_cases_task(self, task_id: int):
                 system_prompt = prompt_obj.system_prompt or ""
                 logger.info(f"用例评审使用自定义 Prompt: {prompt_obj.name}")
 
-        # 执行评审
-        reviewer = CaseReviewerAgent(
-            db, llm_config_id=task.llm_config_id, task_id=task.id, project_id=task.project_id
-        )
-        agent_result = reviewer.review(
-            cases,
-            requirement=requirement_text,
-            system_prompt=system_prompt,
-            groups=groups,
-        )
+        if not system_prompt:
+            system_prompt = REVIEW_SYSTEM_PROMPT
 
+        # 构建 human 消息
+        human_text = _build_review_human_text(cases, requirement_text, groups)
+
+        # 直接调用 LLM — 使用 call_with_fallback（同用例生成路径）
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from app.agents.llm_factory import llm_factory
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_text),
+        ]
+
+        logger.info(f"[review_cases] 开始调用 LLM, cases={len(cases)}, messages={len(messages)}")
+
+        import time
+        start = time.time()
+        response, token_usage, used_config_id = llm_factory.call_with_fallback(
+            db,
+            messages,
+            preferred_config_id=task.llm_config_id,
+            max_tokens=8192,
+            temperature=0.2,
+        )
+        elapsed = time.time() - start
+
+        raw_content = response.content if hasattr(response, "content") else str(response)
+        logger.info(
+            f"[review_cases] LLM 调用完成: elapsed={elapsed:.1f}s, "
+            f"content_len={len(raw_content)}, tokens={token_usage}, config_id={used_config_id}"
+        )
+        logger.info(f"[review_cases] raw_content 前300字: {raw_content[:300]}")
+
+        # 解析 Markdown 评审结果
         from app.services.content_extractor import ContentExtractor
-        extracted = ContentExtractor.extract_review(agent_result["raw_content"])
+        extracted = ContentExtractor.extract_review(raw_content)
+
         result = {
             **extracted,
-            "token_usage": agent_result.get("token_usage", {}),
-            "llm_config_id": agent_result.get("llm_config_id"),
+            "token_usage": token_usage,
+            "llm_config_id": used_config_id,
+            "raw_content": raw_content[:5000],
         }
+
+        logger.info(
+            f"[review_cases] 解析完成: score={result.get('score')}, "
+            f"issues={len(result.get('issues', []))}, "
+            f"suggestions={len(result.get('overall_suggestions', []))}, "
+            f"missing={len(result.get('missing_scenarios', []))}"
+        )
 
         task.status = "success"
         task.output_result = result
-        task.token_usage = result.get("token_usage", {})
-        task.llm_config_id = result.get("llm_config_id")
+        task.token_usage = token_usage
+        task.llm_config_id = used_config_id
         task.completed_at = china_now_naive()
         db.commit()
 
@@ -116,8 +149,51 @@ def review_cases_task(self, task_id: int):
                 )
         except Exception:
             pass
+        raise
     finally:
         db.close()
+
+
+def _build_review_human_text(cases, requirement, groups):
+    """构建评审 HUMAN 消息"""
+    parts = []
+
+    if requirement and requirement.strip():
+        parts.append("## 需求描述")
+        parts.append(requirement.strip())
+        parts.append("")
+
+    if groups and len(groups) > 0:
+        parts.append("## 分组概览")
+        for i, g in enumerate(groups, 1):
+            parts.append(f"{i}. 需求：{g.get('requirement_title', '未知')} | 模块：{g.get('module', '未分类')} | 用例数：{g.get('case_count', 0)}")
+        parts.append("")
+
+    parts.append("## 待评审用例")
+    for i, case in enumerate(cases):
+        parts.append(f"\n用例[{i}]：{case.get('title', '（无标题）')}")
+        parts.append(f"  模块：{case.get('module', '未设置')}")
+        parts.append(f"  优先级：{case.get('priority', '未设置')}")
+        pre = case.get("preconditions", "")
+        parts.append(f"  前置条件：{pre if pre else '（无）'}")
+        steps = case.get("steps", [])
+        if steps and len(steps) > 0:
+            parts.append("  步骤：")
+            for si, step in enumerate(steps, 1):
+                if isinstance(step, dict):
+                    action = step.get("action", "")
+                    expected = step.get("expected", "")
+                    parts.append(f"    {si}. {action} → 预期：{expected}")
+                else:
+                    parts.append(f"    {si}. {str(step)}")
+        else:
+            parts.append("  步骤：（无）")
+        exp = case.get("expected_result", "")
+        parts.append(f"  预期结果：{exp if exp else '（无）'}")
+
+    parts.append("")
+    parts.append("请根据以上用例数据进行评审，按照输出格式输出 Markdown 评审结果。")
+    return "\n".join(parts)
 
 
 # ===== 评审优化用例 =====
@@ -244,19 +320,22 @@ def optimize_cases_from_review_task(
             mode_desc=mode_desc,
         )
 
-        # 调用 LLM
+        # 调用 LLM — 使用 call_with_fallback 支持 max_tokens 和降级
         from langchain_core.messages import SystemMessage, HumanMessage
         from app.agents.llm_factory import llm_factory
 
-        llm, used_config = llm_factory.get_llm_with_fallback(
-            db, preferred_config_id=opt_task.llm_config_id
-        )
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_content),
         ]
-        response = llm.invoke(messages)
+        response, token_usage, used_config_id = llm_factory.call_with_fallback(
+            db,
+            messages,
+            preferred_config_id=opt_task.llm_config_id,
+            max_tokens=8192,
+        )
         raw_content = response.content if hasattr(response, "content") else str(response)
+        logger.info(f"评审优化 LLM 调用完成, content_len={len(raw_content)}, tokens={token_usage}")
 
         # 解析用例 — 优先尝试 JSON（旧格式兼容），否则用 Markdown 解析
         from app.agents.utils import extract_json

@@ -56,15 +56,67 @@ class BaseAgent(ABC):
         })
 
     def _call_llm(self, messages: List[Any], **kwargs) -> Any:
-        """调用 LLM，通过 ModelRouter 路由模型，带降级和 Token 统计"""
+        """调用 LLM，通过 ModelRouter 路由模型，带降级和 Token 统计
+
+        kwargs 可选:
+            max_tokens: 覆盖配置中的 max_tokens
+            temperature: 覆盖配置中的 temperature
+        """
+        max_tokens_override = kwargs.pop("max_tokens", None)
+
         if not hasattr(self, '_llm_initialized'):
             self._init_routed_llm(
                 agent_type=self.agent_name,
                 preferred_config_id=self.llm_config_id,
             )
             self._llm_initialized = True
+            logger.info(
+                f"_call_llm 初始化完成: agent={self.agent_name}, "
+                f"llm_config_id={self.llm_config_id}, "
+                f"llm_type={type(self.llm).__name__}, "
+                f"max_tokens_override={max_tokens_override}"
+            )
 
-        response = self.llm.invoke(messages, **kwargs)
+        # 如果指定了 max_tokens，用 call_with_fallback 绕过 ModelRouter 缓存的实例
+        if max_tokens_override is not None:
+            from app.agents.llm_factory import LLMFactory, decrypt_api_key
+            from app.models.llm_config import LLMConfig
+
+            configs = self.db.query(LLMConfig).filter(
+                LLMConfig.status == "active"
+            ).order_by(LLMConfig.priority.asc()).all()
+
+            # 优先使用当前 config_id，其次 is_default
+            target_config = None
+            if self.llm_config_id:
+                target_config = next((c for c in configs if c.id == self.llm_config_id), None)
+            if not target_config:
+                target_config = next((c for c in configs if c.is_default), None)
+            if not target_config and configs:
+                target_config = configs[0]
+
+            if target_config:
+                factory = LLMFactory()
+                self.llm = factory.create_llm(
+                    provider=target_config.provider,
+                    model_name=target_config.model_name,
+                    base_url=target_config.base_url,
+                    api_key=decrypt_api_key(target_config.api_key) if target_config.api_key else "",
+                    max_tokens=max_tokens_override,
+                    temperature=kwargs.get("temperature", target_config.temperature),
+                    streaming=target_config.streaming,
+                    api_format=target_config.api_format if hasattr(target_config, 'api_format') else "chat_completions",
+                )
+                self.llm_config_id = target_config.id
+                logger.info(f"_call_llm 重建 LLM: config_id={target_config.id}, model={target_config.model_name}, max_tokens={max_tokens_override}")
+
+        # 从 kwargs 中提取 temperature 传给 invoke
+        invoke_kwargs = {}
+        if "temperature" in kwargs:
+            invoke_kwargs["temperature"] = kwargs.pop("temperature")
+
+        logger.info(f"_call_llm 调用 invoke: messages={len(messages)}条, kwargs={invoke_kwargs}")
+        response = self.llm.invoke(messages, **invoke_kwargs)
 
         # 统计 Token
         usage = getattr(response, "usage_metadata", None)
@@ -74,6 +126,11 @@ class BaseAgent(ABC):
             self.token_usage["total_tokens"] += (
                 usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
             )
+            logger.info(f"_call_llm 响应: prompt_tokens={usage.get('input_tokens', 0)}, completion_tokens={usage.get('output_tokens', 0)}")
+        else:
+            # 尝试从 response 中获取其他形式的 usage
+            content = response.content if hasattr(response, "content") else str(response)
+            logger.warning(f"_call_llm 响应无 usage_metadata, content_len={len(content)}, content前200字: {content[:200]}")
 
         return response
 

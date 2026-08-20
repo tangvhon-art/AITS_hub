@@ -138,6 +138,7 @@ class LLMFactory:
             max_tokens=max_tokens,
             temperature=temperature,
             streaming=streaming,
+            request_timeout=120,
         )
         return llm
 
@@ -153,6 +154,7 @@ class LLMFactory:
             max_tokens=max_tokens,
             temperature=temperature,
             streaming=streaming,
+            timeout=120,
         )
 
     def _create_ollama(
