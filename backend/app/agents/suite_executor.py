@@ -88,6 +88,7 @@ class SuiteExecutor:
             stop_execution = False
 
             # 初始化共享浏览器上下文（所有脚本步骤共用，保证cookie/session串联）
+            self.project_id = suite_run.project_id
             await self._init_shared_browser()
 
             for idx, step in enumerate(steps):
@@ -197,6 +198,20 @@ class SuiteExecutor:
             self._page = await self._context.new_page()
             self._browser_initialized = True
             logger.info(f"编排 #{self.suite_run_id} 共享浏览器已初始化")
+
+            # 安装自愈包装器
+            try:
+                from app.services.ui_healing.healing_wrapper import install_healing_wrapper
+                from app.database import SessionLocal
+                install_healing_wrapper(
+                    db_session_factory=SessionLocal,
+                    project_id=self.project_id or 0,
+                    script_id=None,
+                    run_id=self.suite_run_id,
+                    enabled=True,
+                )
+            except Exception as heal_e:
+                logger.warning(f"自愈包装器安装失败（不影响执行）: {heal_e}")
         except Exception as e:
             logger.error(f"共享浏览器初始化失败: {e}", exc_info=True)
             # 初始化失败时，后续脚本将回退到独立浏览器模式
@@ -656,6 +671,21 @@ class SuiteExecutor:
 
         for attempt in range(1, max_attempts + 1):
             try:
+                # 确保自愈包装器已安装（独立浏览器回退模式下）
+                if not use_shared_browser and project_id:
+                    try:
+                        from app.services.ui_healing.healing_wrapper import install_healing_wrapper
+                        from app.database import SessionLocal
+                        install_healing_wrapper(
+                            db_session_factory=SessionLocal,
+                            project_id=project_id,
+                            script_id=getattr(step, 'script_id', None),
+                            run_id=run.id,
+                            enabled=True,
+                        )
+                    except Exception:
+                        pass
+
                 if use_shared_browser:
                     suite_script = self._convert_script_to_suite_mode(current_content)
                     local_vars = {}
@@ -813,6 +843,21 @@ class SuiteExecutor:
 
         for attempt in range(1, max_attempts + 1):
             try:
+                # 确保自愈包装器已安装（独立浏览器回退模式下）
+                if not use_shared_browser and project_id:
+                    try:
+                        from app.services.ui_healing.healing_wrapper import install_healing_wrapper
+                        from app.database import SessionLocal
+                        install_healing_wrapper(
+                            db_session_factory=SessionLocal,
+                            project_id=project_id,
+                            script_id=getattr(step, 'script_id', None),
+                            run_id=run.id,
+                            enabled=True,
+                        )
+                    except Exception:
+                        pass
+
                 if use_shared_browser:
                     suite_script = self._convert_script_to_suite_mode(current_content)
                     local_vars = {}

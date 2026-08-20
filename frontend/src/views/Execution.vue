@@ -93,9 +93,9 @@
             <p>步骤数: {{ totalSteps }}</p>
           </div>
 
-          <div v-if="screenshotBase64" class="screenshot-section">
+          <div v-if="screenshotUrl" class="screenshot-section">
             <h4>执行截图</h4>
-            <img :src="`data:image/png;base64,${screenshotBase64}`" alt="执行截图" class="screenshot-img" />
+            <img :src="'/api/' + screenshotUrl" alt="执行截图" class="screenshot-img" />
           </div>
         </a-card>
 
@@ -194,7 +194,7 @@ const lastStatus = ref('')
 const finalResult = ref('')
 const duration = ref(0)
 const totalSteps = ref(0)
-const screenshotBase64 = ref('')
+const screenshotUrl = ref('')
 const logContainer = ref<HTMLElement>()
 
 const runs = ref<any[]>([])
@@ -273,7 +273,7 @@ async function startExecution() {
   executionLog.value = []
   lastStatus.value = ''
   finalResult.value = ''
-  screenshotBase64.value = ''
+  screenshotUrl.value = ''
 
   try {
     const res = await runExecution(projectId, {
@@ -330,7 +330,7 @@ async function pollExecutionStatus() {
       finalResult.value = data.actual_result
       duration.value = data.duration || 0
       totalSteps.value = data.execution_log?.length || 0
-      screenshotBase64.value = data.screenshot_url || ''
+      screenshotUrl.value = data.screenshot_url || ''
 
       executionLog.value.push({
         step: executionLog.value.length + 1,

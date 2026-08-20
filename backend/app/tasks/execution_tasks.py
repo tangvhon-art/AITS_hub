@@ -181,7 +181,11 @@ def _finalize_run(db, run_id, agent_task_id, status, result, error,
             run.actual_result = result
             run.error_message = error
             run.execution_log = json.dumps(agent.get_execution_log(), ensure_ascii=False)
-            run.screenshot_url = agent.screenshot_path
+            # 截图路径转为 Web 可访问路径
+            if agent.screenshot_path and "uploads/" in agent.screenshot_path:
+                run.screenshot_url = agent.screenshot_path[agent.screenshot_path.index("uploads/"):]
+            else:
+                run.screenshot_url = agent.screenshot_path or ""
             run.duration = duration
             run.completed_at = china_now_naive()
 

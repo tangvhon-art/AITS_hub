@@ -15,6 +15,28 @@ from playwright.async_api import async_playwright, Browser, Page
 from app.agents.llm_factory import llm_factory
 from app.agents.base_agent import BaseAgent
 
+# 截图存储目录
+_SCREENSHOT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "uploads", "execution",
+)
+
+
+def _screenshot_path(prefix: str = "exec") -> str:
+    """生成截图文件路径"""
+    os.makedirs(_SCREENSHOT_DIR, exist_ok=True)
+    filename = f"{prefix}_{int(time.time() * 1000)}.png"
+    filepath = os.path.join(_SCREENSHOT_DIR, filename)
+    return filepath
+
+
+def _screenshot_url(filepath: str) -> str:
+    """将本地路径转为 Web 可访问的相对路径"""
+    if not filepath:
+        return ""
+    idx = filepath.find("uploads/")
+    return filepath[idx:] if idx >= 0 else ""
+
 logger = logging.getLogger(__name__)
 
 # 浏览器工具定义
@@ -162,8 +184,8 @@ class ExecutionAgent(BaseAgent):
 
         start_time = time.time()
         step_count = 0
-        max_steps = 20
-        max_duration = 300  # 最大执行时长 5 分钟
+        max_steps = 200
+        max_duration = 600  # 最大执行时长 10 分钟
         error_message = ""
 
         # 启动浏览器
@@ -171,6 +193,21 @@ class ExecutionAgent(BaseAgent):
             browser = await p.chromium.launch(headless=headless)
             context = await browser.new_context(viewport={"width": 1280, "height": 720})
             page = await context.new_page()
+
+            # 安装自愈包装器（monkey-patch Page 方法，失败时自动 L1/L2/L3 自愈）
+            if self.project_id:
+                try:
+                    from app.services.ui_healing.healing_wrapper import install_healing_wrapper
+                    from app.database import SessionLocal
+                    install_healing_wrapper(
+                        db_session_factory=SessionLocal,
+                        project_id=self.project_id,
+                        script_id=None,
+                        run_id=None,
+                        enabled=True,
+                    )
+                except Exception as heal_e:
+                    logger.warning(f"自愈包装器安装失败（不影响执行）: {heal_e}")
 
             try:
                 # 构建初始消息
@@ -267,7 +304,7 @@ class ExecutionAgent(BaseAgent):
                     if action in ("click_element", "fill_input", "navigate_browser"):
                         try:
                             screenshot = await page.screenshot()
-                            self.screenshot_path = f"/tmp/execution_{int(time.time())}.png"
+                            self.screenshot_path = _screenshot_path("execution")
                             with open(self.screenshot_path, "wb") as f:
                                 f.write(screenshot)
                         except Exception:
@@ -278,7 +315,7 @@ class ExecutionAgent(BaseAgent):
                     step_count += 1
 
                 else:
-                    error_message = "达到最大步数限制（20步），任务未完成"
+                    error_message = f"达到最大步数限制（{max_steps}步），任务未完成"
                     yield {"type": "finish", "status": "failed", "result": error_message}
                     self._log_step("max_steps", {}, "failed", error_message, time.time() - self._step_start_time if self._step_start_time else 0)
 
@@ -294,8 +331,9 @@ class ExecutionAgent(BaseAgent):
                     pass
 
         duration = time.time() - start_time
-        # 将截图转为 base64 供前端展示
+        # 将截图转为 base64 供前端展示，同时返回 Web 可访问路径
         screenshot_base64 = ""
+        screenshot_url = _screenshot_url(self.screenshot_path)
         if self.screenshot_path and os.path.exists(self.screenshot_path):
             try:
                 with open(self.screenshot_path, "rb") as f:
@@ -306,7 +344,8 @@ class ExecutionAgent(BaseAgent):
             "type": "complete",
             "duration": round(duration, 2),
             "steps": len(self.execution_log),
-            "screenshot": self.screenshot_path,
+            "screenshot": screenshot_url,
+            "screenshot_url": screenshot_url,
             "screenshot_base64": screenshot_base64,
         }
 
@@ -383,10 +422,11 @@ class ExecutionAgent(BaseAgent):
 
             elif action == "take_screenshot":
                 screenshot = await page.screenshot()
-                path = f"/tmp/screenshot_{int(time.time())}.png"
+                path = _screenshot_path("screenshot")
                 with open(path, "wb") as f:
                     f.write(screenshot)
-                return f"截图已保存: {path}"
+                self.screenshot_path = path
+                return f"截图已保存: {_screenshot_url(path)}"
 
             else:
                 return f"未知工具: {action}"
