@@ -30,12 +30,23 @@
           </a-menu-item>
         </template>
         <a-menu-divider v-if="projectMenus.length > 0" />
-        <a-menu-item v-for="item in projectMenus" :key="item.key">
-          <template #icon>
-            <component :is="iconMap[item.icon || 'FileTextOutlined']" />
-          </template>
-          <span>{{ item.title }}</span>
-        </a-menu-item>
+        <template v-for="item in projectMenus" :key="item.key">
+          <a-sub-menu v-if="item.children && item.children.length" :key="item.key">
+            <template #icon>
+              <component :is="iconMap[item.icon || 'ProjectOutlined']" />
+            </template>
+            <template #title>{{ item.title }}</template>
+            <a-menu-item v-for="child in item.children" :key="child.key">
+              <span>{{ child.title }}</span>
+            </a-menu-item>
+          </a-sub-menu>
+          <a-menu-item v-else :key="item.key">
+            <template #icon>
+              <component :is="iconMap[item.icon || 'FileTextOutlined']" />
+            </template>
+            <span>{{ item.title }}</span>
+          </a-menu-item>
+        </template>
       </a-menu>
     </a-layout-sider>
 
@@ -150,11 +161,6 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-const collapsed = ref(false)
-const selectedKeys = ref<string[]>([route.path])
-const openKeys = ref<string[]>(route.path.startsWith('/notification/') ? ['/notification'] : [])
-const openTabs = ref<TabItem[]>([])
-
 const currentProjectId = computed(() => route.params.id as string)
 const currentProjectName = computed(() => {
   const projects = JSON.parse(localStorage.getItem('projects') || '[]')
@@ -164,6 +170,14 @@ const currentProjectName = computed(() => {
 
 // 从路由派生菜单
 const { globalMenus, projectMenus } = useMenu(() => currentProjectId.value)
+
+const collapsed = ref(false)
+const selectedKeys = ref<string[]>([route.path])
+const _initOpenKeys: string[] = []
+if (route.path.startsWith('/notification/')) _initOpenKeys.push('/notification')
+if (currentProjectId.value) _initOpenKeys.push('pm-group', 'ua-group', 'qa-group')
+const openKeys = ref<string[]>(_initOpenKeys)
+const openTabs = ref<TabItem[]>([])
 
 // 从 localStorage 恢复标签页
 function loadTabs() {
@@ -268,6 +282,16 @@ watch(
     addTab()
   }
 )
+
+watch(currentProjectId, (newId) => {
+  if (newId) {
+    const groups = ['pm-group', 'ua-group', 'qa-group']
+    const current = openKeys.value
+    for (const g of groups) {
+      if (!current.includes(g)) current.push(g)
+    }
+  }
+})
 
 onMounted(() => {
   const wasRefresh = handleRefreshReset()

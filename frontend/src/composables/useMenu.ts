@@ -28,19 +28,75 @@ function isProjectScoped(route: RouteRecordRaw): boolean {
 
 /**
  * 将扁平路由归组为带子菜单的结构。
- * 目前通知中心（notification/ 前缀）归组为一个父菜单。
+ *
+ * 分组规则：
+ * - 通知中心（notification/ 前缀）→ 全局父菜单
+ * - 项目管理（versions/requirements/cases/case-reviews/plans）→ 项目级父菜单
+ * - UI自动化（execution/scripts/suites/ui-healing）→ 项目级父菜单
+ * - 测试质量（reports/dashboard/coverage/performance-tests/defects）→ 项目级父菜单
+ * - 其余路由保持顶层
  */
 function groupMenuItems(items: MenuItem[]): MenuItem[] {
-  const result: MenuItem[] = []
   const notificationChildren: MenuItem[] = []
+  const projectMgmtChildren: MenuItem[] = []
+  const uiAutomationChildren: MenuItem[] = []
+  const qualityChildren: MenuItem[] = []
+  const remaining: MenuItem[] = []
+
+  const projectMgmtSuffixes = ['/versions', '/requirements', '/cases', '/case-reviews', '/plans']
+  const uiAutomationSuffixes = ['/execution', '/scripts', '/suites', '/ui-healing/records', '/ui-healing/profiles']
+  const qualitySuffixes = ['/reports', '/dashboard', '/coverage', '/performance-tests', '/defects']
+
+  const matchSuffix = (key: string, suffixes: string[]) =>
+    suffixes.some(s => key.endsWith(s))
 
   for (const item of items) {
     if (item.key.startsWith('/notification/')) {
       notificationChildren.push(item)
+    } else if (item.projectScoped && matchSuffix(item.key, projectMgmtSuffixes)) {
+      projectMgmtChildren.push(item)
+    } else if (item.projectScoped && matchSuffix(item.key, uiAutomationSuffixes)) {
+      uiAutomationChildren.push(item)
+    } else if (item.projectScoped && matchSuffix(item.key, qualitySuffixes)) {
+      qualityChildren.push(item)
     } else {
-      result.push(item)
+      remaining.push(item)
     }
   }
+
+  const result: MenuItem[] = []
+
+  if (projectMgmtChildren.length > 0) {
+    result.push({
+      key: 'pm-group',
+      title: '项目管理',
+      icon: 'ProjectOutlined',
+      projectScoped: true,
+      children: projectMgmtChildren,
+    })
+  }
+
+  if (uiAutomationChildren.length > 0) {
+    result.push({
+      key: 'ua-group',
+      title: 'UI自动化',
+      icon: 'RobotOutlined',
+      projectScoped: true,
+      children: uiAutomationChildren,
+    })
+  }
+
+  if (qualityChildren.length > 0) {
+    result.push({
+      key: 'qa-group',
+      title: '测试质量',
+      icon: 'SafetyCertificateOutlined',
+      projectScoped: true,
+      children: qualityChildren,
+    })
+  }
+
+  result.push(...remaining)
 
   if (notificationChildren.length > 0) {
     result.push({
@@ -108,12 +164,17 @@ export function useMenu(projectId?: () => number | string | undefined) {
   const projectMenus = computed(() => {
     const pid = projectId?.()
     if (!pid) return []
+    const replaceId = (key: string) =>
+      key.replace(':projectId', String(pid)).replace(':id', String(pid))
     return menuItems.value
       .filter(m => m.projectScoped)
-      .map(m => ({
-        ...m,
-        key: m.key.replace(':projectId', String(pid)).replace(':id', String(pid)),
-      }))
+      .map(m => {
+        const mapped = { ...m, key: replaceId(m.key) }
+        if (m.children) {
+          mapped.children = m.children.map(c => ({ ...c, key: replaceId(c.key) }))
+        }
+        return mapped
+      })
   })
 
   return { menuItems, globalMenus, projectMenus }
