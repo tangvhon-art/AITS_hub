@@ -90,12 +90,25 @@
         </template>
         <template v-else-if="column.key === 'action'">
           <a-button type="link" size="small" @click="viewDetail(record)">详情</a-button>
-          <a-button
-            v-if="record.healing_result === 'success' && !record.confirmed_by && record.healing_level !== 'L1'"
-            type="link"
-            size="small"
-            @click="confirmRecord(record)"
-          >确认回写</a-button>
+          <template v-if="isPending(record) || isUnconfirmedSuccess(record)">
+            <a-popconfirm
+              title="确认该修复有效并回写到脚本？"
+              ok-text="确认回写"
+              cancel-text="取消"
+              @confirm="confirmRecord(record)"
+            >
+              <a-button type="link" size="small">确认</a-button>
+            </a-popconfirm>
+            <a-popconfirm
+              title="确认该修复无效？标记为失败"
+              ok-text="拒绝"
+              ok-type="danger"
+              cancel-text="取消"
+              @confirm="rejectRecord(record)"
+            >
+              <a-button type="link" size="small" danger>拒绝</a-button>
+            </a-popconfirm>
+          </template>
         </template>
       </template>
     </a-table>
@@ -163,7 +176,7 @@ import { message } from 'ant-design-vue'
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useRoute } from 'vue-router'
 import {
-  listHealingRecords, getHealingRecord, confirmHealing, getHealingStats,
+  listHealingRecords, getHealingRecord, confirmHealing, rejectHealing, getHealingStats,
   type HealingRecord, type HealingStats,
 } from '@/api/uiHealing'
 
@@ -269,6 +282,25 @@ async function confirmRecord(record: HealingRecord) {
   } catch (e) {
     message.error('操作失败')
   }
+}
+
+async function rejectRecord(record: HealingRecord) {
+  try {
+    await rejectHealing(record.id)
+    message.success('已标记为失败')
+    loadRecords()
+    loadStats()
+  } catch (e) {
+    message.error('操作失败')
+  }
+}
+
+function isPending(record: HealingRecord) {
+  return record.healing_result === 'pending_review' && !record.confirmed_by
+}
+
+function isUnconfirmedSuccess(record: HealingRecord) {
+  return record.healing_result === 'success' && !record.confirmed_by && record.healing_level !== 'L1'
 }
 
 function formatTime(dt?: string) {

@@ -78,10 +78,13 @@ def confirm_healing(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """确认自愈结果（L2/L3 人工确认，可选回写到脚本）"""
+    """确认自愈结果（L2/L3 人工确认，可选回写到脚本）
+    待确认(pending_review)和成功(success)且未确认的记录都可以确认"""
     record = db.query(UIHealingRecord).filter(UIHealingRecord.id == record_id).first()
     if not record:
         raise HTTPException(404, "记录不存在")
+    if record.confirmed_by:
+        raise HTTPException(400, "该记录已确认过")
 
     record.confirmed_by = current_user.id
     record.confirmed_at = china_now_naive()
@@ -91,13 +94,34 @@ def confirm_healing(
     if data.apply_to_script and record.script_id and record.suggested_selector:
         script = db.query(AutomationScript).filter(AutomationScript.id == record.script_id).first()
         if script and script.script_content:
-            # 在脚本内容中替换原定位器
             old_sel = record.original_selector
             new_sel = record.suggested_selector
             if old_sel and new_sel and old_sel in script.script_content:
                 script.script_content = script.script_content.replace(old_sel, new_sel)
                 record.applied_to_script = True
                 script.version = (script.version or 1) + 1
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.post("/records/{record_id}/reject", response_model=HealingRecordResponse)
+def reject_healing(
+    record_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """拒绝自愈结果（标记为失败，不回写脚本）"""
+    record = db.query(UIHealingRecord).filter(UIHealingRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(404, "记录不存在")
+    if record.confirmed_by:
+        raise HTTPException(400, "该记录已确认过")
+
+    record.confirmed_by = current_user.id
+    record.confirmed_at = china_now_naive()
+    record.healing_result = "fail"
 
     db.commit()
     db.refresh(record)

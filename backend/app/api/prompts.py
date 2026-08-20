@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user
 from app.core.audit import log_audit
 from app.core.crud import CRUDBase
 from app.core.timezone import china_now_naive
@@ -13,7 +13,7 @@ from app.models.user import User
 from app.models.prompt import Prompt
 from app.schemas.prompt import PromptCreate, PromptUpdate, PromptResponse
 
-router = APIRouter(prefix="/api/prompts", tags=["Prompt 管理"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/api/prompts", tags=["Prompt 管理"])
 
 # 全局资源，project_id=None
 prompt_crud = CRUDBase(Prompt, "Prompt")
@@ -82,6 +82,8 @@ def update_prompt(
 ):
     """更新 Prompt"""
     prompt = prompt_crud.get(db, prompt_id)
+    if prompt.is_default and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="默认模板仅管理员可编辑")
 
     update_data = data.model_dump(exclude_unset=True)
     if data.is_default:
@@ -108,6 +110,8 @@ def delete_prompt(
 ):
     """删除 Prompt"""
     prompt = prompt_crud.get(db, prompt_id)
+    if prompt.is_default and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="默认模板仅管理员可删除")
     prompt_name = prompt.name
     prompt_crud.soft_delete(db, prompt_id)
     log_audit(

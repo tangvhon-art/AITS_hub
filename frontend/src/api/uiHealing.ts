@@ -60,6 +60,10 @@ export function confirmHealing(id: number, apply_to_script = true) {
   return request.post(`/ui-healing/records/${id}/confirm`, { apply_to_script })
 }
 
+export function rejectHealing(id: number) {
+  return request.post(`/ui-healing/records/${id}/reject`)
+}
+
 export function getHealingStats(project_id: number): Promise<HealingStats> {
   return request.get('/ui-healing/stats', { params: { project_id } })
 }

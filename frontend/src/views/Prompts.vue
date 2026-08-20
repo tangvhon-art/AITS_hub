@@ -64,8 +64,8 @@
           </a-tag>
         </template>
         <template v-else-if="column.key === 'action'">
-          <a-button type="link" size="small" @click="openEdit(record.id, record)">编辑</a-button>
-          <a-button type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
+          <a-button v-if="!record.is_default || isAdmin" type="link" size="small" @click="openEdit(record.id, record)">编辑</a-button>
+          <a-button v-if="!record.is_default || isAdmin" type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
         </template>
       </template>
     </a-table>
@@ -127,6 +127,10 @@ import { marked } from 'marked'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { useCRUD } from '@/composables/useCRUD'
 import { promptsApi, type Prompt, type PromptCreate } from '@/api/prompts'
+import { useUserStore } from '@/stores/user'
+
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.userInfo?.is_admin === true)
 
 const { loadFromUrl, syncToUrl } = useUrlSearch()
 

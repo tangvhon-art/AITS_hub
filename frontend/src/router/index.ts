@@ -54,7 +54,7 @@ const routes: RouteRecordRaw[] = [
         path: 'prompts',
         name: 'Prompts',
         component: () => import('@/views/Prompts.vue'),
-        meta: { title: 'Prompt 管理', icon: 'MessageOutlined', requireAdmin: true }
+        meta: { title: 'Prompt 管理', icon: 'MessageOutlined' }
       },
       {
         path: 'projects/:id/execution',
