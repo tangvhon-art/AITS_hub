@@ -301,7 +301,7 @@ def _trigger_auto_aggregate(project_id: int):
 
 
 class BypassCollector:
-    """旁路采集器 — 守护线程异步上报"""
+    """旁路采集器 — 直接同步写入数据库"""
 
     def collect_async(self, **kwargs):
         ctx = _execution_context
@@ -310,30 +310,27 @@ class BypassCollector:
         if not ctx.get("collect_enabled", True):
             return
 
-        def _report():
+        try:
+            db = ctx["db_factory"]()
             try:
-                db = ctx["db_factory"]()
-                try:
-                    from app.models.ui_healing import UIPageVisit
-                    visit = UIPageVisit(
-                        project_id=ctx["project_id"],
-                        script_id=ctx["script_id"],
-                        run_id=ctx["run_id"],
-                        step_index=ctx["step_counter"],
-                        **{k: v for k, v in kwargs.items() if k in (
-                            "page_url", "page_title", "page_identifier", "action_type",
-                            "target_selector", "target_text", "action_result", "fail_reason",
-                            "dom_snapshot", "elements_json", "source",
-                        )},
-                    )
-                    db.add(visit)
-                    db.commit()
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.debug(f"旁路采集失败: {e}")
-
-        threading.Thread(target=_report, daemon=True).start()
+                from app.models.ui_healing import UIPageVisit
+                visit = UIPageVisit(
+                    project_id=ctx["project_id"],
+                    script_id=ctx["script_id"],
+                    run_id=ctx["run_id"],
+                    step_index=ctx["step_counter"],
+                    **{k: v for k, v in kwargs.items() if k in (
+                        "page_url", "page_title", "page_identifier", "action_type",
+                        "target_selector", "target_text", "action_result", "fail_reason",
+                        "dom_snapshot", "elements_json", "source",
+                    )},
+                )
+                db.add(visit)
+                db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"采集写入失败: {e}")
 
 
 _collector = BypassCollector()
