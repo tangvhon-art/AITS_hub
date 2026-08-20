@@ -112,7 +112,61 @@ def _safe_json_loads(candidate: str) -> Optional[Dict[str, Any]]:
         repaired = _repair_json_newlines(_repair_array_as_object(candidate))
         return json.loads(repaired)
     except json.JSONDecodeError:
+        pass
+    try:
+        repaired = _repair_truncated_json(candidate)
+        return json.loads(repaired)
+    except json.JSONDecodeError:
         return None
+
+
+def _repair_truncated_json(candidate: str) -> str:
+    """修复被截断的 JSON — 尝试闭合未完成的字符串和括号。
+
+    当 LLM 输出因 max_tokens 截断时，JSON 会在字符串中间或对象中间断开。
+    策略：
+    1. 找到最后一个完整的对象（以 } 结尾且括号平衡）
+    2. 如果找不到，尝试截断到最后一个完整对象并闭合外层括号
+    """
+    text = candidate.strip()
+
+    # 去除 markdown 代码块
+    fence_match = re.search(r'```(?:json)?\s*\n?(.*?)```', text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    # 找到最后一个完整的 "}," 或 "}" 后截断
+    last_complete = text.rfind('},')
+    if last_complete != -1:
+        # 截断到最后一个完整对象，然后闭合 cases 数组和外层对象
+        truncated = text[:last_complete + 1]  # 包含 }
+        # 检查是否需要闭合 cases 数组
+        open_brackets = truncated.count('[') - truncated.count(']')
+        open_braces = truncated.count('{') - truncated.count('}')
+
+        # 确保在字符串外计数
+        # 简化处理：直接补充缺少的闭合符号
+        result = truncated
+        for _ in range(open_brackets):
+            result += ']'
+        for _ in range(open_braces):
+            result += '}'
+        return result
+
+    # 如果没有 },，尝试找最后一个 } 并截断
+    last_brace = text.rfind('}')
+    if last_brace != -1:
+        truncated = text[:last_brace + 1]
+        open_brackets = truncated.count('[') - truncated.count(']')
+        open_braces = truncated.count('{') - truncated.count('}')
+        result = truncated
+        for _ in range(max(open_brackets, 0)):
+            result += ']'
+        for _ in range(max(open_braces, 0)):
+            result += '}'
+        return result
+
+    return candidate
 
 
 def extract_json(content: str) -> Optional[Dict[str, Any]]:
@@ -175,6 +229,12 @@ def extract_json(content: str) -> Optional[Dict[str, Any]]:
         if result is not None:
             return result
         logger.warning("extract_json: 正则提取后 JSON 解析失败")
+
+    # 4) 回退：尝试修复截断的 JSON
+    result = _safe_json_loads(text)
+    if result is not None:
+        logger.info("extract_json: 截断修复后解析成功")
+        return result
 
     return None
 

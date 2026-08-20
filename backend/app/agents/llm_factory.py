@@ -257,6 +257,7 @@ class LLMFactory:
         preferred_config_id: Optional[int] = None,
         max_retries: int = 2,
         temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
     ) -> tuple[Any, Dict[str, int], Optional[int]]:
         """
         带降级和重试的 LLM 调用。
@@ -264,6 +265,7 @@ class LLMFactory:
 
         Args:
             temperature: 可选，覆盖配置中的 temperature 值
+            max_tokens: 可选，覆盖配置中的 max_tokens 值（用于需要长输出的场景如用例生成）
         """
         from app.models.llm_config import LLMConfig
 
@@ -293,7 +295,7 @@ class LLMFactory:
                         "model_name": config.model_name,
                         "base_url": config.base_url,
                         "api_key": config.api_key,
-                        "max_tokens": config.max_tokens,
+                        "max_tokens": max_tokens if max_tokens is not None else config.max_tokens,
                         "temperature": temperature if temperature is not None else config.temperature,
                         "streaming": config.streaming,
                     })

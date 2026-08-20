@@ -12,8 +12,9 @@
 | 用例管理 | CRUD + AI 生成 + 关联需求筛选 + 批量操作 | 基于需求功能点自动生成结构化测试用例（P0-P3），支持按关联需求下拉筛选，用例与需求/模块强关联，覆盖率统计，支持用例名称/类型/状态/优先级/模块筛选 |
 | 用例评审 | 多选需求/模块 + AI 评审 + 优化补充 + 评审范围查看 | 支持多选需求和模块自动查询关联用例，7 维度评审（需求覆盖度/完整性/场景覆盖/可执行性/规范性/冗余性/数据合理），分组评价+遗漏场景，基于评审报告一键优化/补充用例，评审范围弹窗支持查询翻页 |
 | 测试计划 | 混合编排 + 异步执行 + 完整报告 | 接口用例与 UI 场景混合编排，Celery 异步执行，自动生成测试报告，支持计划名称/所属版本/状态/优先级筛选 |
-| UI 自动化 | Playwright + Agent 驱动执行 | SSE 实时日志流、截图记录、步骤转指令、AI 自动修复 |
-| 自愈能力 | 元素定位自愈 + 页面知识 + AI 修复 | L1 同属性回退/L2 AI 推理/L3 视觉坐标三级自愈，旁路采集页面快照，Celery 定时聚合页面画像，人工确认回写脚本 |
+| UI 自动化 | Playwright + Agent 驱动执行 | SSE 实时日志流、截图记录、步骤转指令、AI 自动修复、执行中页面知识采集（Shadow DOM + iframe 穿透） |
+| 自愈能力 | 元素定位自愈 + 页面知识 + AI 修复 | L1 同属性回退/L2 AI 推理/L3 视觉坐标三级自愈，自愈前即时采集页面知识，执行后自动聚合，直接同步写入（非守护线程），采集与自愈解耦独立开关 |
+| 截图清理 | 执行前 + 定时双机制 | 脚本库/编排/UI 执行前自动清理 uploads 目录，Celery beat 每 3 小时定时清理执行截图 |
 | 自动化脚本 | 脚本库管理 + 单步执行 | 自动保存执行成功的脚本，支持版本追溯与 AI 自动修复，自愈开关/自愈次数，脚本列表分页 |
 | 自动化编排 | 套件管理 + 批量执行 | 编排多脚本/用例顺序执行，支持重试、AI 自动修复、无头模式，套件列表分页 |
 | 接口管理 | 接口目录 + 接口定义 | 接口模块化管理、CRUD 维护、AI 生成接口文档、树形分组 |
@@ -137,7 +138,7 @@ AITS_hub/
 │   │   │   ├── chat_agent.py         #   智能助手 Agent（SSE 流式 + Function Calling + MCP + Skill）
 │   │   │   ├── mcp_tools.py          #   Agent 工具集（18+ MCP 工具）
 │   │   │   └── supervisor.py         #   Supervisor 多 Agent 编排
-│   │   ├── api/                      # API 路由（37 个模块，280+ 个端点，列表查询统一 POST /search）
+│   │   ├── api/                      # API 路由（38 个模块，280+ 个端点，列表查询统一 POST /search）
 │   │   │   ├── auth.py               #   用户认证（注册/登录/JWT）
 │   │   │   ├── projects.py           #   项目管理
 │   │   │   ├── project_versions.py   #   版本管理
@@ -158,6 +159,7 @@ AITS_hub/
 │   │   │   ├── llm_configs.py        #   LLM 模型配置 + 能力检测
 │   │   │   ├── prompts.py            #   Prompt 模板管理
 │   │   │   ├── chat.py               #   智能助手（SSE + 工具调用）
+│   │   │   ├── chat_history.py       #   对话历史管理
 │   │   │   ├── mcp.py                #   MCP 连接器管理
 │   │   │   ├── skills.py             #   Skill 包管理（导入/导出/匹配测试）
 │   │   │   ├── ui_healing.py         #   UI 自愈（记录/统计/页面画像/元素指纹/聚合）
@@ -217,9 +219,10 @@ AITS_hub/
 │   │   │   ├── api_case_generator.py #   接口用例 AI 生成器
 │   │   │   ├── mock_data_generator.py#   Mock 数据生成器（13 种函数）
 │   │   │   ├── script_runner.py      #   脚本执行统一服务（AI修复重试）
-│   │   │   ├── ui_healing/            #   UI 自愈服务（L1/L2/L3 引擎 + Playwright 包装器）
-│   │   │   │   ├── healing_engine.py #     自愈引擎（L1属性回退/L2 AI推理/L3视觉坐标）
-│   │   │   │   └── healing_wrapper.py#     Playwright Page 方法 monkey-patch + 旁路采集
+│   │   │   ├── ui_healing/            #   UI 自愈服务（L1/L2/L3 引擎 + 页面知识采集 + 聚合）
+│   │   │   │   ├── healing_engine.py #     自愈引擎（async L1属性回退/L2 AI推理/L3视觉坐标 + 前置知识检查）
+│   │   │   │   ├── healing_wrapper.py#     Playwright Page 方法 monkey-patch + 同步采集（Shadow DOM/iframe/导航事件）
+│   │   │   │   └── knowledge_aggregator.py #  页面知识聚合服务（批量聚合 + 即时聚合 + AI描述生成）
 │   │   │   ├── performance_runner.py #   Locust 性能测试执行器（多接口+聚合统计）
 │   │   │   ├── coverage_analyzer.py  #   覆盖率分析器
 │   │   │   ├── data_factory.py       #   测试数据工厂
@@ -233,8 +236,9 @@ AITS_hub/
 │   │   │   ├── notification_service.py#  通知服务（规则匹配+异步派发）
 │   │   │   ├── ai_creation_service.py#  AI 用例批量创建服务
 │   │   │   └── importers/            #   接口导入解析器（5 种格式）
-│   │   ├── tasks/                    # Celery 异步任务（19 个）
+│   │   ├── tasks/                    # Celery 异步任务（14 个模块，20+ 个任务）
 │   │   │   ├── script_tasks.py       #   脚本/编排执行
+│   │   │   ├── execution_tasks.py    #   UI 自动化执行（SSE 流 + 页面知识采集）
 │   │   │   ├── test_plan_tasks.py    #   测试计划异步执行
 │   │   │   ├── api_case_tasks.py     #   AI 生成用例
 │   │   │   ├── case_tasks.py         #   需求功能点拆分 + 功能点驱动用例生成
@@ -245,19 +249,20 @@ AITS_hub/
 │   │   │   ├── requirement_tasks.py  #   AI 需求生成
 │   │   │   ├── api_doc_tasks.py      #   AI 接口文档生成
 │   │   │   ├── ui_healing_tasks.py  #   页面知识聚合（Celery beat 每小时）
+│   │   │   ├── cleanup_tasks.py     #   截图清理（Celery beat 每 3 小时 + 执行前同步清理）
 │   │   │   └── notification_tasks.py #   通知异步发送（重试2次）
 │   │   ├── config.py                 # Pydantic Settings 配置
 │   │   ├── database.py               # 数据库连接 + Mixin（SoftDelete/Timestamp/ProjectScoped/CreatedBy）
 │   │   ├── celery_app.py             # Celery 实例
 │   │   ├── flowerconfig.py           # Flower 监控配置
-│   │   └── main.py                   # FastAPI 入口（自动建表+迁移，280 路由）
+│   │   └── main.py                   # FastAPI 入口（自动建表+迁移，280+ 路由，静态文件双目录兼容）
 │   ├── start_celery_worker.sh
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/                         # 前端应用
 │   ├── src/
 │   │   ├── views/                    # 页面组件（53 个页面）
-│   │   │   ├── Layout.vue            #   主布局（菜单从路由派生+多标签页）
+│   │   │   ├── Layout.vue            #   主布局（菜单从路由派生+分组折叠+多标签页）
 │   │   │   ├── Login.vue             #   登录/注册
 │   │   │   ├── Dashboard.vue         #   智能助手（沉浸式问答+工具调用进度+知识库引用）
 │   │   │   ├── Projects.vue          #   项目管理（卡片分页）
@@ -326,7 +331,7 @@ AITS_hub/
 │   │   │   ├── project.ts            #   项目全局状态
 │   │   │   └── user.ts               #   用户状态
 │   │   ├── composables/
-│   │   │   ├── useMenu.ts            #   路由派生菜单
+│   │   │   ├── useMenu.ts            #   路由派生菜单 + 分组（项目管理/UI自动化/测试质量/通知中心）
 │   │   │   ├── useList.ts            #   列表数据 composable（分页+搜索）
 │   │   │   ├── useCRUD.ts            #   CRUD 操作 composable
 │   │   │   └── useUrlSearch.ts       #   URL 参数同步（已停用，筛选条件仅在前端内存维护）
@@ -337,7 +342,7 @@ AITS_hub/
 │   │   │   ├── download.ts           #   下载工具
 │   │   │   └── copy.ts               #   复制工具
 │   │   ├── constants/index.ts        # 枚举常量
-│   │   ├── router/index.ts           # Vue Router（62+ 条路由）
+│   │   ├── router/index.ts           # Vue Router（63 条路由）
 │   │   └── main.ts
 │   ├── package.json
 │   └── vite.config.ts
@@ -362,7 +367,7 @@ AITS_hub/
 - **模型路由**：按 Agent 类型和数据敏感度路由模型，主模型失败自动降级
 - **能力检测**：自动检测模型是否支持 Function Calling / MCP / Skill，不支持时降级普通问答并提示
 - **BaseAgent 基类**：所有 Agent 统一继承，复用 LLM 调用、日志、token 统计、RAG 检索、知识库搜索
-- **15 个专业 Agent**：用例生成、用例评审、UI 执行、脚本生成、缺陷分析、报告生成、智能助手等
+- **17 个专业 Agent**：用例生成、用例评审、UI 执行、脚本生成、缺陷分析、报告生成、智能助手、通知、套件执行等
 - **Supervisor 编排**：多 Agent 流水线协作
 - **MCP 工具集**：智能助手可调用 18+ 内置工具查询全模块数据，也可连接外部 MCP 服务器
 
@@ -518,12 +523,19 @@ AI 性能分析（异步）→ 生成性能报告（写入 TestReport）
                 ↓
         SSE 实时流推送日志 → 前端实时展示
                 ↓
-        执行结束 → 保存截图/日志/状态 → 失败自动创建缺陷
+        每步操作后同步采集页面知识（元素树 + Shadow DOM + iframe）
+                ↓
+        执行结束 → 保存截图/日志/状态 → 自动触发页面知识聚合 → 失败自动创建缺陷
 ```
 
 - 无头/可视化浏览器模式切换
 - 执行失败时 AI 自动修复脚本并重试
 - 执行日志持久化，脚本自动版本升级
+- **执行中页面知识采集**：每次 click/fill/navigate 后直接同步写入 `ui_page_visit` + 内联聚合为 `ui_page_profile` 和 `ui_element_fingerprint`，不依赖守护线程或 Celery 聚合
+- **采集健壮性**：Shadow DOM 穿透（递归 `element.shadowRoot`）、iframe 遍历（`page.frames`，跨域自动跳过）、导航事件 hook（`goto` 后等待 `domcontentloaded` 再采集）
+- **采集与自愈解耦**：`collect_enabled` 独立于 `heal_enabled`，关闭自愈时采集仍然进行
+- **执行后自动聚合**：脚本库执行、编排执行、UI 执行完成后异步触发 `aggregate_page_knowledge.delay()`，自动沉淀知识
+- **执行前截图清理**：每次执行前自动清理 `uploads/` 目录，避免历史截图堆积
 
 ### UI 自动化脚本自愈能力
 
@@ -535,29 +547,40 @@ Playwright 操作失败（click/fill 超时或 not found）
 自愈拦截器触发（healing_wrapper.py monkey-patch Page 方法）
         ↓
 ┌─────────────────────────────────────────────┐
-│ L1: 同属性回退                                │
+│ 前置：页面知识检查                             │
+│  查询 UIPageProfile 是否存在                   │
+│  → 不存在则即时采集 + 同步聚合（skip_ai=True） │
+│  → 确保后续 L1/L2 有知识可用                   │
+└──────────────────┬──────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────┐
+│ L1: 同属性回退（async）                       │
 │  从元素指纹库匹配 text/aria-label/placeholder │
 │  → 成功则自动回写脚本 selector                 │
 └──────────────────┬──────────────────────────┘
                    ↓ L1 失败
 ┌──────────────────┴──────────────────────────┐
-│ L2: AI 修复推理                               │
+│ L2: AI 修复推理（async）                      │
 │  收集页面交互元素 + 页面画像知识               │
 │  → LLM 输出候选定位器（带置信度）              │
 │  → 按置信度依次尝试 → 标记待人工确认           │
 └──────────────────┬──────────────────────────┘
                    ↓ L2 失败
 ┌──────────────────┴──────────────────────────┐
-│ L3: 视觉坐标点击（兜底）                      │
+│ L3: 视觉坐标点击（async，兜底）               │
 │  截图 → LLM 视觉模型识别目标坐标              │
 │  → page.mouse.click(x, y) → 标记人工复核     │
 └──────────────────┬──────────────────────────┘
                    ↓ 全部失败
-              L4: 采集快照 → 通知人工修复
+              L4: 采集快照 → 触发自动聚合 → 通知人工修复
 ```
 
-- **旁路采集**：每次执行异步记录页面快照、元素树、操作结果，不影响主执行链路（守护线程 + 超时丢弃）
-- **页面知识聚合**：Celery 每小时聚合原始记录为页面画像（关键元素、成功路径、失败模式），AI 丰富页面名称和描述
+- **前置知识检查**：自愈入口处检查 `UIPageProfile` 是否存在，不存在则即时采集 + 同步聚合（跳过 AI 描述生成），确保 L1/L2 有知识可用
+- **直接同步采集**：`BypassCollector` 改为直接 `db.commit()` 写入（非守护线程），采集失败用 `logger.warning` 暴露而非静默吞掉
+- **采集健壮性**：Shadow DOM 穿透（递归 `element.shadowRoot`）、iframe 遍历（`page.frames`，跨域自动跳过）、导航事件 hook（`goto` 后等待 `domcontentloaded`）
+- **采集与自愈解耦**：`collect_enabled` 独立于 `heal_enabled`，关闭自愈时采集仍然进行；自愈关闭时失败也会采集快照
+- **自动聚合触发**：自愈成功（L1/L2/L3）和失败（L4）后异步触发 `aggregate_page_knowledge.delay()`；脚本库执行、编排执行完成后也自动触发
+- **页面知识聚合**：Celery 每小时聚合原始记录为页面画像（关键元素、成功路径、失败模式），AI 丰富页面名称和描述；`knowledge_aggregator.py` 独立服务支持批量聚合 + 即时聚合
 - **元素指纹库**：多维度特征（tag/text/属性/结构/视觉哈希），稳定性标记（出现率 >90%）
 - **脚本回写**：L1 自动回写脚本 selector；L2/L3 人工确认后回写
 - **自愈记录管理**：统计看板（总数/成功率/L1-L4 分布/已回写数）、前后截图对比、AI 推理过程展示
@@ -600,6 +623,25 @@ request.post('/xxx/search', filterParams) → 后端 Body 参数接收
 - **统一筛选栏布局**：所有列表页使用 `.filter-bar`（`display:flex; flex-wrap:wrap; gap:8px`），筛选项自动换行，间距统一
 - **查询/重置按钮**：所有筛选栏配备查询和重置按钮，重置时清空全部筛选条件并重新加载
 - **覆盖 20+ 个列表页**：需求、用例、缺陷、报告、测试计划、接口定义/用例/执行/场景/Mock、性能测试、数据池、脚本、编排、通知记录/渠道/规则、审计日志、Agent 任务等
+
+### 侧边栏菜单分组设计
+
+侧边栏从 17 个项目级菜单平铺改为分组折叠，减少视觉噪音：
+
+```
+项目管理 (▸)     → 版本管理、需求管理、用例管理、用例评审、测试计划
+UI自动化 (▸)    → 自动化执行、自动化编排、自动化脚本库、自愈记录、页面知识
+测试质量 (▸)     → 测试报告、质量看板、覆盖率分析、性能测试、缺陷管理
+接口测试          （顶层，已有内部子侧边栏）
+知识库            （顶层）
+数据池            （顶层）
+通知中心 (▸)     → 通知渠道、通知规则、通知记录
+```
+
+- **路由派生 + 后缀匹配分组**：`useMenu.ts` 的 `groupMenuItems()` 按路由后缀匹配归组（如 `/execution`、`/ui-healing/records` → UI自动化组），加 `projectScoped` 守卫避免误匹配全局路由（如 `/dashboard`）
+- **子菜单 key 替换**：`projectMenus` 递归替换父级和子级的 `:id` / `:projectId`，确保点击导航 URL 正确
+- **自动展开**：进入项目后三个分组默认展开，项目切换时自动展开
+- **路由路径不变**：分组仅改菜单渲染逻辑，实际路由路径仍为 `/projects/:id/execution` 等
 
 ## Mock 数据生成器
 
@@ -659,7 +701,7 @@ DEFAULT_LLM_MODEL=deepseek-chat
 
 - 后端启动时通过 `Base.metadata.create_all()` 自动创建新表
 - 新增字段通过 main.py 中的轻量自动迁移逻辑（ALTER TABLE ADD COLUMN IF NOT EXISTS）
-- 51 张数据表覆盖全部业务模块
+- 51 张数据表覆盖全部业务模块（含页面知识 4 张表：ui_page_visit/ui_page_profile/ui_element_fingerprint/ui_healing_record）
 - 所有表包含软删除字段（`is_deleted`/`deleted_at`）和时间戳（`created_at`/`updated_at`）
 
 ## 常见问题
@@ -711,6 +753,15 @@ playwright install-deps chromium  # Linux
 
 **Q: 性能测试 AI 分析报告内容乱码？**
 删除旧报告后重新点击「AI性能分析」。新版 prompt 采用 System/Human 分离设计，数据预处理为纯文本格式，temperature 降至 0.3，避免 LLM 编造数据。
+
+**Q: UI 自动化执行后页面知识没有记录？**
+确认已重启 Celery Worker（修改任务代码后必须重启）。页面知识在执行过程中直接同步写入数据库（非守护线程），无需等待 Celery 聚合。如仍无记录，检查后端日志是否有 `采集写入失败` 的 warning。
+
+**Q: 执行截图被清理了？**
+执行截图在每次执行前和每 3 小时定时清理。截图仅用于执行日志展示，不需要长期保留。如需保留特定截图，请手动复制到其他目录。
+
+**Q: 自愈不生效？**
+确认：1) Celery Worker 已重启加载最新代码；2) 脚本的 `heal_enabled` 开关已开启；3) 自愈引擎已正确安装（`install_healing_wrapper`）。自愈前会自动检查页面知识，不存在则即时采集。
 
 ## 许可证
 

@@ -169,6 +169,7 @@ class CaseGeneratorAgent(BaseAgent):
             self.db,
             messages=messages,
             preferred_config_id=self.llm_config_id,
+            max_tokens=8192,
         )
 
         if token_usage:
@@ -308,6 +309,7 @@ class CaseGeneratorAgent(BaseAgent):
             messages=messages,
             preferred_config_id=self.llm_config_id,
             temperature=0.3,
+            max_tokens=8192,
         )
 
         if token_usage:
@@ -318,6 +320,43 @@ class CaseGeneratorAgent(BaseAgent):
 
         raw = response.content if hasattr(response, "content") else str(response)
         logger.info(f"功能点用例生成完成，原始输出长度: {len(raw)}")
+
+        # 尝试解析 JSON，失败则检测截断并重试
+        from app.agents.utils import extract_json
+        parsed = extract_json(raw)
+        if parsed and isinstance(parsed, dict) and parsed.get("cases"):
+            logger.info(f"用例 JSON 解析成功，{len(parsed['cases'])} 条")
+        else:
+            # 检测是否被截断（不以 } 结尾）
+            stripped = raw.rstrip()
+            if not stripped.endswith("}"):
+                logger.warning(f"用例 JSON 疑似被截断（末尾非 }}），尝试修复并重试，当前长度: {len(raw)}")
+                # 第二次尝试：增大 max_tokens 并追加"继续"指令
+                retry_messages = [
+                    SystemMessage(content=effective_system_prompt),
+                    HumanMessage(content=self.FEATURE_CASE_HUMAN_TEMPLATE.format(
+                        title=requirement_title or "未命名需求",
+                        content=requirement_content or "（无详细内容）",
+                        features_text=features_text,
+                        existing_cases=existing_text,
+                    )),
+                    HumanMessage(content="注意：上一次输出被截断，请确保输出完整的 JSON 对象。可以适当减少每条用例的描述长度，但必须保证 JSON 结构完整，最后一个字符必须是 }。"),
+                ]
+                retry_response, retry_usage, retry_config = llm_factory.call_with_fallback(
+                    self.db,
+                    messages=retry_messages,
+                    preferred_config_id=self.llm_config_id,
+                    temperature=0.3,
+                    max_tokens=16384,
+                )
+                if retry_usage:
+                    self.token_usage["prompt_tokens"] += retry_usage.get("prompt_tokens", 0)
+                    self.token_usage["completion_tokens"] += retry_usage.get("completion_tokens", 0)
+                    self.token_usage["total_tokens"] += retry_usage.get("total_tokens", 0)
+                raw = retry_response.content if hasattr(retry_response, "content") else str(retry_response)
+                logger.info(f"用例生成重试完成，原始输出长度: {len(raw)}")
+            else:
+                logger.warning(f"用例 JSON 解析失败但末尾为 }}，可能格式错误，原始长度: {len(raw)}")
 
         return {
             "raw_content": raw,
