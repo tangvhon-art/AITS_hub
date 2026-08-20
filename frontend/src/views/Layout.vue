@@ -125,6 +125,8 @@ import {
   AuditOutlined,
   BellOutlined
 } from '@ant-design/icons-vue'
+import HealingIcon from '@/components/icons/HealingIcon.vue'
+import PageKnowledgeIcon from '@/components/icons/PageKnowledgeIcon.vue'
 
 // 图标名 → 组件映射，供路由派生菜单动态渲染
 const iconMap: Record<string, any> = {
@@ -134,6 +136,8 @@ const iconMap: Record<string, any> = {
   ImportOutlined, FileSearchOutlined, TagOutlined, MonitorOutlined,
   ApiOutlined, ThunderboltOutlined, DatabaseOutlined, SafetyCertificateOutlined,
   MessageOutlined, AuditOutlined, BellOutlined,
+  MedicineBoxOutlined: HealingIcon,
+  ClusterOutlined: PageKnowledgeIcon,
 }
 
 interface TabItem {
