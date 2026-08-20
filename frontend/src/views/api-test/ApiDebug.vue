@@ -337,6 +337,31 @@ watch(() => request.value.body_type, (type) => {
   }
 })
 
+watch(() => request.value.url, (newUrl) => {
+  if (!newUrl) return
+  const url = newUrl.trim()
+  const qIndex = url.indexOf('?')
+  if (qIndex === -1) return
+
+  const queryString = url.slice(qIndex + 1)
+  const cleanUrl = url.slice(0, qIndex)
+
+  const params = new URLSearchParams(queryString)
+  if (!Array.from(params.keys()).length) return
+
+  const existingKeys = new Set(
+    (request.value.query_params || []).map((p: any) => p.key)
+  )
+
+  for (const [key, value] of params) {
+    if (!existingKeys.has(key)) {
+      request.value.query_params.push({ key, value, enabled: true })
+    }
+  }
+
+  request.value.url = cleanUrl
+})
+
 const bodyContent = computed({
   get: () => typeof request.value.body_content === 'string' ? request.value.body_content : JSON.stringify(request.value.body_content, null, 2),
   set: (val: string) => {

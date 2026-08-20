@@ -355,8 +355,14 @@ AITS_hub/
 
 ### AI Agent 体系
 
-![img.png](img.png)
 
+```
+用户请求 → API 层 → Agent 调度 → LLM 抽象层 → 大模型 API
+                            ↓               ↓
+                     Playwright（UI）    MCP/Skill 工具调用
+                            ↓               ↓
+                     FAISS 向量检索    Function Calling 协议
+```
 
 - **LLM 统一抽象层**：封装 OpenAI/Claude/Ollama 等协议，统一调用接口
 - **模型路由**：按 Agent 类型和数据敏感度路由模型，主模型失败自动降级
