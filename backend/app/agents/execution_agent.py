@@ -307,7 +307,7 @@ class ExecutionAgent(BaseAgent):
                     step_duration = time.time() - action_start_time
                     self._log_step(action, action_input, "success", observation[:200], step_duration)
 
-                    # 截图
+                    # 截图 + 页面知识采集
                     if action in ("click_element", "fill_input", "navigate_browser"):
                         try:
                             screenshot = await page.screenshot()
@@ -316,6 +316,8 @@ class ExecutionAgent(BaseAgent):
                                 f.write(screenshot)
                         except Exception:
                             pass
+                        # 采集页面知识并直接写入数据库
+                        await self._collect_and_store_knowledge(page, action, action_input)
 
                     # 将观察结果反馈给 LLM
                     messages.append(HumanMessage(content=f"执行结果：\n{observation}"))
@@ -440,6 +442,30 @@ class ExecutionAgent(BaseAgent):
 
         except Exception as e:
             return f"执行失败: {str(e)}"
+
+    async def _collect_and_store_knowledge(self, page: Page, action: str, params: Dict):
+        """采集页面元素并直接写入数据库（执行中旁路采集）"""
+        if not self.project_id:
+            return
+        try:
+            from app.services.ui_healing.healing_wrapper import _collect_elements, _normalize_page_id
+            from app.services.ui_healing.knowledge_aggregator import collect_and_aggregate_now
+
+            elements = await _collect_elements(page)
+            page_url = page.url
+            page_identifier = _normalize_page_id(page_url)
+
+            collect_and_aggregate_now(
+                db=self.db,
+                project_id=self.project_id,
+                page_identifier=page_identifier,
+                page_url=page_url,
+                elements=elements,
+                action_type=action,
+            )
+            logger.info(f"页面知识采集: {page_identifier} ({len(elements)} 个元素)")
+        except Exception as e:
+            logger.warning(f"页面知识采集失败: {e}")
 
     def _log_step(self, action: str, params: Dict, status: str, observation: str, duration: float = 0):
         """记录执行步骤"""

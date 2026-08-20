@@ -153,13 +153,21 @@ async def _collect_elements(page) -> list:
     """收集页面可交互元素（含 Shadow DOM 和 iframe）"""
     elements = []
 
+    # 0. 等待页面渲染稳定（短超时，不阻塞执行）
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=3000)
+    except Exception:
+        pass
+
     # 1. 主文档 + Shadow DOM
     try:
         main_elements = await page.evaluate(_COLLECT_JS)
         if isinstance(main_elements, list):
             elements.extend(main_elements)
+        else:
+            logger.warning(f"page.evaluate 返回非列表类型: {type(main_elements)}")
     except Exception as e:
-        logger.debug(f"主文档元素采集失败: {e}")
+        logger.warning(f"主文档元素采集失败: {e}")
 
     # 2. iframe 内容
     try:
@@ -174,6 +182,9 @@ async def _collect_elements(page) -> list:
                 pass
     except Exception:
         pass
+
+    if not elements:
+        logger.warning(f"元素采集结果为空: url={page.url}")
 
     return elements[:80]
 
@@ -397,7 +408,7 @@ def install_healing_wrapper(
                             target_selector=str(selector) if selector else "",
                             target_text=str(action_value) if action_value else "",
                             action_result="success",
-                            elements_json=(elements or [])[:30] or None,
+                            elements_json=(elements or [])[:30],
                             source="execution",
                         )
                     except Exception:
@@ -435,7 +446,7 @@ def install_healing_wrapper(
                                 target_selector=str(selector),
                                 action_result="fail",
                                 fail_reason=error_msg[:500],
-                                elements_json=(await _collect_elements(self) or [])[:30] or None,
+                                elements_json=(await _collect_elements(self) or [])[:30],
                                 source="execution",
                             )
                         except Exception:
@@ -564,7 +575,7 @@ def install_healing_wrapper(
                                     action_result="fail",
                                     fail_reason=error_msg[:500],
                                     dom_snapshot=dom_snapshot[:8000],
-                                    elements_json=(elements or [])[:30] or None,
+                                    elements_json=(elements or [])[:30],
                                     source="execution",
                                 )
                             # 自动聚合触发
@@ -619,7 +630,7 @@ def install_healing_wrapper(
                     target_selector="",
                     target_text="",
                     action_result="success",
-                    elements_json=(elements or [])[:30] or None,
+                    elements_json=(elements or [])[:30],
                     source="execution",
                 )
             except Exception:

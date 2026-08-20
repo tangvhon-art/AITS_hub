@@ -39,7 +39,7 @@ def run_ui_execution_task(
     try:
         from app.agents.execution_agent import ExecutionAgent
 
-        agent = ExecutionAgent(db_session=db, llm_config_id=llm_config_id)
+        agent = ExecutionAgent(db_session=db, llm_config_id=llm_config_id, project_id=project_id)
 
         # 同步运行 async 生成器
         loop = asyncio.new_event_loop()

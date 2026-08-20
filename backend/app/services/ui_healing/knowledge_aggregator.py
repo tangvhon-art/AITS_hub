@@ -90,7 +90,7 @@ def collect_and_aggregate_now(
             action_result="success",
             target_selector="",
             target_text="",
-            elements_json=elements[:30] if elements else None,
+            elements_json=elements[:30] if elements else [],
             source="healing_collect",
         )
         db.add(visit)
