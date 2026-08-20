@@ -52,6 +52,13 @@ def run_script_sync(content: str, script_id: int, project_id: int = None, run_id
     返回 (是否成功, 错误信息)
     """
     try:
+        # 执行前清理旧截图
+        try:
+            from app.tasks.cleanup_tasks import cleanup_uploads
+            cleanup_uploads()
+        except Exception:
+            pass
+
         # 安装 UI 自愈包装器（monkey-patch Playwright Page）
         if project_id:
             try:

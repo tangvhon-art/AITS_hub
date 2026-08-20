@@ -55,6 +55,13 @@ class SuiteExecutor:
 
     async def execute(self) -> None:
         """执行整个编排套件"""
+        # 执行前清理旧截图
+        try:
+            from app.tasks.cleanup_tasks import cleanup_uploads
+            cleanup_uploads()
+        except Exception:
+            pass
+
         try:
             suite_run = self.db.query(AutomationSuiteRun).filter(
                 AutomationSuiteRun.id == self.suite_run_id

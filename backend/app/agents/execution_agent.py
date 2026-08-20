@@ -180,6 +180,13 @@ class ExecutionAgent(BaseAgent):
             target_url: 起始 URL
             headless: 是否无头模式
         """
+        # 执行前清理旧截图
+        try:
+            from app.tasks.cleanup_tasks import cleanup_uploads
+            cleanup_uploads()
+        except Exception:
+            pass
+
         from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
         start_time = time.time()

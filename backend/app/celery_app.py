@@ -33,6 +33,7 @@ celery_app = Celery(
         "app.tasks.review_tasks",
         "app.tasks.execution_tasks",
         "app.tasks.ui_healing_tasks",
+        "app.tasks.cleanup_tasks",
     ],
 )
 
@@ -74,6 +75,11 @@ celery_app.conf.update(
         "aggregate-ui-healing-knowledge": {
             "task": "app.tasks.ui_healing_tasks.aggregate_page_knowledge",
             "schedule": 3600.0,  # 每小时执行一次
+            "args": (),
+        },
+        "cleanup-uploads": {
+            "task": "app.tasks.cleanup_tasks.cleanup_uploads_task",
+            "schedule": 10800.0,  # 每3小时执行一次
             "args": (),
         },
     },
