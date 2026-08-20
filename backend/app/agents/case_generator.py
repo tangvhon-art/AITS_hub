@@ -189,62 +189,42 @@ class CaseGeneratorAgent(BaseAgent):
 
     # ── 功能点驱动生成 ──────────────────────────────────
 
-    FEATURE_CASE_SYSTEM_PROMPT = """你是一名资深测试工程师，精通各种测试用例设计方法。你的任务是根据需求内容和选中的功能点，生成高质量、全覆盖、可执行的测试用例。
+    FEATURE_CASE_SYSTEM_PROMPT = """你是一名资深测试工程师。根据给定的单个功能点，生成 3-8 条测试用例。
 
-## 用例设计方法（必须根据功能点特点选择使用）
+## 输出规则（最高优先级）
+1. 只输出一个 JSON 对象，第一个字符是 {，最后一个字符是 }
+2. 禁止输出 markdown 代码块、注释、解释文字
+3. 所有字段名必须用英文，绝对不能用中文字段名
 
-1. 等价类划分：将输入数据分为有效等价类和无效等价类，每个等价类至少一条用例
-2. 边界值分析：对数值范围、字符串长度，测试边界点及其两侧（如长度6-20，测5/6/7/19/20/21）
-3. 判定表/因果图：多条件组合时，列出所有条件组合的预期结果
-4. 场景法：覆盖基本流（正常流程）和备选流（分支/异常流程）
-5. 状态迁移：覆盖状态的正常流转和非法跳转
-6. 错误推测法：基于经验补充容易出错的场景（并发、重复提交、网络中断等）
-7. 正交试验法：多参数配置组合时使用
+## 输出格式
+{"cases": [{"title": "用例标题", "module": "模块名", "priority": "P0", "case_type": "functional", "preconditions": "前置条件", "steps": [{"action": "操作", "expected": "预期"}], "expected_result": "结果", "feature_name": "功能点名", "bdd_content": ""}]}
 
-## 覆盖要求
-每个功能点必须覆盖：
-- 正向场景：正常业务流程，验证功能正确性
-- 异常场景：非法输入、异常操作、错误处理
-- 边界条件：边界值、临界条件
-- 数据校验：必填、格式、长度、类型校验
+## steps 字段规则
+steps 是数组，每个元素必须且只能有两个字段：
+- "action"（操作描述，不是"操作描述"）
+- "expected"（预期结果，不是"预期结果"）
+禁止在 steps 元素中使用中文字段名
 
-## 用例数量原则（自主判断，不要凑数）
-- P0 功能点：5-10 条（主流程 + 关键异常）
-- P1 功能点：3-6 条
-- P2 功能点：2-4 条
-- P3 功能点：1-2 条
-- 总数不超过 80 条
-- 宁精勿滥，每条用例必须有明确测试目的
+## 用例设计
+- 覆盖正向、异常、边界场景
+- P0 功能点 5-8 条，P1 功能点 3-6 条，P2 功能点 2-4 条，P3 功能点 1-2 条
+- 每条用例必须有 title、steps、expected_result 三个核心字段
+- 优先级可选：P0、P1、P2、P3
+- 类型固定：functional"""
 
-## 输出格式（最高优先级，必须严格遵守）
-你必须且只能输出一个合法的 JSON 对象，不要输出任何其他内容。
+    FEATURE_CASE_HUMAN_TEMPLATE = """## 需求标题
+{title}
 
-格式：
-{"cases": [{"title": "用例标题", "module": "模块名（必须使用功能点所属模块名）", "priority": "P0", "case_type": "functional", "preconditions": "前置条件", "steps": [{"action": "操作描述", "expected": "预期结果"}], "expected_result": "整体预期结果", "feature_name": "对应的功能点名称", "bdd_content": ""}]}
-
-### 绝对禁止
-1. 禁止使用 ```json ``` 等 Markdown 代码块包裹
-2. 禁止在 JSON 前后添加任何解释或注释
-3. 输出第一个字符必须是 {，最后一个字符必须是 }
-4. 禁止编造需求中不存在的功能
-5. 禁止生成重复用例
-6. module 字段必须使用功能点所属的模块名，不要自创
-7. feature_name 必须是选中功能点中存在的名称
-8. 所有内容使用中文"""
-
-    FEATURE_CASE_HUMAN_TEMPLATE = """## 需求信息
-- 需求标题：{title}
-
-## 需求完整内容
+## 需求内容
 {content}
 
-## 需要生成用例的功能点（已按模块分组）
+## 本次要生成的功能点
 {features_text}
 
-## 已有用例（避免重复）
+## 已有用例标题（避免重复）
 {existing_cases}
 
-请根据以上需求和功能点生成测试用例。每个功能点的用例数量由你根据功能复杂度和建议的设计方法自主判断，严格按 JSON 格式输出。"""
+请为以上功能点生成测试用例。只输出 JSON，第一个字符是 {{，最后一个字符是 }}。"""
 
     def generate_by_features(
         self,
@@ -255,111 +235,230 @@ class CaseGeneratorAgent(BaseAgent):
         system_prompt: str = "",
     ) -> Dict[str, Any]:
         """
-        基于功能点生成测试用例
+        基于功能点生成测试用例 — 按单个功能点逐条调用 LLM，确保每次输出小且可靠。
 
-        Args:
-            requirement_title: 需求标题
-            requirement_content: 需求完整内容
-            features: 功能点列表，每个含 module_name/name/description/priority/design_methods/preconditions
-            existing_cases: 已有用例标题列表
-            system_prompt: 自定义 system prompt（来自 Prompt 管理）
+        每次只给 LLM 一个功能点，生成 3-8 条用例，JSON 输出极小（< 2K tokens），
+        从根本上避免截断和格式错乱。
         """
         effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else self.FEATURE_CASE_SYSTEM_PROMPT
 
-        # 按模块分组构建功能点文本
-        modules_map: Dict[str, List[Dict]] = {}
-        for f in features:
-            mod = f.get("module_name", "未分组")
-            modules_map.setdefault(mod, []).append(f)
+        logger.info(f"基于功能点生成用例（逐个功能点）: {requirement_title}, 功能点数: {len(features)}")
 
-        lines = []
-        for mod_name, feats in modules_map.items():
-            lines.append(f"### 模块：{mod_name}")
-            for feat in feats:
-                methods = feat.get("design_methods", [])
-                if isinstance(methods, str):
-                    methods_str = methods
-                else:
-                    methods_str = "、".join(methods) if methods else "等价类划分、边界值分析、场景法"
-                lines.append(f"**功能点：{feat.get('name', '')}**（优先级：{feat.get('priority', 'P1')}）")
-                if feat.get("description"):
-                    lines.append(f"  - 描述：{feat['description']}")
-                lines.append(f"  - 建议设计方法：{methods_str}")
-                if feat.get("preconditions"):
-                    lines.append(f"  - 前置条件：{feat['preconditions']}")
-                lines.append("")
-        features_text = "\n".join(lines)
+        all_cases: List[Dict[str, Any]] = []
+        all_existing = list(existing_cases or [])
+        success_count = 0
+        fail_count = 0
 
-        existing_text = "无" if not existing_cases else "\n".join(f"- {t}" for t in existing_cases[:50])
+        for idx, feat in enumerate(features, 1):
+            feat_name = feat.get("name", f"功能点{idx}")
+            feat_module = feat.get("module_name", "未分组")
+            feat_priority = feat.get("priority", "P1")
+            feat_preconditions = feat.get("preconditions", "")
 
-        messages = [
-            SystemMessage(content=effective_system_prompt),
-            HumanMessage(content=self.FEATURE_CASE_HUMAN_TEMPLATE.format(
-                title=requirement_title or "未命名需求",
-                content=requirement_content or "（无详细内容）",
-                features_text=features_text,
-                existing_cases=existing_text,
-            )),
-        ]
+            logger.info(f"生成功能点 [{idx}/{len(features)}]: {feat_name} (模块: {feat_module})")
 
-        logger.info(f"基于功能点生成用例: {requirement_title}, 功能点数: {len(features)}")
+            # 构建单个功能点的文本
+            methods = feat.get("design_methods", [])
+            if isinstance(methods, str):
+                methods_str = methods
+            else:
+                methods_str = "、".join(methods) if methods else "等价类划分、边界值分析、场景法"
 
-        response, token_usage, config_id = llm_factory.call_with_fallback(
-            self.db,
-            messages=messages,
-            preferred_config_id=self.llm_config_id,
-            temperature=0.3,
-            max_tokens=8192,
-        )
+            features_text = f"""**功能点：{feat_name}**（优先级：{feat_priority}）
+- 模块：{feat_module}
+- 描述：{feat.get('description', '无')}
+- 建议设计方法：{methods_str}
+- 前置条件：{feat_preconditions or '无'}"""
 
-        if token_usage:
-            self.token_usage["prompt_tokens"] += token_usage.get("prompt_tokens", 0)
-            self.token_usage["completion_tokens"] += token_usage.get("completion_tokens", 0)
-            self.token_usage["total_tokens"] += token_usage.get("total_tokens", 0)
-        self.llm_config_id = config_id or self.llm_config_id
+            existing_text = "无" if not all_existing else "\n".join(f"- {t}" for t in all_existing[:20])
 
-        raw = response.content if hasattr(response, "content") else str(response)
-        logger.info(f"功能点用例生成完成，原始输出长度: {len(raw)}")
+            messages = [
+                SystemMessage(content=effective_system_prompt),
+                HumanMessage(content=self.FEATURE_CASE_HUMAN_TEMPLATE.format(
+                    title=requirement_title or "未命名需求",
+                    content=requirement_content or "（无详细内容）",
+                    features_text=features_text,
+                    existing_cases=existing_text,
+                )),
+            ]
 
-        # 尝试解析 JSON，失败则检测截断并重试
-        from app.agents.utils import extract_json
-        parsed = extract_json(raw)
-        if parsed and isinstance(parsed, dict) and parsed.get("cases"):
-            logger.info(f"用例 JSON 解析成功，{len(parsed['cases'])} 条")
-        else:
-            # 检测是否被截断（不以 } 结尾）
-            stripped = raw.rstrip()
-            if not stripped.endswith("}"):
-                logger.warning(f"用例 JSON 疑似被截断（末尾非 }}），尝试修复并重试，当前长度: {len(raw)}")
-                # 第二次尝试：增大 max_tokens 并追加"继续"指令
-                retry_messages = [
-                    SystemMessage(content=effective_system_prompt),
-                    HumanMessage(content=self.FEATURE_CASE_HUMAN_TEMPLATE.format(
-                        title=requirement_title or "未命名需求",
-                        content=requirement_content or "（无详细内容）",
-                        features_text=features_text,
-                        existing_cases=existing_text,
-                    )),
-                    HumanMessage(content="注意：上一次输出被截断，请确保输出完整的 JSON 对象。可以适当减少每条用例的描述长度，但必须保证 JSON 结构完整，最后一个字符必须是 }。"),
-                ]
-                retry_response, retry_usage, retry_config = llm_factory.call_with_fallback(
+            try:
+                response, token_usage, config_id = llm_factory.call_with_fallback(
                     self.db,
-                    messages=retry_messages,
+                    messages=messages,
                     preferred_config_id=self.llm_config_id,
                     temperature=0.3,
-                    max_tokens=16384,
+                    max_tokens=4096,
                 )
-                if retry_usage:
-                    self.token_usage["prompt_tokens"] += retry_usage.get("prompt_tokens", 0)
-                    self.token_usage["completion_tokens"] += retry_usage.get("completion_tokens", 0)
-                    self.token_usage["total_tokens"] += retry_usage.get("total_tokens", 0)
-                raw = retry_response.content if hasattr(retry_response, "content") else str(retry_response)
-                logger.info(f"用例生成重试完成，原始输出长度: {len(raw)}")
-            else:
-                logger.warning(f"用例 JSON 解析失败但末尾为 }}，可能格式错误，原始长度: {len(raw)}")
+
+                if token_usage:
+                    self.token_usage["prompt_tokens"] += token_usage.get("prompt_tokens", 0)
+                    self.token_usage["completion_tokens"] += token_usage.get("completion_tokens", 0)
+                    self.token_usage["total_tokens"] += token_usage.get("total_tokens", 0)
+                self.llm_config_id = config_id or self.llm_config_id
+
+                raw = response.content if hasattr(response, "content") else str(response)
+                logger.info(f"功能点 [{feat_name}] LLM 输出长度: {len(raw)}")
+
+                # 解析并修复用例
+                feat_cases = self._parse_and_repair_cases(raw, feat_name, feat_module, feat_priority, feat_preconditions)
+
+                if feat_cases:
+                    all_cases.extend(feat_cases)
+                    all_existing.extend(c.get("title", "") for c in feat_cases)
+                    success_count += 1
+                    logger.info(f"功能点 [{feat_name}] 成功: {len(feat_cases)} 条用例")
+                else:
+                    fail_count += 1
+                    logger.warning(f"功能点 [{feat_name}] 解析失败，尝试重试")
+
+                    # 重试一次
+                    retry_messages = [
+                        SystemMessage(content=effective_system_prompt),
+                        HumanMessage(content=self.FEATURE_CASE_HUMAN_TEMPLATE.format(
+                            title=requirement_title or "未命名需求",
+                            content=requirement_content or "（无详细内容）",
+                            features_text=features_text,
+                            existing_cases=existing_text,
+                        )),
+                        HumanMessage(content="上一次输出格式有误。请重新输出完整的 JSON。确保 steps 中每个元素用 action 和 expected 两个英文键名。"),
+                    ]
+                    retry_response, retry_usage, _ = llm_factory.call_with_fallback(
+                        self.db,
+                        messages=retry_messages,
+                        preferred_config_id=self.llm_config_id,
+                        temperature=0.3,
+                        max_tokens=4096,
+                    )
+                    if retry_usage:
+                        self.token_usage["prompt_tokens"] += retry_usage.get("prompt_tokens", 0)
+                        self.token_usage["completion_tokens"] += retry_usage.get("completion_tokens", 0)
+                        self.token_usage["total_tokens"] += retry_usage.get("total_tokens", 0)
+                    raw = retry_response.content if hasattr(retry_response, "content") else str(retry_response)
+                    feat_cases = self._parse_and_repair_cases(raw, feat_name, feat_module, feat_priority, feat_preconditions)
+                    if feat_cases:
+                        all_cases.extend(feat_cases)
+                        all_existing.extend(c.get("title", "") for c in feat_cases)
+                        success_count += 1
+                        logger.info(f"功能点 [{feat_name}] 重试成功: {len(feat_cases)} 条用例")
+                    else:
+                        logger.warning(f"功能点 [{feat_name}] 重试仍失败，跳过")
+
+            except Exception as e:
+                fail_count += 1
+                logger.error(f"功能点 [{feat_name}] 生成异常: {e}")
+
+        logger.info(f"全部功能点生成完成: 成功 {success_count}/{len(features)}, 失败 {fail_count}, 共 {len(all_cases)} 条用例")
 
         return {
-            "raw_content": raw,
+            "raw_content": json.dumps({"cases": all_cases}, ensure_ascii=False),
+            "cases": all_cases,
             "token_usage": self.get_token_usage(),
             "llm_config_id": self.llm_config_id,
+            "feature_count": len(features),
+            "success_count": success_count,
+            "fail_count": fail_count,
         }
+
+    @staticmethod
+    def _parse_and_repair_cases(
+        raw: str,
+        feat_name: str,
+        feat_module: str,
+        feat_priority: str,
+        feat_preconditions: str,
+    ) -> List[Dict[str, Any]]:
+        """解析 LLM 输出并修复常见格式问题，逐条校验，丢弃无效用例。"""
+        from app.agents.utils import extract_json
+
+        parsed = extract_json(raw)
+        if not parsed:
+            # 尝试直接 json.loads（可能是纯数组）
+            try:
+                parsed = json.loads(raw.strip())
+            except json.JSONDecodeError:
+                pass
+
+        raw_cases = []
+        if isinstance(parsed, dict):
+            raw_cases = parsed.get("cases") or parsed.get("用例") or []
+        elif isinstance(parsed, list):
+            raw_cases = parsed
+
+        if not raw_cases:
+            return []
+
+        # 中文字段名 → 英文
+        field_map = {
+            "操作描述": "action", "操作": "action", "步骤": "action",
+            "预期结果": "expected", "预期": "expected", "期望": "expected",
+            "标题": "title", "用例名称": "title", "用例标题": "title",
+            "模块": "module", "模块名": "module", "模块名称": "module",
+            "优先级": "priority", "类型": "case_type", "用例类型": "case_type",
+            "前置条件": "preconditions",
+            "整体预期结果": "expected_result", "预期最终结果": "expected_result",
+            "功能点": "feature_name", "功能点名称": "feature_name",
+        }
+
+        valid_cases = []
+        for c in raw_cases:
+            if not isinstance(c, dict):
+                continue
+
+            # 修复顶层字段名
+            repaired = {}
+            for k, v in c.items():
+                repaired[field_map.get(k, k)] = v
+
+            # 修复 steps 中的中文字段名
+            steps = repaired.get("steps", [])
+            if isinstance(steps, list):
+                fixed_steps = []
+                for s in steps:
+                    if isinstance(s, dict):
+                        fixed = {}
+                        for k, v in s.items():
+                            fixed[field_map.get(k, k)] = v
+                        fixed_steps.append(fixed)
+                    elif isinstance(s, str):
+                        # 如果 step 是纯字符串，尝试拆分为 action/expected
+                        fixed_steps.append({"action": s, "expected": ""})
+                repaired["steps"] = fixed_steps
+
+            # 补充缺失字段
+            if not repaired.get("title"):
+                repaired["title"] = f"{feat_name} - 用例{len(valid_cases) + 1}"
+            if not repaired.get("module"):
+                repaired["module"] = feat_module
+            if not repaired.get("priority"):
+                repaired["priority"] = feat_priority
+            if not repaired.get("case_type"):
+                repaired["case_type"] = "functional"
+            if not repaired.get("preconditions"):
+                repaired["preconditions"] = feat_preconditions
+            if not repaired.get("feature_name"):
+                repaired["feature_name"] = feat_name
+            if not repaired.get("expected_result"):
+                # 从 steps 最后一步的 expected 取
+                if repaired["steps"] and isinstance(repaired["steps"][-1], dict):
+                    repaired["expected_result"] = repaired["steps"][-1].get("expected", "")
+            if not repaired.get("bdd_content"):
+                repaired["bdd_content"] = ""
+
+            # 确保 steps 每个元素有 action 和 expected
+            for s in repaired["steps"]:
+                if not isinstance(s, dict):
+                    continue
+                if "action" not in s:
+                    s["action"] = str(s.get("操作", s.get("操作描述", "")))
+                if "expected" not in s:
+                    s["expected"] = str(s.get("预期结果", s.get("预期", "")))
+                # 清理多余的中文键
+                for cn_key in ["操作描述", "操作", "步骤", "预期结果", "预期", "期望"]:
+                    s.pop(cn_key, None)
+
+            # 校验：至少有 title
+            if repaired.get("title") and len(repaired.get("title", "")) > 0:
+                valid_cases.append(repaired)
+
+        return valid_cases

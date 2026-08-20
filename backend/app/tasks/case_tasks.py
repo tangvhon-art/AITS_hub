@@ -215,8 +215,11 @@ def generate_cases_task(self, task_id: int):
                 system_prompt=system_prompt,
             )
 
-        # 提取并创建用例
-        cases = ContentExtractor.extract_test_cases(result["raw_content"])
+        # 提取并创建用例 — 按模块分批生成直接返回 cases 列表，传统模式从 raw_content 解析
+        if "cases" in result and isinstance(result["cases"], list):
+            cases = result["cases"]
+        else:
+            cases = ContentExtractor.extract_test_cases(result["raw_content"])
         created_cases = AICreationService.create_test_cases(
             db,
             project_id=project_id,

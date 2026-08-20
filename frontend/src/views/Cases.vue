@@ -142,30 +142,62 @@
       title="AI 生成测试用例"
       @ok="doGenerate"
       :confirm-loading="generating"
-      width="600px"
+      width="750px"
+      :ok-text="selectedReqId && featureModules.length > 0 ? '按勾选功能点生成' : '生成'"
     >
       <a-form layout="vertical">
-        <a-form-item label="选择需求">
+        <a-form-item label="选择需求" required>
           <a-select
             v-model:value="selectedReqId"
-            placeholder="选择已有需求"
-            allow-clear
+            placeholder="选择已有需求（必选）"
             :options="requirements.map(req => ({ label: req.title, value: req.id }))"
+            @change="onReqChange"
           />
         </a-form-item>
-        <a-form-item label="或直接输入需求描述">
-          <a-textarea
-            v-model:value="generateContent"
-            :rows="5"
-            placeholder="输入需求描述，AI 将根据此生成用例"
-          />
-        </a-form-item>
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="生成数量">
-              <a-input-number v-model:value="generateCount" :min="1" :max="50" style="width: 100%" />
-            </a-form-item>
-          </a-col>
+
+        <!-- 功能点展示 -->
+        <template v-if="selectedReqId">
+          <a-spin :spinning="loadingFeatures">
+            <template v-if="featureModules.length > 0">
+              <div style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 500;">已拆分功能点（按模块分组）</span>
+                <a-space>
+                  <a-button size="small" @click="selectAllFeatures">全选</a-button>
+                  <a-button size="small" @click="invertFeatures">反选</a-button>
+                  <span style="color: #999; font-size: 12px;">已选 {{ selectedFeatureIds.length }} 个</span>
+                </a-space>
+              </div>
+              <div v-for="mod in featureModules" :key="mod.module_name" style="margin-bottom: 12px;">
+                <div style="font-weight: 500; margin-bottom: 4px; color: #1677ff;">
+                  {{ mod.module_name }}
+                  <a-button size="small" type="link" @click="toggleModule(mod)">切换</a-button>
+                </div>
+                <a-checkbox-group v-model:value="selectedFeatureIds" style="width: 100%;">
+                  <a-row>
+                    <a-col v-for="feat in mod.features" :key="feat.id" :span="12" style="margin-bottom: 4px;">
+                      <a-checkbox :value="feat.id">
+                        <span>{{ feat.name }}</span>
+                        <a-tag :color="feat.priority === 'P0' ? 'red' : feat.priority === 'P1' ? 'orange' : 'blue'" style="margin-left: 4px; font-size: 11px;">{{ feat.priority }}</a-tag>
+                      </a-checkbox>
+                    </a-col>
+                  </a-row>
+                </a-checkbox-group>
+              </div>
+            </template>
+            <template v-else-if="!loadingFeatures">
+              <a-alert
+                message="该需求尚未拆分功能点"
+                description="功能点拆分是异步的，如果刚创建需求请稍等片刻。也可以点击下方按钮手动触发拆分。"
+                type="info"
+                show-icon
+                style="margin-bottom: 12px;"
+              />
+              <a-button type="primary" size="small" :loading="splitting" @click="triggerSplit">触发功能点拆分</a-button>
+            </template>
+          </a-spin>
+        </template>
+
+        <a-row :gutter="16" style="margin-top: 12px;">
           <a-col :span="12">
             <a-form-item label="模型配置">
               <a-select
@@ -176,15 +208,17 @@
               />
             </a-form-item>
           </a-col>
+          <a-col :span="12">
+            <a-form-item label="Prompt 模板">
+              <a-select
+                v-model:value="selectedPromptId"
+                placeholder="使用默认 Prompt"
+                allow-clear
+                :options="prompts.map(p => ({ label: p.name + (p.is_default ? '（默认）' : ''), value: p.id }))"
+              />
+            </a-form-item>
+          </a-col>
         </a-row>
-        <a-form-item label="Prompt 模板">
-          <a-select
-            v-model:value="selectedPromptId"
-            placeholder="使用默认 Prompt"
-            allow-clear
-            :options="prompts.map(p => ({ label: p.name + (p.is_default ? '（默认）' : ''), value: p.id }))"
-          />
-        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -197,7 +231,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements } from '@/api/cases'
+import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements, getFeatures, splitFeatures, type FeatureModuleGroup } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
 import { promptsApi, type Prompt } from '@/api/prompts'
 
@@ -248,11 +282,15 @@ const caseForm = reactive({
 const showGenerateModal = ref(false)
 const generating = ref(false)
 const selectedReqId = ref<number | null>(null)
-const generateContent = ref('')
-const generateCount = ref(10)
 const selectedLLMConfig = ref<number | null>(null)
 const prompts = ref<Prompt[]>([])
 const selectedPromptId = ref<number | null>(null)
+
+// 功能点相关
+const featureModules = ref<FeatureModuleGroup[]>([])
+const selectedFeatureIds = ref<number[]>([])
+const loadingFeatures = ref(false)
+const splitting = ref(false)
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
@@ -435,26 +473,91 @@ function deleteCase(row: any) {
   })
 }
 
+async function onReqChange(reqId: any) {
+  featureModules.value = []
+  selectedFeatureIds.value = []
+  if (!reqId) return
+  loadingFeatures.value = true
+  try {
+    const data = await getFeatures(projectId, Number(reqId))
+    if (data.split_status === 'completed' || data.modules?.length > 0) {
+      featureModules.value = data.modules || []
+      // 默认全选
+      selectedFeatureIds.value = featureModules.value.flatMap(m => m.features.map(f => f.id))
+    } else if (data.split_status === 'processing') {
+      message.info('功能点拆分中，请稍后重试')
+    }
+  } catch (e: any) {
+    message.warning('获取功能点失败：' + (e.message || '未知错误'))
+  } finally {
+    loadingFeatures.value = false
+  }
+}
+
+function selectAllFeatures() {
+  selectedFeatureIds.value = featureModules.value.flatMap(m => m.features.map(f => f.id))
+}
+
+function invertFeatures() {
+  const allIds = featureModules.value.flatMap(m => m.features.map(f => f.id))
+  selectedFeatureIds.value = allIds.filter(id => !selectedFeatureIds.value.includes(id))
+}
+
+function toggleModule(mod: FeatureModuleGroup) {
+  const modIds = mod.features.map(f => f.id)
+  const allSelected = modIds.every(id => selectedFeatureIds.value.includes(id))
+  if (allSelected) {
+    selectedFeatureIds.value = selectedFeatureIds.value.filter(id => !modIds.includes(id))
+  } else {
+    const set = new Set(selectedFeatureIds.value)
+    modIds.forEach(id => set.add(id))
+    selectedFeatureIds.value = Array.from(set)
+  }
+}
+
+async function triggerSplit() {
+  if (!selectedReqId.value) return
+  splitting.value = true
+  try {
+    await splitFeatures(projectId, selectedReqId.value)
+    message.success('功能点拆分任务已提交，请等待几秒后重新选择需求')
+  } catch (e: any) {
+    message.error('触发拆分失败：' + (e.message || '未知错误'))
+  } finally {
+    splitting.value = false
+  }
+}
+
 async function doGenerate() {
-  if (!selectedReqId.value && !generateContent.value.trim()) {
-    message.warning('请选择需求或输入需求内容')
+  if (!selectedReqId.value) {
+    message.warning('请选择需求')
+    return
+  }
+  if (featureModules.value.length > 0 && selectedFeatureIds.value.length === 0) {
+    message.warning('请至少勾选一个功能点')
     return
   }
   generating.value = true
   try {
-    const result = await generateCases(projectId, {
-      requirement_id: selectedReqId.value || undefined,
-      content: generateContent.value,
-      count: generateCount.value,
+    const params: any = {
+      requirement_id: selectedReqId.value,
       llm_config_id: selectedLLMConfig.value || undefined,
       prompt_id: selectedPromptId.value || undefined
-    })
-    message.success(`用例生成任务已提交（任务ID: ${result.task_id}），可在Agent任务中查看进度`)
+    }
+    if (selectedFeatureIds.value.length > 0) {
+      params.feature_ids = selectedFeatureIds.value
+    } else {
+      params.count = 10
+      params.content = ''
+    }
+    const result = await generateCases(projectId, params)
+    message.success(`用例生成任务已提交（任务ID: ${result.task_id}），按 ${featureModules.value.length} 个模块分批生成`)
     showGenerateModal.value = false
-    generateContent.value = ''
     selectedReqId.value = null
+    featureModules.value = []
+    selectedFeatureIds.value = []
     selectedPromptId.value = null
-    setTimeout(() => fetchCases(), 3000)
+    setTimeout(() => fetchCases(), 5000)
   } catch (e: any) {
     message.error('提交生成任务失败：' + (e.message || '未知错误'))
   } finally {
