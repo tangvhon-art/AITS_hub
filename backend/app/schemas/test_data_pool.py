@@ -44,6 +44,8 @@ class TestDataPoolResponse(TestDataPoolBase):
 class EnvironmentVariableBase(BaseModel):
     key: str = Field(..., max_length=200)
     value: Optional[str] = None
+    value_type: str = "static"
+    script: Optional[str] = None
     description: Optional[str] = None
     is_sensitive: bool = False
 
@@ -54,6 +56,8 @@ class EnvironmentVariableCreate(EnvironmentVariableBase):
 
 class EnvironmentVariableUpdate(BaseModel):
     value: Optional[str] = None
+    value_type: Optional[str] = None
+    script: Optional[str] = None
     description: Optional[str] = None
     is_sensitive: Optional[bool] = None
 

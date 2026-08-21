@@ -458,10 +458,23 @@ async def _execute_case_node(
 
     method = case.method or "GET"
     base_url = var_engine.get("base_url") or ""
-    url = var_engine.replace(base_url + (case.path or ""))
-    headers = var_engine.replace_headers(case.headers)
-    params = var_engine.replace_params(case.query_params)
-    body_content = var_engine.replace_body(case.body_type, case.body_content)
+    raw_url = base_url + (case.path or "")
+
+    # 第一遍：替换静态环境变量
+    resolved_url = var_engine.replace(raw_url)
+    resolved_headers = var_engine.replace_headers(case.headers)
+    resolved_params = var_engine.replace_params(case.query_params)
+    resolved_body = var_engine.replace_body(case.body_type, case.body_content)
+
+    # 执行环境脚本变量（用已解析的 body/headers）
+    var_engine.run_environment_scripts({
+        "method": method,
+        "url": resolved_url,
+        "headers": resolved_headers,
+        "query_params": resolved_params,
+        "body": HttpClient.serialize_body(case.body_type, resolved_body),
+        "body_type": case.body_type or "raw",
+    })
 
     script_engine = ScriptEngine()
     if case.pre_script:
@@ -469,14 +482,23 @@ async def _execute_case_node(
             case.pre_script,
             environment_vars=var_engine.environment_vars,
             global_vars=var_engine.global_vars,
-            request={"method": method, "url": url},
+            request={
+                "method": method,
+                "url": resolved_url,
+                "headers": resolved_headers,
+                "query_params": resolved_params,
+                "body": HttpClient.serialize_body(case.body_type, resolved_body),
+                "body_type": case.body_type or "raw",
+            },
         )
         for k, v in script_result.variables.items():
             var_engine.set("scenario", k, v)
-        url = var_engine.replace(base_url + (case.path or ""))
-        headers = var_engine.replace_headers(case.headers)
-        params = var_engine.replace_params(case.query_params)
-        body_content = var_engine.replace_body(case.body_type, case.body_content)
+
+    # 第二遍：从原始数据重新替换所有变量（静态 + 脚本生成的）
+    url = var_engine.replace(raw_url)
+    headers = var_engine.replace_headers(case.headers)
+    params = var_engine.replace_params(case.query_params)
+    body_content = var_engine.replace_body(case.body_type, case.body_content)
 
     result.request_data = {
         "method": method,
@@ -505,7 +527,14 @@ async def _execute_case_node(
             case.post_script,
             environment_vars=var_engine.environment_vars,
             global_vars=var_engine.global_vars,
-            request={"method": method, "url": url},
+            request={
+                "method": method,
+                "url": url,
+                "headers": case.headers or [],
+                "query_params": case.query_params or [],
+                "body": HttpClient.serialize_body(case.body_type, body_content),
+                "body_type": case.body_type or "raw",
+            },
             response=response.to_dict(),
         )
 

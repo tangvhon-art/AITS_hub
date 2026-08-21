@@ -162,6 +162,8 @@ def run_test(
         raise HTTPException(status_code=404, detail="性能测试不存在")
 
     from app.services.performance_runner import PerformanceRunner
+    from app.services.variable_engine import VariableEngine
+    from app.services.http_client import HttpClient
     runner = PerformanceRunner(db)
 
     # 构建多接口 targets 列表
@@ -185,6 +187,7 @@ def run_test(
                 "name": t.get("name") or target_info.get("name", "接口"),
                 "weight": t.get("weight", 1),
                 "body": t.get("body") or target_info.get("body"),
+                "headers": target_info.get("headers"),
             })
     else:
         # 单接口兼容模式
@@ -198,12 +201,55 @@ def run_test(
             "name": target_info.get("name", "接口"),
             "weight": 1,
             "body": test.body_template or target_info.get("body"),
+            "headers": target_info.get("headers"),
         })
 
     headers = {**(test.headers or {})}
     # 合并第一个 target 的 headers
     if targets and targets[0].get("headers"):
         headers = {**headers, **targets[0]["headers"]}
+
+    # 加载环境变量 + 执行环境脚本（如签名生成）
+    var_engine = VariableEngine()
+    if env:
+        var_engine.load_environment(env.config or {})
+
+    # 将 headers 转为列表格式供变量替换使用
+    header_list = [{"key": k, "value": v, "enabled": True} for k, v in headers.items()]
+
+    # 第一遍：替换静态环境变量
+    resolved_header_list = var_engine.replace_headers(header_list)
+    resolved_targets = []
+    for t in targets:
+        resolved_body = var_engine.replace(t.get("body") or "") if t.get("body") else None
+        resolved_targets.append({**t, "body": resolved_body})
+
+    # 用第一个 target 的请求上下文执行环境脚本
+    if targets:
+        first = resolved_targets[0]
+        serialized_body = first.get("body") or ""
+        # 如果 body 是 JSON 字符串，用 serialize_body 统一格式
+        if serialized_body:
+            try:
+                serialized_body = HttpClient.serialize_body("json", serialized_body)
+            except Exception:
+                pass
+        var_engine.run_environment_scripts({
+            "method": first.get("method", "GET"),
+            "url": first.get("url", ""),
+            "headers": resolved_header_list,
+            "query_params": [],
+            "body": serialized_body,
+            "body_type": "json",
+        })
+
+    # 第二遍：替换脚本生成的变量（如 {{signature}}）
+    final_header_list = var_engine.replace_headers(header_list)
+    headers = {h["key"]: h["value"] for h in final_header_list if h.get("value") is not None}
+    for t in resolved_targets:
+        if t.get("body"):
+            t["body"] = var_engine.replace(t["body"])
+    targets = resolved_targets
 
     test_data = None
     if test.data_pool_id:

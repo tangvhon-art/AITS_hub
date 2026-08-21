@@ -21,6 +21,7 @@ class VariableEngine:
         self.scenario_vars: Dict[str, Any] = {}
         self.local_vars: Dict[str, Any] = {}
         self.mock_generator = mock_generator
+        self._script_vars: list = []
 
     def set(self, scope: str, name: str, value: Any):
         """设置变量"""
@@ -113,17 +114,55 @@ class VariableEngine:
         return body_content
 
     def load_environment(self, environment_config: Dict[str, Any]):
-        """从环境配置加载变量"""
+        """从环境配置加载静态变量，脚本类型变量存储待后续执行（需要请求上下文）"""
         if not environment_config:
             return
-        # 环境变量可能存在 config.variables 中
         variables = environment_config.get("variables", {})
         if isinstance(variables, dict):
-            self.environment_vars.update(variables)
-        elif isinstance(variables, list):
-            for v in variables:
-                if isinstance(v, dict) and v.get("key"):
-                    self.environment_vars[v["key"]] = v.get("value", "")
+            variables = [{"key": k, "value": v} for k, v in variables.items()]
+
+        if not isinstance(variables, list):
+            return
+
+        self._script_vars = []
+        for v in variables:
+            if not isinstance(v, dict) or not v.get("key"):
+                continue
+            if v.get("value_type") == "script" and v.get("script"):
+                self._script_vars.append(v)
+            else:
+                self.environment_vars[v["key"]] = v.get("value", "")
+
+    def run_environment_scripts(self, request: Optional[Dict[str, Any]] = None) -> str:
+        """执行环境中的脚本类型变量（需在请求上下文可用后调用），返回 console 输出"""
+        if not self._script_vars:
+            return ""
+        from app.services.script_engine import ScriptEngine
+        import logging
+        _logger = logging.getLogger(__name__)
+        engine = ScriptEngine()
+        console_output = ""
+        for v in self._script_vars:
+            _logger.info(f"[SCRIPT] Executing env script: key={v.get('key')}")
+            result = engine.execute(
+                script=v["script"],
+                environment_vars=dict(self.environment_vars),
+                global_vars=dict(self.global_vars),
+                request=request or {},
+            )
+            if result.success:
+                _logger.info(f"[SCRIPT] Success. result.variables keys: {list(result.variables.keys())}")
+                if result.variables:
+                    self.environment_vars.update(result.variables)
+                _logger.info(f"[SCRIPT] After update, env_vars keys: {list(self.environment_vars.keys())}")
+                for _k in ["signature"]:
+                    if _k in self.environment_vars:
+                        _logger.info(f"[SCRIPT] env_vars[{_k}] = {str(self.environment_vars[_k])[:80]}")
+                console_output += result.output
+            else:
+                _logger.warning(f"[SCRIPT] Failed [{v.get('key')}]: {result.error}")
+                console_output += f"[ERROR] 脚本 {v.get('key')} 执行失败: {result.error}\n"
+        return console_output
 
     def load_from_dict(self, scope: str, data: Dict[str, Any]):
         """从字典批量加载变量"""

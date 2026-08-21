@@ -222,7 +222,7 @@ const confirmRun = async () => {
   const runData: any = {}
   if (env) {
     runData.base_url = env.base_url
-    runData.environment_vars = env.config?.variables || {}
+    runData.environment_id = env.id
   }
   runLoading.value = true
   try {

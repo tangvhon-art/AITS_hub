@@ -340,9 +340,9 @@ async def run_case(
 
     # 变量引擎
     var_engine = VariableEngine()
-    env_vars_dict = data.environment_vars or {}
+    base_url = data.base_url or ""
 
-    # 加载环境配置的变量（config.variables，支持 dict 和 list 两种格式）
+    # 加载环境配置（静态变量 + 脚本变量存储）
     if data.environment_id:
         from app.models.test_plan import TestEnvironment
         env = db.query(TestEnvironment).filter(
@@ -350,23 +350,15 @@ async def run_case(
             TestEnvironment.project_id == project_id,
         ).first()
         if env:
-            if not data.base_url:
+            if not base_url:
                 base_url = env.base_url or ""
-            env_config = env.config or {}
-            env_variables = env_config.get("variables", {})
-            if isinstance(env_variables, dict):
-                for k, v in env_variables.items():
-                    if k not in env_vars_dict:
-                        env_vars_dict[k] = v
-            elif isinstance(env_variables, list):
-                for v in env_variables:
-                    if isinstance(v, dict) and v.get("key"):
-                        if v["key"] not in env_vars_dict:
-                            env_vars_dict[v["key"]] = v.get("value", "")
-
-    if env_vars_dict:
-        var_engine.load_from_dict("environment", env_vars_dict)
-    base_url = data.base_url or var_engine.get("base_url") or base_url or ""
+            var_engine.load_environment(env.config or {})
+            if data.environment_vars:
+                for k, v in data.environment_vars.items():
+                    var_engine.set("environment", k, v)
+    elif data.environment_vars:
+        var_engine.load_from_dict("environment", data.environment_vars)
+    base_url = base_url or var_engine.get("base_url") or ""
 
     # 如果关联了接口，使用接口的 method 和 path
     if case.api_id:
@@ -383,28 +375,49 @@ async def run_case(
         method = case.method or "GET"
         path = case.path or ""
 
-    url = var_engine.replace(base_url + path)
-    headers = var_engine.replace_headers(case.headers)
-    params = var_engine.replace_params(case.query_params)
-    body_content = var_engine.replace_body(case.body_type, case.body_content)
+    raw_url = base_url + path
+
+    # 第一遍：替换静态环境变量
+    resolved_url = var_engine.replace(raw_url)
+    resolved_headers = var_engine.replace_headers(case.headers)
+    resolved_params = var_engine.replace_params(case.query_params)
+    resolved_body = var_engine.replace_body(case.body_type, case.body_content)
+
+    # 执行环境脚本变量（用已解析的 body/headers）
+    console_log = var_engine.run_environment_scripts({
+        "method": method,
+        "url": resolved_url,
+        "headers": resolved_headers,
+        "query_params": resolved_params,
+        "body": HttpClient.serialize_body(case.body_type, resolved_body),
+        "body_type": case.body_type or "raw",
+    })
 
     # 前置脚本
     script_engine = ScriptEngine()
-    console_log = ""
     if case.pre_script:
         script_result = script_engine.execute(
             case.pre_script,
             environment_vars=var_engine.environment_vars,
             global_vars=var_engine.global_vars,
-            request={"method": method, "url": url},
+            request={
+                "method": method,
+                "url": resolved_url,
+                "headers": resolved_headers,
+                "query_params": resolved_params,
+                "body": HttpClient.serialize_body(case.body_type, resolved_body),
+                "body_type": case.body_type or "raw",
+            },
         )
         for k, v in script_result.variables.items():
             var_engine.set("scenario", k, v)
         console_log += script_result.output
-        url = var_engine.replace(base_url + path)
-        headers = var_engine.replace_headers(case.headers)
-        params = var_engine.replace_params(case.query_params)
-        body_content = var_engine.replace_body(case.body_type, case.body_content)
+
+    # 第二遍：从原始数据重新替换所有变量（静态 + 脚本生成的）
+    url = var_engine.replace(raw_url)
+    headers = var_engine.replace_headers(case.headers)
+    params = var_engine.replace_params(case.query_params)
+    body_content = var_engine.replace_body(case.body_type, case.body_content)
 
     # 发送请求
     http_client = HttpClient()
@@ -413,14 +426,20 @@ async def run_case(
         body_type=case.body_type, body_content=body_content,
     )
 
-    # 后置脚本
     tests = []
     if case.post_script:
         script_result = script_engine.execute(
             case.post_script,
             environment_vars=var_engine.environment_vars,
             global_vars=var_engine.global_vars,
-            request={"method": method, "url": url},
+            request={
+                "method": method,
+                "url": url,
+                "headers": case.headers or [],
+                "query_params": case.query_params or [],
+                "body": HttpClient.serialize_body(case.body_type, body_content),
+                "body_type": case.body_type or "raw",
+            },
             response=response.to_dict(),
         )
         console_log += script_result.output
@@ -553,7 +572,6 @@ async def _execute_single_case(
         return {"case_id": case_id, "status": "error", "message": "用例不存在"}
 
     var_engine = VariableEngine()
-    env_vars_dict = environment_vars or {}
 
     if environment_id:
         from app.models.test_plan import TestEnvironment
@@ -564,20 +582,12 @@ async def _execute_single_case(
         if env:
             if not base_url:
                 base_url = env.base_url or ""
-            env_config = env.config or {}
-            env_variables = env_config.get("variables", {})
-            if isinstance(env_variables, dict):
-                for k, v in env_variables.items():
-                    if k not in env_vars_dict:
-                        env_vars_dict[k] = v
-            elif isinstance(env_variables, list):
-                for v in env_variables:
-                    if isinstance(v, dict) and v.get("key"):
-                        if v["key"] not in env_vars_dict:
-                            env_vars_dict[v["key"]] = v.get("value", "")
-
-    if env_vars_dict:
-        var_engine.load_from_dict("environment", env_vars_dict)
+            var_engine.load_environment(env.config or {})
+            if environment_vars:
+                for k, v in environment_vars.items():
+                    var_engine.set("environment", k, v)
+    elif environment_vars:
+        var_engine.load_from_dict("environment", environment_vars)
     base_url = base_url or var_engine.get("base_url") or ""
 
     if case.api_id:
@@ -594,27 +604,48 @@ async def _execute_single_case(
         method = case.method or "GET"
         path = case.path or ""
 
-    url = var_engine.replace(base_url + path)
-    headers = var_engine.replace_headers(case.headers)
-    params = var_engine.replace_params(case.query_params)
-    body_content = var_engine.replace_body(case.body_type, case.body_content)
+    raw_url = base_url + path
+
+    # 第一遍：替换静态环境变量
+    resolved_url = var_engine.replace(raw_url)
+    resolved_headers = var_engine.replace_headers(case.headers)
+    resolved_params = var_engine.replace_params(case.query_params)
+    resolved_body = var_engine.replace_body(case.body_type, case.body_content)
+
+    # 执行环境脚本变量（用已解析的 body/headers）
+    console_log = var_engine.run_environment_scripts({
+        "method": method,
+        "url": resolved_url,
+        "headers": resolved_headers,
+        "query_params": resolved_params,
+        "body": HttpClient.serialize_body(case.body_type, resolved_body),
+        "body_type": case.body_type or "raw",
+    })
 
     script_engine = ScriptEngine()
-    console_log = ""
     if case.pre_script:
         script_result = script_engine.execute(
             case.pre_script,
             environment_vars=var_engine.environment_vars,
             global_vars=var_engine.global_vars,
-            request={"method": method, "url": url},
+            request={
+                "method": method,
+                "url": resolved_url,
+                "headers": resolved_headers,
+                "query_params": resolved_params,
+                "body": HttpClient.serialize_body(case.body_type, resolved_body),
+                "body_type": case.body_type or "raw",
+            },
         )
         for k, v in script_result.variables.items():
             var_engine.set("scenario", k, v)
         console_log += script_result.output
-        url = var_engine.replace(base_url + path)
-        headers = var_engine.replace_headers(case.headers)
-        params = var_engine.replace_params(case.query_params)
-        body_content = var_engine.replace_body(case.body_type, case.body_content)
+
+    # 第二遍：从原始数据重新替换所有变量（静态 + 脚本生成的）
+    url = var_engine.replace(raw_url)
+    headers = var_engine.replace_headers(case.headers)
+    params = var_engine.replace_params(case.query_params)
+    body_content = var_engine.replace_body(case.body_type, case.body_content)
 
     http_client = HttpClient()
     response = await http_client.asend(
@@ -628,7 +659,14 @@ async def _execute_single_case(
             case.post_script,
             environment_vars=var_engine.environment_vars,
             global_vars=var_engine.global_vars,
-            request={"method": method, "url": url},
+            request={
+                "method": method,
+                "url": url,
+                "headers": case.headers or [],
+                "query_params": case.query_params or [],
+                "body": HttpClient.serialize_body(case.body_type, body_content),
+                "body_type": case.body_type or "raw",
+            },
             response=response.to_dict(),
         )
         console_log += script_result.output

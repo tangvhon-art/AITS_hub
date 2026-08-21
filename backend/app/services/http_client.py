@@ -75,16 +75,15 @@ class HttpClient:
 
         if body_type == "raw":
             if isinstance(body_content, dict):
-                return None, None, None, body_content
+                body_str = HttpClient.serialize_body(body_type, body_content)
+                return body_str.encode("utf-8"), None, None, None
             return str(body_content), None, None, None
 
         if body_type == "json":
-            if isinstance(body_content, str):
-                try:
-                    body_content = json.loads(body_content)
-                except Exception:
-                    pass
-            return None, None, None, body_content
+            body_str = HttpClient.serialize_body(body_type, body_content)
+            if body_str:
+                return body_str.encode("utf-8"), None, None, None
+            return None, None, None, None
 
         if body_type == "x-www-form-urlencoded":
             data = {}
@@ -129,6 +128,26 @@ class HttpClient:
 
         return None, None, None, None
 
+    @staticmethod
+    def serialize_body(body_type: str, body_content: Any) -> str:
+        """将 body 序列化为 httpx 实际发送的字符串（供脚本计算 MD5 用）"""
+        if body_type == "none" or body_content is None:
+            return ""
+        if body_type in ("json", "raw"):
+            if isinstance(body_content, str):
+                if body_type == "json":
+                    try:
+                        return json.dumps(json.loads(body_content), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+                    except Exception:
+                        pass
+                return body_content
+            if isinstance(body_content, (dict, list)):
+                if body_type == "json":
+                    return json.dumps(body_content, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+                return json.dumps(body_content, ensure_ascii=False, separators=(",", ":"))
+            return str(body_content)
+        return str(body_content) if body_content else ""
+
     def send(self, method: str, url: str,
              headers: Optional[List[Dict[str, Any]]] = None,
              params: Optional[List[Dict[str, Any]]] = None,
@@ -141,6 +160,11 @@ class HttpClient:
             req_headers = self._build_headers(headers)
             req_params = self._build_params(params)
             content, files, data, json_body = self._build_body(body_type, body_content)
+
+            # json body 和 raw(dict) body 现在通过 content 发送（而非 json_body），需确保 Content-Type 存在
+            if content is not None and (body_type == "json" or (body_type == "raw" and isinstance(content, bytes))):
+                if not any(k.lower() == "content-type" for k in req_headers):
+                    req_headers["Content-Type"] = "application/json"
 
             with httpx.Client(
                 timeout=timeout or self.timeout,
@@ -188,6 +212,11 @@ class HttpClient:
             req_headers = self._build_headers(headers)
             req_params = self._build_params(params)
             content, files, data, json_body = self._build_body(body_type, body_content)
+
+            # json body 和 raw(dict) body 现在通过 content 发送（而非 json_body），需确保 Content-Type 存在
+            if content is not None and (body_type == "json" or (body_type == "raw" and isinstance(content, bytes))):
+                if not any(k.lower() == "content-type" for k in req_headers):
+                    req_headers["Content-Type"] = "application/json"
 
             async with httpx.AsyncClient(
                 timeout=timeout or self.timeout,

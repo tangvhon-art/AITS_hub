@@ -77,8 +77,27 @@
               <template v-if="column.key === 'key'">
                 <a-input v-model:value="record.key" placeholder="变量名" size="small" />
               </template>
+              <template v-else-if="column.key === 'value_type'">
+                <a-select v-model:value="record.value_type" size="small" style="width: 100%" :placeholder="'静态值'">
+                  <a-select-option value="static">静态值</a-select-option>
+                  <a-select-option value="script">JS脚本</a-select-option>
+                </a-select>
+              </template>
               <template v-else-if="column.key === 'value'">
-                <a-input v-model:value="record.value" placeholder="变量值" size="small" />
+                <a-input
+                  v-if="(record.value_type || 'static') === 'static'"
+                  v-model:value="record.value"
+                  placeholder="变量值"
+                  size="small"
+                />
+                <div v-else class="script-cell">
+                  <a-button size="small" type="dashed" @click="openScriptEditor(record, index)">
+                    <template #icon><CodeOutlined /></template>
+                    编辑脚本
+                  </a-button>
+                  <span v-if="record.script" class="script-preview">{{ record.script.substring(0, 60) }}{{ record.script.length > 60 ? '...' : '' }}</span>
+                  <span v-else class="script-empty">未编辑</span>
+                </div>
               </template>
               <template v-else-if="column.key === 'description'">
                 <a-input v-model:value="record.description" placeholder="描述" size="small" />
@@ -98,14 +117,43 @@
             type="info"
             show-icon
             message="变量优先级：用例变量 > 场景变量 > 环境变量 > 全局变量"
-            description="在接口调试、测试用例、场景编排中选择此环境后，未配置的变量将自动从环境变量中取值。变量引用格式：{{变量名}}"
-          />
+          >
+            <template #description>
+              <p v-pre>在接口调试、测试用例、场景编排中选择此环境后，未配置的变量将自动从环境变量中取值。变量引用格式：<code>{{变量名}}</code></p>
+              <p style="margin-top: 4px" v-pre><b>JS脚本类型变量</b>：在每次接口请求前自动执行（相当于前置脚本），可通过 <code>pm.environment.set("key", value)</code> 设置结果值，在请求头/参数/body 中用 <code>{{key}}</code> 引用。</p>
+              <p style="margin-top: 4px">脚本中可访问完整请求上下文：<code>pm.request.method</code>、<code>pm.request.headers</code>、<code>pm.request.url.query</code>、<code>pm.request.body.raw</code>，以及 <code>CryptoJS</code>（MD5/HMAC-SHA256等）和 <code>console.log()</code>。</p>
+            </template>
+          </a-alert>
         </a-card>
         <a-card v-else>
           <a-empty description="请选择左侧环境进行配置" />
         </a-card>
       </a-col>
     </a-row>
+
+    <!-- 脚本编辑弹窗 -->
+    <a-modal
+      :open="showScriptEditor"
+      title="编辑 JS 脚本"
+      width="800px"
+      :footer="null"
+      @cancel="showScriptEditor = false"
+    >
+      <div class="script-editor-header">
+        <a-tag color="blue">{{ editingVar?.key || '未命名' }}</a-tag>
+        <span class="script-hint">通过 pm.environment.set("变量名", 值) 设置结果，脚本在每次接口请求前执行</span>
+      </div>
+      <a-textarea
+        v-model:value="editingScript"
+        :rows="20"
+        style="font-family: monospace; font-size: 13px"
+        placeholder="// 可访问 pm.request（headers/body/query/method）、CryptoJS、console.log()&#10;pm.environment.set('变量名', '值');"
+      />
+      <div class="script-editor-footer">
+        <a-button @click="showScriptEditor = false">取消</a-button>
+        <a-button type="primary" style="margin-left: 8px" @click="saveScript">保存脚本</a-button>
+      </div>
+    </a-modal>
 
     <!-- 新建/编辑环境弹窗 -->
     <a-modal
@@ -142,7 +190,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, CodeOutlined } from '@ant-design/icons-vue'
 import { environmentsApi } from '@/api/environments'
 import { useUrlSearch } from '@/composables/useUrlSearch'
 
@@ -168,6 +216,10 @@ const saving = ref(false)
 const envSaving = ref(false)
 const showCreateEnv = ref(false)
 const showEditEnv = ref(false)
+const showScriptEditor = ref(false)
+const editingScript = ref('')
+const editingVarIndex = ref(-1)
+const editingVar = ref<any>(null)
 
 const envForm = ref({
   name: '',
@@ -177,9 +229,10 @@ const envForm = ref({
 })
 
 const varColumns = [
-  { title: '变量名', dataIndex: 'key', key: 'key' },
-  { title: '变量值', dataIndex: 'value', key: 'value' },
-  { title: '描述', dataIndex: 'description', key: 'description' },
+  { title: '变量名', dataIndex: 'key', key: 'key', width: 140 },
+  { title: '类型', dataIndex: 'value_type', key: 'value_type', width: 90 },
+  { title: '值 / 脚本', dataIndex: 'value', key: 'value' },
+  { title: '描述', dataIndex: 'description', key: 'description', width: 100 },
   { title: '操作', key: 'action', width: 60 },
 ]
 
@@ -198,11 +251,30 @@ const selectEnv = (env: any) => {
   // 从 config 中读取变量
   const config = env.config || {}
   const vars = config.variables || []
-  variables.value = JSON.parse(JSON.stringify(vars))
+  variables.value = JSON.parse(JSON.stringify(vars)).map((v: any) => ({
+    ...v,
+    value_type: v.value_type || 'static',
+    script: v.script || '',
+  }))
 }
 
 const addVar = () => {
-  variables.value.push({ key: '', value: '', description: '' })
+  variables.value.push({ key: '', value: '', value_type: 'static', script: '', description: '' })
+}
+
+const openScriptEditor = (record: any, index: number) => {
+  editingVar.value = record
+  editingVarIndex.value = index
+  editingScript.value = record.script || ''
+  showScriptEditor.value = true
+}
+
+const saveScript = () => {
+  if (editingVarIndex.value >= 0 && variables.value[editingVarIndex.value]) {
+    variables.value[editingVarIndex.value].script = editingScript.value
+  }
+  showScriptEditor.value = false
+  message.success('脚本已保存，请点击「保存变量」生效')
 }
 
 const handleSaveVars = async () => {
@@ -343,6 +415,38 @@ onMounted(() => {
 }
 .save-bar {
   margin-top: 16px;
+  text-align: right;
+}
+.script-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.script-preview {
+  font-family: monospace;
+  font-size: 11px;
+  color: #8c8c8c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.script-empty {
+  font-size: 11px;
+  color: #bfbfbf;
+}
+.script-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.script-hint {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+.script-editor-footer {
+  margin-top: 12px;
   text-align: right;
 }
 </style>

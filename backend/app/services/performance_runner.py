@@ -490,14 +490,11 @@ class PerformanceTestUser(HttpUser):
         return {}
 
     def _convert_body(self, body_content, body_type: str = "none") -> Optional[str]:
-        """将 body_content 转为字符串"""
+        """将 body_content 转为字符串（使用统一的序列化格式）"""
         if not body_content:
             return None
-        if isinstance(body_content, str):
-            return body_content
-        if isinstance(body_content, (dict, list)):
-            return json.dumps(body_content, ensure_ascii=False)
-        return str(body_content)
+        from app.services.http_client import HttpClient
+        return HttpClient.serialize_body(body_type or "json", body_content) or None
 
     def get_target_info(self, target_type: str, target_id: int) -> dict:
         """从目标获取请求信息"""

@@ -40,7 +40,7 @@
 | 接口执行 | 按步骤展示请求/响应/断言结果与耗时 |
 | Mock 服务 | 按请求匹配返回 Mock 数据，13 种 `{{$function()}}` 动态数据生成 |
 | 接口导入 | Postman / Swagger / JMeter / HAR / Apifox 五种格式 |
-| 环境变量 | 多环境管理 + 变量配置，4 级变量优先级（用例 > 场景 > 环境 > 全局） |
+| 环境变量 | 多环境管理 + 变量配置 + JS 脚本变量 | 4 级变量优先级（用例 > 场景 > 环境 > 全局），支持静态值和 JS 脚本两种变量类型，脚本在环境加载时执行（`pm.environment.set()`），5秒超时沙箱隔离 |
 
 ### 性能测试
 
@@ -158,6 +158,44 @@ npm run dev
 | 默认账号 | admin / admin123 |
 
 > **注意**：启动前请确保 MySQL 和 Redis 已运行。后端启动时会自动创建数据表和新增字段。
+
+## 环境变量 JS 脚本
+
+环境变量支持两种值类型：**静态值**（`static`）和 **JS 脚本**（`script`）。脚本类型变量在环境加载时自动执行，结果作为变量值参与后续 `{{var}}` 替换。
+
+```
+选择环境 → VariableEngine.load_environment()
+                ↓
+         先加载所有 static 变量
+                ↓
+         再执行 script 变量（可读取已加载的 static 变量）
+                ↓
+         pm.environment.set("key", value) → 写入 environment_vars
+                ↓
+         后续 {{key}} 替换使用脚本生成的值
+```
+
+**脚本可用 API（兼容 Postman pm.*）：**
+
+```javascript
+// 读取其他静态环境变量
+var baseUrl = pm.environment.get("base_url");
+
+// 设置当前变量值
+pm.environment.set("token", "Bearer " + rawToken);
+
+// 控制台日志
+console.log("生成 token 完成");
+
+// 常见场景：动态时间戳
+pm.environment.set("ts", String(Date.now()));
+
+// 常见场景：依赖其他变量拼接
+var apiUrl = pm.environment.get("base_url") + "/v1/api";
+pm.environment.set("api_url", apiUrl);
+```
+
+**限制：** 脚本超时 5 秒，沙箱隔离（不能访问文件系统/网络），只能通过 `pm.environment.set()` 写入变量。
 
 ## 常见问题
 

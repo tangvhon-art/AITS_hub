@@ -37,7 +37,7 @@ async def send_debug_request(
     from app.models.test_data_pool import EnvironmentVariableOverride
 
     base_url = ""
-    env_vars_dict = data.environment_vars or {}
+    var_engine = VariableEngine()
 
     if data.environment_id:
         env = db.query(TestEnvironment).filter(
@@ -46,59 +46,76 @@ async def send_debug_request(
         ).first()
         if env:
             base_url = env.base_url or ""
-            # 加载环境自身配置的变量（config.variables，支持 dict 和 list 两种格式）
-            env_config = env.config or {}
-            env_variables = env_config.get("variables", {})
-            if isinstance(env_variables, dict):
-                for k, v in env_variables.items():
-                    if k not in env_vars_dict:
-                        env_vars_dict[k] = v
-            elif isinstance(env_variables, list):
-                for v in env_variables:
-                    if isinstance(v, dict) and v.get("key"):
-                        if v["key"] not in env_vars_dict:
-                            env_vars_dict[v["key"]] = v.get("value", "")
-            # 加载环境变量覆盖（优先级更高）
+            # 加载环境配置（静态变量 + 脚本变量存储）
+            var_engine.load_environment(env.config or {})
+            # 前端传入的变量覆盖环境配置
+            if data.environment_vars:
+                for k, v in data.environment_vars.items():
+                    var_engine.set("environment", k, v)
+            # 加载环境变量覆盖（优先级最高）
             overrides = db.query(EnvironmentVariableOverride).filter(
                 EnvironmentVariableOverride.environment_id == env.id,
             ).all()
             for ov in overrides:
-                env_vars_dict[ov.key] = ov.value
+                var_engine.set("environment", ov.key, ov.value)
+    elif data.environment_vars:
+        var_engine.load_from_dict("environment", data.environment_vars)
 
-    # 变量替换
-    var_engine = VariableEngine()
-    if env_vars_dict:
-        var_engine.load_from_dict("environment", env_vars_dict)
+    # 计算原始 URL（变量替换前）
+    raw_url = data.url
+    if base_url and not raw_url.startswith(("http://", "https://")):
+        raw_url = base_url.rstrip("/") + "/" + raw_url.lstrip("/")
 
-    # 拼接 base_url
-    url = var_engine.replace(data.url)
-    if base_url and not url.startswith(("http://", "https://")):
-        url = base_url.rstrip("/") + "/" + url.lstrip("/")
+    # 第一遍：替换静态环境变量（如 {{xp_authorization}}）
+    resolved_url = var_engine.replace(raw_url)
+    resolved_headers = var_engine.replace_headers(data.headers)
+    resolved_params = var_engine.replace_params(data.query_params)
+    resolved_body = var_engine.replace_body(data.body_type, data.body_content)
 
-    headers = var_engine.replace_headers(data.headers)
-    params = var_engine.replace_params(data.query_params)
-    body_content = var_engine.replace_body(data.body_type, data.body_content)
+    # 执行环境脚本变量（用已解析的 body/headers，保证签名与实际请求一致）
+    console_log = var_engine.run_environment_scripts({
+        "method": data.method,
+        "url": resolved_url,
+        "headers": resolved_headers,
+        "query_params": resolved_params,
+        "body": HttpClient.serialize_body(data.body_type, resolved_body),
+        "body_type": data.body_type or "raw",
+    })
 
-    # 前置脚本
+    # 前置脚本（也用已解析的上下文）
     script_engine = ScriptEngine()
-    console_log = ""
     if data.pre_script:
         script_result = script_engine.execute(
             data.pre_script,
             environment_vars=var_engine.environment_vars,
             global_vars=var_engine.global_vars,
-            request={"method": data.method, "url": url},
+            request={
+                "method": data.method,
+                "url": resolved_url,
+                "headers": resolved_headers,
+                "query_params": resolved_params,
+                "body": HttpClient.serialize_body(data.body_type, resolved_body),
+                "body_type": data.body_type or "raw",
+            },
         )
         for k, v in script_result.variables.items():
             var_engine.set("scenario", k, v)
         console_log += script_result.output
-        # 重新替换变量
-        url = var_engine.replace(data.url)
-        if base_url and not url.startswith(("http://", "https://")):
-            url = base_url.rstrip("/") + "/" + url.lstrip("/")
-        headers = var_engine.replace_headers(data.headers)
-        params = var_engine.replace_params(data.query_params)
-        body_content = var_engine.replace_body(data.body_type, data.body_content)
+
+    # 第二遍：从原始数据重新替换所有变量（静态 + 脚本生成的），
+    # 不使用第一遍的结果，确保 {{signature}} 等占位符始终是未解析状态
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+    _orig_sig_headers = [h.get('value') for h in (data.headers or []) if h.get('key') == 'XP-Signature']
+    _logger.info(f"[DEBUG] Original XP-Signature header value: {_orig_sig_headers}")
+    _logger.info(f"[DEBUG] env_vars keys before 2nd pass: {list(var_engine.environment_vars.keys())}")
+    _logger.info(f"[DEBUG] signature in env_vars: {var_engine.get('signature')}")
+    url = var_engine.replace(raw_url)
+    headers = var_engine.replace_headers(data.headers)
+    params = var_engine.replace_params(data.query_params)
+    body_content = var_engine.replace_body(data.body_type, data.body_content)
+    _sig_val = [h.get('value') for h in (headers or []) if h.get('key') == 'XP-Signature']
+    _logger.info(f"[DEBUG] XP-Signature after 2nd pass: {_sig_val}")
 
     # 发送请求
     http_client = HttpClient(timeout=data.timeout or 30)
@@ -118,7 +135,14 @@ async def send_debug_request(
             data.post_script,
             environment_vars=var_engine.environment_vars,
             global_vars=var_engine.global_vars,
-            request={"method": data.method, "url": url},
+            request={
+                "method": data.method,
+                "url": url,
+                "headers": data.headers or [],
+                "query_params": data.query_params or [],
+                "body": HttpClient.serialize_body(data.body_type, body_content),
+                "body_type": data.body_type or "raw",
+            },
             response=response.to_dict(),
         )
         console_log += script_result.output

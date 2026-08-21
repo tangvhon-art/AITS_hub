@@ -89,6 +89,8 @@ def _auto_migrate(engine):
         ("automation_scripts", "heal_enabled", "BOOLEAN DEFAULT 1"),
         ("automation_scripts", "heal_count", "INTEGER DEFAULT 0"),
         ("automation_scripts", "last_healed_at", "DATETIME"),
+        ("env_variable_overrides", "value_type", "VARCHAR(20) DEFAULT 'static'"),
+        ("env_variable_overrides", "script", "TEXT"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:

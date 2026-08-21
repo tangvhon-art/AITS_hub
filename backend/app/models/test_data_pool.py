@@ -36,6 +36,8 @@ class EnvironmentVariableOverride(Base):
 
     key = Column(String(200), nullable=False, comment="变量键名")
     value = Column(Text, comment="变量值")
+    value_type = Column(String(20), default="static", comment="值类型: static-静态值 / script-JS脚本")
+    script = Column(Text, comment="当value_type=script时存放JS脚本代码")
     description = Column(String(500), comment="变量描述")
     is_sensitive = Column(Boolean, default=False, comment="是否敏感变量")
 

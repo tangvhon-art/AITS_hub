@@ -257,16 +257,19 @@ class ScenarioExecutor:
         method = request_config.get("method", api.method)
         path = request_config.get("path", api.path)
 
-        # 变量替换
+        # 原始请求上下文（变量替换前）
         base_url = self.variable_engine.get("base_url") or ""
         raw_url = base_url + path
-        url = self.variable_engine.replace(raw_url)
-        if raw_url != url:
-            logger.info(f"步骤 {step.get('step_name')} URL变量替换: {raw_url} -> {url}")
-        elif "${" in raw_url or "{{" in raw_url:
-            logger.warning(f"步骤 {step.get('step_name')} URL含变量占位符但未替换: {raw_url}, 可用场景变量={list(self.variable_engine.scenario_vars.keys())}")
-        headers = self.variable_engine.replace_headers(request_config.get("headers", api.headers))
-        params = self.variable_engine.replace_params(request_config.get("query_params", api.query_params))
+        raw_headers = request_config.get("headers", api.headers) or []
+        raw_params = request_config.get("query_params", api.query_params) or []
+        raw_body_type = request_config.get("body_type", api.body_type) or "raw"
+
+        # 第一遍：替换静态环境变量
+        resolved_url = self.variable_engine.replace(raw_url)
+        resolved_headers = self.variable_engine.replace_headers(raw_headers)
+        resolved_params = self.variable_engine.replace_params(raw_params)
+        body_type = request_config.get("body_type", api.body_type)
+        resolved_body = self.variable_engine.replace_body(body_type, request_config.get("body_content", api.body_content))
 
         # Query Params 覆盖：{"name":"${name}"} 格式，合并到原参数列表
         params_override = request_config.get("query_params_override")
@@ -278,31 +281,37 @@ class ScenarioExecutor:
                 else:
                     override_dict = params_override
                 if isinstance(override_dict, dict):
-                    params = self._merge_query_params(params, override_dict)
+                    resolved_params = self._merge_query_params(resolved_params, override_dict)
                     logger.info(f"步骤 {step.get('step_name')} QueryParams已合并覆盖: {override_dict}")
             except Exception as e:
                 logger.warning(f"QueryParams覆盖合并失败: {e}，使用原参数")
-
-        body_type = request_config.get("body_type", api.body_type)
-        body_content = self.variable_engine.replace_body(body_type, request_config.get("body_content", api.body_content))
 
         # 请求参数覆盖：深度合并 body_override 到原请求体
         body_override = request_config.get("body_override")
         if body_override:
             try:
                 if isinstance(body_override, str):
-                    # 先做变量替换，再解析 JSON
                     override_str = self.variable_engine.replace(body_override)
                     override_data = json.loads(override_str)
                 else:
                     override_data = body_override
-                if isinstance(override_data, dict) and isinstance(body_content, dict):
-                    body_content = self._deep_merge(body_content, override_data)
+                if isinstance(override_data, dict) and isinstance(resolved_body, dict):
+                    resolved_body = self._deep_merge(resolved_body, override_data)
                     logger.info(f"步骤 {step.get('step_name')} 请求体已合并覆盖参数")
                 elif isinstance(override_data, dict):
-                    body_content = override_data
+                    resolved_body = override_data
             except Exception as e:
                 logger.warning(f"请求参数覆盖合并失败: {e}，使用原请求体")
+
+        # 执行环境脚本变量（用已解析的 body/headers，保证签名与实际请求一致）
+        result.console_log += self.variable_engine.run_environment_scripts({
+            "method": method,
+            "url": resolved_url,
+            "headers": resolved_headers,
+            "query_params": resolved_params,
+            "body": HttpClient.serialize_body(body_type, resolved_body),
+            "body_type": body_type or "raw",
+        })
 
         # 前置脚本
         if step.get("pre_script"):
@@ -310,11 +319,26 @@ class ScenarioExecutor:
                 step["pre_script"],
                 environment_vars=self.variable_engine.environment_vars,
                 global_vars=self.variable_engine.global_vars,
-                request={"method": method, "url": url},
+                request={
+                    "method": method,
+                    "url": resolved_url,
+                    "headers": resolved_headers,
+                    "query_params": resolved_params,
+                    "body": HttpClient.serialize_body(body_type, resolved_body),
+                    "body_type": body_type or "raw",
+                },
             )
             for k, v in script_result.variables.items():
                 self.variable_engine.set("scenario", k, v)
             result.console_log += script_result.output
+
+        # 第二遍：替换脚本生成的变量（如 {{signature}}），从已覆盖参数的基础上重新解析
+        url = self.variable_engine.replace(resolved_url)
+        if resolved_url != url:
+            logger.info(f"步骤 {step.get('step_name')} URL变量替换: {resolved_url} -> {url}")
+        headers = self.variable_engine.replace_headers(resolved_headers)
+        params = self.variable_engine.replace_params(resolved_params)
+        body_content = self.variable_engine.replace_body(body_type, resolved_body)
 
         result.request_method = method
         result.request_url = url
@@ -344,7 +368,14 @@ class ScenarioExecutor:
                 step["post_script"],
                 environment_vars=self.variable_engine.environment_vars,
                 global_vars=self.variable_engine.global_vars,
-                request={"method": method, "url": url},
+                request={
+                    "method": method,
+                    "url": url,
+                    "headers": raw_headers,
+                    "query_params": raw_params,
+                    "body": HttpClient.serialize_body(body_type, body_content),
+                    "body_type": body_type or "raw",
+                },
                 response=response.to_dict(),
             )
             for k, v in script_result.variables.items():
@@ -415,15 +446,18 @@ class ScenarioExecutor:
             method = case.method or "GET"
             path = case.path or ""
 
+        # 原始请求上下文（变量替换前）
         base_url = self.variable_engine.get("base_url") or ""
         raw_url = base_url + path
-        url = self.variable_engine.replace(raw_url)
-        if raw_url != url:
-            logger.info(f"用例步骤 {step.get('step_name')} URL变量替换: {raw_url} -> {url}")
-        elif "${" in raw_url or "{{" in raw_url:
-            logger.warning(f"用例步骤 {step.get('step_name')} URL含变量占位符但未替换: {raw_url}, 可用场景变量={list(self.variable_engine.scenario_vars.keys())}")
-        headers = self.variable_engine.replace_headers(case.headers)
-        params = self.variable_engine.replace_params(case.query_params)
+        raw_headers = case.headers or []
+        raw_params = case.query_params or []
+
+        # 第一遍：替换静态环境变量
+        resolved_url = self.variable_engine.replace(raw_url)
+        resolved_headers = self.variable_engine.replace_headers(raw_headers)
+        resolved_params = self.variable_engine.replace_params(raw_params)
+        body_type = case.body_type
+        resolved_body = self.variable_engine.replace_body(body_type, case.body_content)
 
         # Query Params 覆盖（用例步骤同样支持）
         request_config = step.get("request_config", {})
@@ -436,13 +470,20 @@ class ScenarioExecutor:
                 else:
                     override_dict = params_override
                 if isinstance(override_dict, dict):
-                    params = self._merge_query_params(params, override_dict)
+                    resolved_params = self._merge_query_params(resolved_params, override_dict)
                     logger.info(f"用例步骤 {step.get('step_name')} QueryParams已合并覆盖: {override_dict}")
             except Exception as e:
                 logger.warning(f"用例步骤 QueryParams覆盖合并失败: {e}")
 
-        body_type = case.body_type
-        body_content = self.variable_engine.replace_body(body_type, case.body_content)
+        # 执行环境脚本变量（用已解析的 body/headers）
+        result.console_log += self.variable_engine.run_environment_scripts({
+            "method": method,
+            "url": resolved_url,
+            "headers": resolved_headers,
+            "query_params": resolved_params,
+            "body": HttpClient.serialize_body(body_type, resolved_body),
+            "body_type": body_type or "raw",
+        })
 
         # 前置脚本
         if case.pre_script:
@@ -450,11 +491,26 @@ class ScenarioExecutor:
                 case.pre_script,
                 environment_vars=self.variable_engine.environment_vars,
                 global_vars=self.variable_engine.global_vars,
-                request={"method": method, "url": url},
+                request={
+                    "method": method,
+                    "url": resolved_url,
+                    "headers": resolved_headers,
+                    "query_params": resolved_params,
+                    "body": HttpClient.serialize_body(body_type, resolved_body),
+                    "body_type": body_type or "raw",
+                },
             )
             for k, v in script_result.variables.items():
                 self.variable_engine.set("scenario", k, v)
             result.console_log += script_result.output
+
+        # 第二遍：替换脚本生成的变量（如 {{signature}}）
+        url = self.variable_engine.replace(resolved_url)
+        if resolved_url != url:
+            logger.info(f"用例步骤 {step.get('step_name')} URL变量替换: {resolved_url} -> {url}")
+        headers = self.variable_engine.replace_headers(resolved_headers)
+        params = self.variable_engine.replace_params(resolved_params)
+        body_content = self.variable_engine.replace_body(body_type, resolved_body)
 
         result.request_method = method
         result.request_url = url
@@ -483,7 +539,14 @@ class ScenarioExecutor:
                 case.post_script,
                 environment_vars=self.variable_engine.environment_vars,
                 global_vars=self.variable_engine.global_vars,
-                request={"method": method, "url": url},
+                request={
+                    "method": method,
+                    "url": url,
+                    "headers": raw_headers,
+                    "query_params": raw_params,
+                    "body": HttpClient.serialize_body(body_type, body_content),
+                    "body_type": body_type or "raw",
+                },
                 response=response.to_dict(),
             )
             for k, v in script_result.variables.items():
