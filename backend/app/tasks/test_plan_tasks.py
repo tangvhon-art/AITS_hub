@@ -377,7 +377,7 @@ def _run_test_plan_execution(execution_id: int):
         db.close()
 
 
-@celery_app.task(bind=True, name="execute_test_plan")
+@celery_app.task(bind=True, name="execute_test_plan", max_retries=0, queue="execution")
 def execute_test_plan_task(self, execution_id: int):
     """执行测试计划（Celery 任务入口）"""
     _run_test_plan_execution(execution_id)

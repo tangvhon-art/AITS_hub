@@ -13,7 +13,7 @@ from app.core.timezone import china_now_naive
 from app.database import SessionLocal
 
 
-@celery_app.task(bind=True, name="run_ui_execution", max_retries=0)
+@celery_app.task(bind=True, name="run_ui_execution", max_retries=0, queue="execution")
 def run_ui_execution_task(
     self,
     run_id: int,

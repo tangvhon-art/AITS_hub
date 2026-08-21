@@ -1,10 +1,10 @@
 #!/bin/bash
-# AITS 一键启动脚本（前端 + 后端 + Redis + Celery + Flower）
+# AITS 一键启动脚本（前端 + 后端 + Redis + Celery多队列 + Beat + Flower）
 # 用法:
-#   ./start.sh                                    # 启动前端+后端
-#   ./start.sh --with-celery                      # 启动前端+后端+Celery Worker
-#   ./start.sh --with-celery --with-flower        # 启动前端+后端+Celery+Flower
-#   ./start.sh --backend-only --with-celery       # 仅启动后端+Celery
+#   ./start.sh                                    # 启动全部（前端+后端+Celery+Flower）
+#   ./start.sh --backend-only                     # 仅启动后端+Celery
+#   ./start.sh --frontend-only                    # 仅启动前端
+#   ./start.sh --no-celery                        # 不启动 Celery
 #   ./start.sh --port-backend 8000 --port-frontend 5173
 
 set -e
@@ -17,7 +17,6 @@ START_FLOWER=true
 PORT_BACKEND=8000
 PORT_FRONTEND=5173
 PORT_FLOWER=5555
-CELERY_CONCURRENCY=4
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
@@ -30,12 +29,13 @@ while [[ $# -gt 0 ]]; do
             START_BACKEND=false
             shift
             ;;
-        --with-celery)
-            START_CELERY=true
+        --no-celery)
+            START_CELERY=false
+            START_FLOWER=false
             shift
             ;;
-        --with-flower)
-            START_FLOWER=true
+        --no-flower)
+            START_FLOWER=false
             shift
             ;;
         --all)
@@ -55,15 +55,10 @@ while [[ $# -gt 0 ]]; do
             PORT_FLOWER="$2"
             shift 2
             ;;
-        --celery-concurrency)
-            CELERY_CONCURRENCY="$2"
-            shift 2
-            ;;
         *)
             echo "未知参数: $1"
-            echo "用法: $0 [--backend-only] [--frontend-only] [--with-celery] [--with-flower] [--all]"
+            echo "用法: $0 [--backend-only] [--frontend-only] [--no-celery] [--no-flower] [--all]"
             echo "          [--port-backend PORT] [--port-frontend PORT] [--port-flower PORT]"
-            echo "          [--celery-concurrency N]"
             exit 1
             ;;
     esac
@@ -86,6 +81,13 @@ stop_existing() {
         pkill -f "celery.*app\.celery_app\.celery_app worker" 2>/dev/null || true
         found=true
         echo "    已停止 Celery Worker"
+    fi
+
+    # Celery Beat
+    if pgrep -f "celery.*app\.celery_app\.celery_app beat" > /dev/null 2>&1; then
+        pkill -f "celery.*app\.celery_app\.celery_app beat" 2>/dev/null || true
+        found=true
+        echo "    已停止 Celery Beat"
     fi
 
     # Flower
@@ -127,6 +129,7 @@ cleanup() {
     pkill -f "celery.*app\.celery_app\.celery_app" 2>/dev/null || true
     pkill -f "uvicorn app\.main:app" 2>/dev/null || true
     pkill -f "vite" 2>/dev/null || true
+    pkill -f "redis-server" 2>/dev/null || true
     wait 2>/dev/null
     echo "已停止"
     exit 0
@@ -158,46 +161,90 @@ if [ "$START_CELERY" = true ]; then
     fi
 fi
 
-# 启动 Celery Worker
+# 启动 Celery 多队列 Worker + Beat
 if [ "$START_CELERY" = true ]; then
-    echo ">>> 启动 Celery Worker (concurrency=$CELERY_CONCURRENCY)..."
+    echo ">>> 启动 Celery 多队列 Worker..."
     cd "$SCRIPT_DIR/backend"
     unset PYTHONHOME PYTHONPATH
-    WORKER_LOG="$SCRIPT_DIR/logs/celery_worker.log"
     mkdir -p "$SCRIPT_DIR/logs"
+
+    # --- AI 队列 Worker ---
+    AI_LOG="$SCRIPT_DIR/logs/worker-ai.log"
     nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
-        --concurrency="$CELERY_CONCURRENCY" \
-        --hostname=aits-worker@%h \
+        --concurrency=2 \
+        --hostname=ai-worker@%h \
+        -Q ai \
         --events \
         --heartbeat-interval=5 \
         --max-tasks-per-child=100 \
         --time-limit=600 \
-        > "$WORKER_LOG" 2>&1 &
-    WORKER_PID=$!
-    PIDS+=($WORKER_PID)
+        > "$AI_LOG" 2>&1 &
+    AI_PID=$!
+    PIDS+=($AI_PID)
+    echo "    AI Worker 启动 (PID=$AI_PID, 队列=ai, 并发=2)"
+
+    # --- Execution 队列 Worker ---
+    EXEC_LOG="$SCRIPT_DIR/logs/worker-execution.log"
+    nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
+        --loglevel=info \
+        --concurrency=4 \
+        --hostname=execution-worker@%h \
+        -Q execution \
+        --events \
+        --heartbeat-interval=5 \
+        --max-tasks-per-child=100 \
+        --time-limit=600 \
+        > "$EXEC_LOG" 2>&1 &
+    EXEC_PID=$!
+    PIDS+=($EXEC_PID)
+    echo "    Execution Worker 启动 (PID=$EXEC_PID, 队列=execution, 并发=4)"
+
+    # --- Default 队列 Worker ---
+    DEFAULT_LOG="$SCRIPT_DIR/logs/worker-default.log"
+    nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
+        --loglevel=info \
+        --concurrency=2 \
+        --hostname=default-worker@%h \
+        -Q default \
+        --events \
+        --heartbeat-interval=5 \
+        --max-tasks-per-child=100 \
+        --time-limit=600 \
+        > "$DEFAULT_LOG" 2>&1 &
+    DEFAULT_PID=$!
+    PIDS+=($DEFAULT_PID)
+    echo "    Default Worker 启动 (PID=$DEFAULT_PID, 队列=default, 并发=2)"
+
+    # --- Beat 定时任务调度器 ---
+    BEAT_LOG="$SCRIPT_DIR/logs/beat.log"
+    nohup ./venv/bin/celery -A app.celery_app.celery_app beat \
+        --loglevel=info \
+        > "$BEAT_LOG" 2>&1 &
+    BEAT_PID=$!
+    PIDS+=($BEAT_PID)
+    echo "    Beat 调度器 启动 (PID=$BEAT_PID)"
+
     cd "$SCRIPT_DIR"
-    # 等待 Worker 启动并验证就绪
+
+    # 等待 Worker 就绪
     echo "    等待 Worker 就绪..."
+    sleep 3
     WORKER_READY=false
-    for i in $(seq 1 15); do
-        sleep 2
-        if ! kill -0 "$WORKER_PID" 2>/dev/null; then
-            echo "    [错误] Celery Worker 进程已退出，日志如下："
-            tail -20 "$WORKER_LOG" 2>/dev/null
-            break
-        fi
-        if cd "$SCRIPT_DIR/backend" && ./venv/bin/celery -A app.celery_app.celery_app inspect ping > /dev/null 2>&1; then
+    for i in $(seq 1 10); do
+        if cd "$SCRIPT_DIR/backend" && ./venv/bin/celery -A app.celery_app.celery_app inspect ping -d "celery@ai-worker@$(hostname)" > /dev/null 2>&1; then
             WORKER_READY=true
-            cd "$SCRIPT_DIR"
-            break
         fi
         cd "$SCRIPT_DIR"
+        if [ "$WORKER_READY" = true ]; then
+            break
+        fi
+        sleep 2
     done
     if [ "$WORKER_READY" = true ]; then
-        echo "    Celery Worker 启动成功 (PID=$WORKER_PID, 已就绪)"
+        echo "    所有 Worker 已就绪"
     else
-        echo "    [警告] Celery Worker 启动超时（进程存活但未响应 ping），Flower 可能无法立即检测到"
+        echo "    [警告] Worker 就绪检测超时（进程可能仍在启动中）"
     fi
 fi
 
@@ -235,12 +282,19 @@ fi
 
 echo ""
 echo "服务已启动:"
-[ "$START_BACKEND" = true ]  && echo "  后端 API:    http://localhost:$PORT_BACKEND"
-[ "$START_BACKEND" = true ]  && echo "  API 文档:    http://localhost:$PORT_BACKEND/docs"
-[ "$START_FRONTEND" = true ] && echo "  前端页面:    http://localhost:$PORT_FRONTEND"
-[ "$START_CELERY" = true ]   && echo "  Celery:      Worker 已启动 (concurrency=$CELERY_CONCURRENCY)"
-[ "$START_FLOWER" = true ]   && echo "  Flower:      http://localhost:$PORT_FLOWER/flower/"
-[ "$START_FLOWER" = true ]   && echo "  任务监控:    http://localhost:$PORT_FRONTEND/task-monitor"
+[ "$START_BACKEND" = true ]  && echo "  后端 API:      http://localhost:$PORT_BACKEND"
+[ "$START_BACKEND" = true ]  && echo "  API 文档:      http://localhost:$PORT_BACKEND/docs"
+[ "$START_FRONTEND" = true ] && echo "  前端页面:      http://localhost:$PORT_FRONTEND"
+[ "$START_CELERY" = true ]   && echo "  Celery Worker: 3个队列已启动"
+[ "$START_CELERY" = true ]   && echo "    - ai        (并发2, AI生成类任务)"
+[ "$START_CELERY" = true ]   && echo "    - execution (并发4, 执行类任务)"
+[ "$START_CELERY" = true ]   && echo "    - default   (并发2, 后台轻量任务)"
+[ "$START_CELERY" = true ]   && echo "  Beat:          定时任务调度器已启动"
+[ "$START_FLOWER" = true ]   && echo "  Flower:        http://localhost:$PORT_FLOWER/flower/"
+[ "$START_FLOWER" = true ]   && echo "  任务监控:      http://localhost:$PORT_FRONTEND/task-monitor"
+[ "$START_CELERY" = true ]   && echo ""
+[ "$START_CELERY" = true ]   && echo "  日志文件:"
+[ "$START_CELERY" = true ]   && echo "    logs/worker-ai.log / worker-execution.log / worker-default.log / beat.log"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
 echo "─────────────────────────────────────────"

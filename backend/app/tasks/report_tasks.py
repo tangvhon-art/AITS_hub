@@ -18,7 +18,7 @@ from app.services.notification_service import notify_event, notify_ai_task_faile
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="generate_test_report", max_retries=0)
+@celery_app.task(bind=True, name="generate_test_report", max_retries=0, queue="ai")
 def generate_test_report_task(
     self,
     report_id: int,

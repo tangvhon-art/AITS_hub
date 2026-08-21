@@ -14,7 +14,7 @@ from app.services.notification_service import notify_event, notify_ai_task_faile
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="review_cases", max_retries=2)
+@celery_app.task(bind=True, name="review_cases", max_retries=2, queue="ai")
 def review_cases_task(self, task_id: int):
     """AI 用例评审任务 — 直接使用 call_with_fallback，不经过 CaseReviewerAgent"""
     db = SessionLocal()
@@ -252,7 +252,7 @@ OPTIMIZE_CASES_USER_PROMPT = """## 原始需求
 请根据以上评审结果输出两个 Markdown 表格：优化用例表格和补充用例表格。"""
 
 
-@celery_app.task(bind=True, name="optimize_cases_from_review", max_retries=0)
+@celery_app.task(bind=True, name="optimize_cases_from_review", max_retries=0, queue="ai")
 def optimize_cases_from_review_task(
     self,
     review_task_id: int,

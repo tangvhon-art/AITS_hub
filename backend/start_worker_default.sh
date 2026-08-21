@@ -1,20 +1,16 @@
 #!/bin/bash
-# Celery Worker 启动脚本（兼容模式 - 消费所有队列）
-# 生产环境建议使用按队列分离的 worker:
-#   ./start_worker_ai.sh         - AI 生成类任务
-#   ./start_worker_execution.sh  - 执行类任务
-#   ./start_worker_default.sh    - 后台轻量任务
-#   ./start_all_workers.sh       - 一键启动全部
-#
-# 用法: ./start_celery_worker.sh [concurrency]
+# 后台任务 Worker 启动脚本
+# 处理：页面知识聚合、上传文件清理、通知发送、定时任务
+# 用法: ./start_worker_default.sh [concurrency]
 
 cd "$(dirname "$0")"
 source venv/bin/activate
 
-CONCURRENCY=${1:-4}
+CONCURRENCY=${1:-2}
 
 echo "========================================="
-echo "  AITS Celery Worker 启动"
+echo "  AITS Default Worker 启动"
+echo "  队列: default"
 echo "  并发数: $CONCURRENCY"
 echo "  Broker: Redis"
 echo "========================================="
@@ -30,7 +26,7 @@ fi
 exec celery -A app.celery_app.celery_app worker \
     --loglevel=info \
     --concurrency=$CONCURRENCY \
-    --hostname=aits-worker@%h \
-    -Q celery,ai,execution,default \
+    --hostname=default-worker@%h \
+    -Q default \
     --max-tasks-per-child=100 \
     --time-limit=600

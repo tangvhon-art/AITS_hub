@@ -34,7 +34,7 @@ def _api_definition_to_dict(api: ApiDefinition) -> dict:
     }
 
 
-@celery_app.task(bind=True, name="generate_api_doc", max_retries=2)
+@celery_app.task(bind=True, name="generate_api_doc", max_retries=2, queue="ai")
 def generate_api_doc_task(self, task_id: int):
     """AI 生成接口文档任务"""
     db = SessionLocal()

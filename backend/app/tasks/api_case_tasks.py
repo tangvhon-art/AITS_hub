@@ -35,7 +35,7 @@ def _api_definition_to_dict(api: ApiDefinition) -> dict:
     }
 
 
-@celery_app.task(bind=True, name="generate_api_cases", max_retries=2)
+@celery_app.task(bind=True, name="generate_api_cases", max_retries=2, queue="ai")
 def generate_api_cases_task(self, task_id: int):
     """AI 生成接口测试用例任务"""
     db = SessionLocal()

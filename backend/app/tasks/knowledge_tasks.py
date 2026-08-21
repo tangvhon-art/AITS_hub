@@ -158,7 +158,7 @@ class KnowledgeDocTask(BaseTask):
             pass
 
 
-@celery_app.task(bind=True, name="process_knowledge_doc", max_retries=0)
+@celery_app.task(bind=True, name="process_knowledge_doc", max_retries=0, queue="ai")
 def process_knowledge_doc_task(self, doc_id: int, project_id: int, agent_task_id: Optional[int] = None):
     """
     Celery 任务：处理知识库文档（文本分块 + 向量化 + 存入FAISS）

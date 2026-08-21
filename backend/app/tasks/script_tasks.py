@@ -18,7 +18,7 @@ from app.services.notification_service import notify_event
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="run_automation_suite", max_retries=0)
+@celery_app.task(bind=True, name="run_automation_suite", max_retries=0, queue="execution")
 def run_automation_suite_task(self, suite_run_id: int, headless: bool = True):
     """
     Celery 任务：执行自动化编排套件
@@ -89,7 +89,7 @@ def run_automation_suite_task(self, suite_run_id: int, headless: bool = True):
         return {"status": "failed", "suite_run_id": suite_run_id, "error": str(e)}
 
 
-@celery_app.task(bind=True, name="run_automation_script", max_retries=0)
+@celery_app.task(bind=True, name="run_automation_script", max_retries=0, queue="execution")
 def run_automation_script_task(
     self,
     run_id: int,

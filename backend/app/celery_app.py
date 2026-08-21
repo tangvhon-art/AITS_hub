@@ -40,8 +40,18 @@ celery_app = Celery(
 # 导入任务包，触发 __init__.py 注册全部任务（worker / FastAPI / 脚本均生效）
 import app.tasks  # noqa: E402
 
+from kombu import Queue
+
 # Celery 配置
 celery_app.conf.update(
+    # 任务队列划分：ai(AI生成类) / execution(执行类) / default(后台轻量)
+    task_queues=(
+        Queue("default", routing_key="task.#"),
+        Queue("ai", routing_key="ai.#"),
+        Queue("execution", routing_key="execution.#"),
+    ),
+    task_default_queue="default",
+    task_default_routing_key="task.default",
     # 任务序列化
     task_serializer="json",
     accept_content=["json"],
@@ -76,11 +86,13 @@ celery_app.conf.update(
             "task": "app.tasks.ui_healing_tasks.aggregate_page_knowledge",
             "schedule": 3600.0,  # 每小时执行一次
             "args": (),
+            "options": {"queue": "default"},
         },
         "cleanup-uploads": {
             "task": "app.tasks.cleanup_tasks.cleanup_uploads_task",
             "schedule": 10800.0,  # 每3小时执行一次
             "args": (),
+            "options": {"queue": "default"},
         },
     },
 )

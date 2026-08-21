@@ -53,7 +53,7 @@ PERFORMANCE_ANALYSIS_SYSTEM_PROMPT = """你是一名资深性能测试工程师�
 8. **所有内容使用中文**"""
 
 
-@celery_app.task(bind=True, name="run_performance_test", max_retries=0)
+@celery_app.task(bind=True, name="run_performance_test", max_retries=0, queue="execution")
 def run_performance_test_task(
     self,
     run_id: int,
@@ -150,7 +150,7 @@ def run_performance_test_task(
         db.close()
 
 
-@celery_app.task(bind=True, name="analyze_performance", max_retries=0)
+@celery_app.task(bind=True, name="analyze_performance", max_retries=0, queue="execution")
 def analyze_performance_task(
     self,
     run_id: int,

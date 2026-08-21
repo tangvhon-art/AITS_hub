@@ -20,7 +20,7 @@ from app.services.notification_service import notify_event, notify_ai_task_faile
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="split_requirement_features", max_retries=1)
+@celery_app.task(bind=True, name="split_requirement_features", max_retries=1, queue="ai")
 def split_features_task(self, requirement_id: int, llm_config_id=None):
     """异步拆分需求功能点"""
     db = SessionLocal()
@@ -116,7 +116,7 @@ def _update_progress(db, task, done: int, total: int, feat_name: str, case_count
         db.rollback()
 
 
-@celery_app.task(bind=True, name="generate_cases", max_retries=2)
+@celery_app.task(bind=True, name="generate_cases", max_retries=2, queue="ai")
 def generate_cases_task(self, task_id: int):
     """AI 生成测试用例任务"""
     db = SessionLocal()

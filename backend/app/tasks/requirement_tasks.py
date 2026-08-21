@@ -17,7 +17,7 @@ from app.services.notification_service import notify_event, notify_ai_task_faile
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="generate_requirement", max_retries=2)
+@celery_app.task(bind=True, name="generate_requirement", max_retries=2, queue="ai")
 def generate_requirement_task(self, task_id: int):
     """AI 生成需求文档任务"""
     db = SessionLocal()
