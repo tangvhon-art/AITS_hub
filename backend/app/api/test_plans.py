@@ -5,6 +5,7 @@
 import json
 import logging
 from datetime import datetime
+from urllib.parse import quote
 from app.core.timezone import china_now_naive
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Body
@@ -938,7 +939,7 @@ def export_html_report(execution_id: int, db: Session = Depends(get_db), current
 </html>"""
 
     return Response(content=html, media_type="text/html", headers={
-        "Content-Disposition": f"attachment; filename*=UTF-8''测试报告-{execution.plan_name}.html"
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(f'测试报告-{execution.plan_name}.html')}"
     })
 
 
@@ -988,5 +989,5 @@ def export_junit_report(execution_id: int, db: Session = Depends(get_db), curren
     xml_str = minidom.parseString(ET.tostring(testsuite, encoding="unicode")).toprettyxml(indent="  ")
 
     return Response(content=xml_str, media_type="application/xml", headers={
-        "Content-Disposition": f"attachment; filename*=UTF-8''测试报告-{execution.plan_name}.xml"
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(f'测试报告-{execution.plan_name}.xml')}"
     })
