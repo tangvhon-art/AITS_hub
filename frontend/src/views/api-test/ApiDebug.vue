@@ -14,7 +14,7 @@
           <template #icon><ImportOutlined /></template>
           cURL 导入
         </a-button>
-        <a-button type="primary" ghost @click="showSaveModal = true">
+        <a-button type="primary" ghost @click="openSaveModal">
           <template #icon><SaveOutlined /></template>
           保存为接口
         </a-button>
@@ -210,6 +210,16 @@
         <a-form-item label="接口名称" required>
           <a-input v-model:value="saveForm.name" placeholder="输入接口名称" />
         </a-form-item>
+        <a-form-item label="所属分组">
+          <a-tree-select
+            v-model:value="saveForm.module_id"
+            :tree-data="moduleTree"
+            placeholder="选择分组（不选则保存到根目录）"
+            allow-clear
+            tree-default-expand-all
+            style="width: 100%"
+          />
+        </a-form-item>
         <a-form-item label="描述">
           <a-textarea v-model:value="saveForm.description" placeholder="输入接口描述（可选）" :rows="3" />
         </a-form-item>
@@ -255,7 +265,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { HistoryOutlined, SaveOutlined, ImportOutlined } from '@ant-design/icons-vue'
-import { apiDebugApi, apiDefinitionsApi } from '@/api/apiTest'
+import { apiDebugApi, apiDefinitionsApi, apiModulesApi } from '@/api/apiTest'
 import { getEnvironments } from '@/api/environments'
 import { formatDateTime } from '@/utils/date'
 import MockDataInserter from './MockDataInserter.vue'
@@ -275,7 +285,8 @@ const showHistory = ref(false)
 const historyList = ref<any[]>([])
 const showSaveModal = ref(false)
 const saving = ref(false)
-const saveForm = ref({ name: '', description: '' })
+const saveForm = ref({ name: '', description: '', module_id: null as number | null })
+const moduleTree = ref<any[]>([])
 const showCurlModal = ref(false)
 const curlText = ref('')
 
@@ -684,6 +695,30 @@ const loadApiFromQuery = async () => {
   }
 }
 
+const mapModuleTree = (nodes: any[]): any[] => {
+  return nodes.map((node: any) => ({
+    title: node.name,
+    value: node.id,
+    key: node.id,
+    children: node.children?.length ? mapModuleTree(node.children) : undefined,
+  }))
+}
+
+const loadModuleTree = async () => {
+  try {
+    const tree = await apiModulesApi.getTree(projectId)
+    moduleTree.value = mapModuleTree(tree)
+  } catch {
+    // ignore
+  }
+}
+
+const openSaveModal = async () => {
+  saveForm.value = { name: '', description: '', module_id: null }
+  await loadModuleTree()
+  showSaveModal.value = true
+}
+
 const handleSaveAsApi = async () => {
   if (!saveForm.value.name) {
     message.warning('请输入接口名称')
@@ -714,10 +749,11 @@ const handleSaveAsApi = async () => {
       body_type: request.value.body_type,
       body_content: request.value.body_content,
       status: 'active',
+      module_id: saveForm.value.module_id,
     })
     message.success(`接口「${saveForm.value.name}」已保存`)
     showSaveModal.value = false
-    saveForm.value = { name: '', description: '' }
+    saveForm.value = { name: '', description: '', module_id: null }
     // 跳转到接口编辑页
     router.push(`/projects/${projectId}/api-test/definitions/${created.id}`)
   } catch (e: any) {

@@ -52,8 +52,11 @@ export const apiCasesApi = {
     request.delete(`/projects/${projectId}/api-cases/${id}`),
   run: (projectId: number, id: number, data: any) =>
     request.post<any>(`/projects/${projectId}/api-cases/${id}/run`, data),
-  batchRun: (projectId: number, caseIds: number[]) =>
-    request.post<any>(`/projects/${projectId}/api-cases/batch-run`, caseIds),
+  batchRun: (projectId: number, caseIds: number[], environmentId?: number) =>
+    request.post<any>(`/projects/${projectId}/api-cases/batch-run`, {
+      case_ids: caseIds,
+      environment_id: environmentId,
+    }),
   // 断言
   listAssertions: (projectId: number, caseId: number) =>
     request.get<ApiCaseAssertion[]>(`/projects/${projectId}/api-cases/${caseId}/assertions`),

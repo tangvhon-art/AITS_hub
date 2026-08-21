@@ -535,26 +535,266 @@ async def run_case(
         error=response.error,
     )
 
+async def _execute_single_case(
+    project_id: int,
+    case_id: int,
+    environment_id: Optional[int],
+    environment_vars: dict,
+    base_url: str,
+    db: Session,
+    current_user: User,
+    request: Request,
+) -> dict:
+    """执行单个用例并创建执行记录（供 run_case 和 batch_run 共用）"""
+    case = db.query(ApiTestCase).filter(
+        ApiTestCase.id == case_id, ApiTestCase.project_id == project_id
+    ).first()
+    if not case:
+        return {"case_id": case_id, "status": "error", "message": "用例不存在"}
+
+    var_engine = VariableEngine()
+    env_vars_dict = environment_vars or {}
+
+    if environment_id:
+        from app.models.test_plan import TestEnvironment
+        env = db.query(TestEnvironment).filter(
+            TestEnvironment.id == environment_id,
+            TestEnvironment.project_id == project_id,
+        ).first()
+        if env:
+            if not base_url:
+                base_url = env.base_url or ""
+            env_config = env.config or {}
+            env_variables = env_config.get("variables", {})
+            if isinstance(env_variables, dict):
+                for k, v in env_variables.items():
+                    if k not in env_vars_dict:
+                        env_vars_dict[k] = v
+            elif isinstance(env_variables, list):
+                for v in env_variables:
+                    if isinstance(v, dict) and v.get("key"):
+                        if v["key"] not in env_vars_dict:
+                            env_vars_dict[v["key"]] = v.get("value", "")
+
+    if env_vars_dict:
+        var_engine.load_from_dict("environment", env_vars_dict)
+    base_url = base_url or var_engine.get("base_url") or ""
+
+    if case.api_id:
+        api_def = db.query(ApiDefinition).filter(
+            ApiDefinition.id == case.api_id, ApiDefinition.project_id == project_id
+        ).first()
+        if api_def:
+            method = api_def.method or "GET"
+            path = api_def.path or ""
+        else:
+            method = case.method or "GET"
+            path = case.path or ""
+    else:
+        method = case.method or "GET"
+        path = case.path or ""
+
+    url = var_engine.replace(base_url + path)
+    headers = var_engine.replace_headers(case.headers)
+    params = var_engine.replace_params(case.query_params)
+    body_content = var_engine.replace_body(case.body_type, case.body_content)
+
+    script_engine = ScriptEngine()
+    console_log = ""
+    if case.pre_script:
+        script_result = script_engine.execute(
+            case.pre_script,
+            environment_vars=var_engine.environment_vars,
+            global_vars=var_engine.global_vars,
+            request={"method": method, "url": url},
+        )
+        for k, v in script_result.variables.items():
+            var_engine.set("scenario", k, v)
+        console_log += script_result.output
+        url = var_engine.replace(base_url + path)
+        headers = var_engine.replace_headers(case.headers)
+        params = var_engine.replace_params(case.query_params)
+        body_content = var_engine.replace_body(case.body_type, case.body_content)
+
+    http_client = HttpClient()
+    response = await http_client.asend(
+        method=method, url=url, headers=headers, params=params,
+        body_type=case.body_type, body_content=body_content,
+    )
+
+    tests = []
+    if case.post_script:
+        script_result = script_engine.execute(
+            case.post_script,
+            environment_vars=var_engine.environment_vars,
+            global_vars=var_engine.global_vars,
+            request={"method": method, "url": url},
+            response=response.to_dict(),
+        )
+        console_log += script_result.output
+        tests = script_result.tests
+
+    assertions = db.query(ApiCaseAssertion).filter(
+        ApiCaseAssertion.case_id == case_id,
+        ApiCaseAssertion.enabled == True,
+    ).order_by(ApiCaseAssertion.sort_order).all()
+
+    assertion_engine = AssertionEngine()
+    assertion_dicts = [
+        {"assert_type": a.assert_type, "assert_target": a.assert_target,
+         "operator": a.operator, "expected_value": a.expected_value, "enabled": a.enabled}
+        for a in assertions
+    ]
+    assertion_results = assertion_engine.run_all(assertion_dicts, response)
+    all_passed = all(a.passed for a in assertion_results) and not response.error
+
+    execution = ApiExecution(
+        project_id=project_id,
+        execution_type="case",
+        ref_id=case.id,
+        ref_name=case.name,
+        environment_id=environment_id,
+        status="passed" if all_passed else "failed",
+        total_steps=1,
+        passed_steps=1 if all_passed else 0,
+        failed_steps=0 if all_passed else 1,
+        skipped_steps=0,
+        pass_rate=100.0 if all_passed else 0.0,
+        total_duration=response.elapsed_ms / 1000,
+        avg_duration=response.elapsed_ms / 1000,
+        trigger_type="batch",
+        executed_by=current_user.id,
+        started_at=china_now_naive(),
+        completed_at=china_now_naive(),
+    )
+    db.add(execution)
+    db.flush()
+
+    result = ApiExecutionResult(
+        execution_id=execution.id,
+        step_id=None,
+        step_name=case.name,
+        sort_order=0,
+        status="passed" if all_passed else "failed",
+        request_method=method,
+        request_url=url,
+        request_headers={h.get("key", ""): h.get("value", "") for h in headers if h.get("enabled", True)},
+        request_body=json.dumps(body_content, ensure_ascii=False) if body_content else "",
+        response_status=response.status_code,
+        response_time=response.elapsed_ms,
+        response_size=response.size,
+        response_headers=response.headers,
+        response_body=response.body,
+        assertions=[a.to_dict() for a in assertion_results],
+        console_log=console_log,
+        error_message=response.error or "",
+        retry_count=0,
+        started_at=china_now_naive(),
+        completed_at=china_now_naive(),
+    )
+    db.add(result)
+
+    log_audit(
+        db, action="execute", resource_type="case",
+        resource_id=case.id, resource_name=case.name,
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "case_name": case.name, "status": execution.status},
+    )
+    db.commit()
+
+    if not all_passed:
+        from app.services.defect_helper import auto_create_defect
+        failed_assertions = [a for a in assertion_results if not a.passed]
+        error_detail = response.error or "; ".join(a.message for a in failed_assertions if a.message)
+        auto_create_defect(
+            db=db,
+            project_id=project_id,
+            title=f"[接口用例失败] {case.name}",
+            description=(
+                f"接口测试用例执行失败\n"
+                f"用例名称: {case.name}\n"
+                f"请求方法: {method}\n"
+                f"请求URL: {url}\n"
+                f"响应状态码: {response.status_code}\n"
+                f"错误信息: {error_detail}"
+            ),
+            error_message=error_detail,
+            severity="major",
+            source="api_case",
+            created_by=current_user.id,
+        )
+
+    return {
+        "case_id": case_id,
+        "name": case.name,
+        "status": execution.status,
+        "execution_id": execution.id,
+        "response_status": response.status_code,
+        "response_time": response.elapsed_ms,
+        "passed": all_passed,
+    }
+
+
 @router.post("/batch-run")
 async def batch_run_cases(
     project_id: int,
-    case_ids: List[int],
+    data: ApiCaseBatchRunRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """批量执行用例"""
     get_project(project_id, db, current_user)
-    # 简化实现：逐个执行
-    results = []
-    for case_id in case_ids:
-        case = db.query(ApiTestCase).filter(
-            ApiTestCase.id == case_id, ApiTestCase.project_id == project_id
+
+    env_vars_dict = {}
+    base_url = ""
+    if data.environment_id:
+        from app.models.test_plan import TestEnvironment
+        env = db.query(TestEnvironment).filter(
+            TestEnvironment.id == data.environment_id,
+            TestEnvironment.project_id == project_id,
         ).first()
-        if case:
-            # 这里简化处理，实际应复用 run_case 逻辑
-            results.append({"case_id": case_id, "name": case.name, "status": "pending"})
-    return {"results": results, "total": len(results)}
+        if env:
+            base_url = env.base_url or ""
+            env_config = env.config or {}
+            env_variables = env_config.get("variables", {})
+            if isinstance(env_variables, dict):
+                env_vars_dict = dict(env_variables)
+            elif isinstance(env_variables, list):
+                env_vars_dict = {v["key"]: v.get("value", "") for v in env_variables if isinstance(v, dict) and v.get("key")}
+
+    results = []
+    passed = 0
+    failed = 0
+    for case_id in data.case_ids:
+        try:
+            result = await _execute_single_case(
+                project_id=project_id,
+                case_id=case_id,
+                environment_id=data.environment_id,
+                environment_vars=env_vars_dict,
+                base_url=base_url,
+                db=db,
+                current_user=current_user,
+                request=request,
+            )
+            results.append(result)
+            if result.get("status") == "passed":
+                passed += 1
+            else:
+                failed += 1
+        except Exception as e:
+            results.append({"case_id": case_id, "status": "error", "message": str(e)})
+            failed += 1
+
+    return {
+        "results": results,
+        "total": len(results),
+        "passed": passed,
+        "failed": failed,
+    }
 
 # ==================== AI 生成用例 ====================
 

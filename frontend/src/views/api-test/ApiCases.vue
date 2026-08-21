@@ -59,7 +59,21 @@
 
       <div v-if="selectedRowKeys.length > 0" class="batch-actions">
         <span>已选 {{ selectedRowKeys.length }} 项</span>
-        <a-button type="primary" size="small" @click="handleBatchRun">批量执行</a-button>
+        <a-select
+          v-model:value="selectedEnvId"
+          placeholder="选择执行环境"
+          style="width: 220px"
+          allow-clear
+        >
+          <a-select-option
+            v-for="env in runEnvironments"
+            :key="env.id"
+            :value="env.id"
+          >
+            {{ env.name }}{{ env.is_default ? '（默认）' : '' }}
+          </a-select-option>
+        </a-select>
+        <a-button type="primary" size="small" :loading="batchRunLoading" @click="handleBatchRun">批量执行</a-button>
       </div>
     </a-card>
 
@@ -223,12 +237,27 @@ const confirmRun = async () => {
   }
 }
 
+const batchRunLoading = ref(false)
+
 const handleBatchRun = async () => {
+  batchRunLoading.value = true
   try {
-    await apiCasesApi.batchRun(projectId, selectedRowKeys.value)
-    message.success('批量执行已提交')
+    const res = await apiCasesApi.batchRun(projectId, selectedRowKeys.value, selectedEnvId.value || undefined)
+    const passed = res.passed || 0
+    const failed = res.failed || 0
+    const total = res.total || 0
+    if (failed > 0) {
+      message.warning(`批量执行完成：${total} 个用例，通过 ${passed} 个，失败 ${failed} 个`)
+    } else {
+      message.success(`批量执行完成：${total} 个用例全部通过`)
+    }
     selectedRowKeys.value = []
-  } catch {}
+    loadData()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '批量执行失败')
+  } finally {
+    batchRunLoading.value = false
+  }
 }
 
 const handleDelete = async (record: ApiTestCase) => {
