@@ -42,7 +42,8 @@ def list_modules(
     """获取目录树"""
     get_project(project_id, db, current_user)
     modules = db.query(ApiModule).filter(
-        ApiModule.project_id == project_id
+        ApiModule.project_id == project_id,
+        ApiModule.is_deleted == False,
     ).order_by(ApiModule.sort_order, ApiModule.id).all()
     return _build_tree(modules)
 

@@ -59,8 +59,8 @@ const projectId = Number(route.params.id)
 const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
-const typeFilter = ref('')
-const statusFilter = ref('')
+const typeFilter = ref<string | undefined>(undefined)
+const statusFilter = ref<string | undefined>(undefined)
 const dataSource = ref<ApiExecution[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 
@@ -118,8 +118,8 @@ const handleTableChange = (pag: any) => {
 }
 
 function handleReset() {
-  typeFilter.value = ''
-  statusFilter.value = ''
+  typeFilter.value = undefined
+  statusFilter.value = undefined
   pagination.value.current = 1
   loadData()
 }
@@ -129,9 +129,9 @@ const handleView = (record: ApiExecution) => {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ type: '', status: '' })
-  typeFilter.value = params.type
-  statusFilter.value = params.status
+  const params = loadFromUrl({ type: undefined, status: undefined })
+  typeFilter.value = params.type || undefined
+  statusFilter.value = params.status || undefined
   loadData()
 })
 </script>

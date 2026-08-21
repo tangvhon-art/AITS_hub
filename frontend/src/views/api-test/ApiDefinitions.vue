@@ -69,7 +69,7 @@
           style="width: 280px"
           @search="loadData"
         />
-        <a-select v-model:value="methodFilter" placeholder="请求方法" style="width: 120px" allow-clear>
+        <a-select v-model:value="methodFilter" placeholder="请求方式" style="width: 120px" allow-clear>
           <a-select-option value="GET">GET</a-select-option>
           <a-select-option value="POST">POST</a-select-option>
           <a-select-option value="PUT">PUT</a-select-option>
@@ -168,7 +168,7 @@ const { loadFromUrl, syncToUrl } = useUrlSearch()
 // ====== 接口列表 ======
 const loading = ref(false)
 const keyword = ref('')
-const methodFilter = ref('')
+const methodFilter = ref<string | undefined>(undefined)
 const dataSource = ref<ApiDefinition[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 
@@ -270,7 +270,7 @@ const handleTableChange = (pag: any) => {
 
 function handleReset() {
   keyword.value = ''
-  methodFilter.value = ''
+  methodFilter.value = undefined
   pagination.value.current = 1
   loadData()
 }
@@ -490,9 +490,9 @@ const ModuleTreeNode = defineComponent({
 })
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', method: '' })
+  const params = loadFromUrl({ keyword: '', method: undefined })
   keyword.value = params.keyword
-  methodFilter.value = params.method
+  methodFilter.value = params.method || undefined
   loadModules()
   loadData()
 })

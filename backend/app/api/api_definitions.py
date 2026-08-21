@@ -30,7 +30,10 @@ def list_definitions(
 ):
     """接口列表（分页/筛选）"""
     get_project(project_id, db, current_user)
-    query = db.query(ApiDefinition).filter(ApiDefinition.project_id == project_id)
+    query = db.query(ApiDefinition).filter(
+        ApiDefinition.project_id == project_id,
+        ApiDefinition.is_deleted == False,
+    )
 
     if module_id:
         query = query.filter(ApiDefinition.module_id == module_id)

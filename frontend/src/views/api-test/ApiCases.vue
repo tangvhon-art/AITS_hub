@@ -112,7 +112,7 @@ const { loadFromUrl, syncToUrl } = useUrlSearch()
 
 const loading = ref(false)
 const keyword = ref('')
-const priorityFilter = ref('')
+const priorityFilter = ref<string | undefined>(undefined)
 const dataSource = ref<ApiTestCase[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 const showAiModal = ref(false)
@@ -174,7 +174,7 @@ const handleTableChange = (pag: any) => {
 
 function handleReset() {
   keyword.value = ''
-  priorityFilter.value = ''
+  priorityFilter.value = undefined
   pagination.value.current = 1
   loadData()
 }
@@ -238,9 +238,9 @@ const handleDelete = async (record: ApiTestCase) => {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', priority: '' })
+  const params = loadFromUrl({ keyword: '', priority: undefined })
   keyword.value = params.keyword
-  priorityFilter.value = params.priority
+  priorityFilter.value = params.priority || undefined
   loadData()
 })
 </script>

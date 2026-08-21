@@ -345,10 +345,18 @@ const handleBatchConfirm = (data: any[]) => {
   }
 }
 
+const mapModuleTree = (modules: any[]): any[] => {
+  return modules.map((m: any) => ({
+    title: m.name,
+    value: m.id,
+    children: m.children?.length ? mapModuleTree(m.children) : undefined,
+  }))
+}
+
 const loadModules = async () => {
   try {
     const modules = await apiModulesApi.getTree(projectId)
-    moduleTree.value = modules.map((m: any) => ({ title: m.name, value: m.id, children: m.children }))
+    moduleTree.value = mapModuleTree(modules)
   } catch {}
 }
 
