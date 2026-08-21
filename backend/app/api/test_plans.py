@@ -938,7 +938,7 @@ def export_html_report(execution_id: int, db: Session = Depends(get_db), current
 </html>"""
 
     return Response(content=html, media_type="text/html", headers={
-        "Content-Disposition": f"attachment; filename=test_report_{execution_id}.html"
+        "Content-Disposition": f"attachment; filename*=UTF-8''测试报告-{execution.plan_name}.html"
     })
 
 
@@ -988,5 +988,5 @@ def export_junit_report(execution_id: int, db: Session = Depends(get_db), curren
     xml_str = minidom.parseString(ET.tostring(testsuite, encoding="unicode")).toprettyxml(indent="  ")
 
     return Response(content=xml_str, media_type="application/xml", headers={
-        "Content-Disposition": f"attachment; filename=test_report_{execution_id}.xml"
+        "Content-Disposition": f"attachment; filename*=UTF-8''测试报告-{execution.plan_name}.xml"
     })

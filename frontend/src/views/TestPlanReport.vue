@@ -224,7 +224,7 @@
                   <a-card-meta title="HTML 报告" description="可在浏览器中直接打开查看，包含完整的执行详情和统计信息" />
                 </a-card>
               </a-col>
-              <a-col :span="8">
+              <!-- <a-col :span="8">
                 <a-card hoverable class="export-card" @click="exportJunit">
                   <template #cover>
                     <div class="export-icon xml-icon">
@@ -233,7 +233,7 @@
                   </template>
                   <a-card-meta title="JUnit XML" description="标准 JUnit XML 格式，可用于 CI/CD 流水线集成（Jenkins/GitLab等）" />
                 </a-card>
-              </a-col>
+              </a-col> -->
             </a-row>
           </a-card>
         </a-tab-pane>
@@ -431,7 +431,7 @@ async function loadReport() {
 
 async function exportHtml() {
   try {
-    await testPlanExecutionsApi.downloadHtml(executionId)
+    await testPlanExecutionsApi.downloadHtml(executionId, execution.value?.plan_name)
   } catch (e: any) {
     message.error(e.response?.data?.detail || '导出失败')
   }
@@ -439,7 +439,7 @@ async function exportHtml() {
 
 async function exportJunit() {
   try {
-    await testPlanExecutionsApi.downloadJunit(executionId)
+    await testPlanExecutionsApi.downloadJunit(executionId, execution.value?.plan_name)
   } catch (e: any) {
     message.error(e.response?.data?.detail || '导出失败')
   }

@@ -214,17 +214,17 @@ export const testPlanExecutionsApi = {
     request.post(`/test-plan-executions/${executionId}/cancel`),
 
   // 报告导出（携带鉴权 token 的下载，window.open 无法带 header）
-  downloadHtml: (executionId: number) =>
+  downloadHtml: (executionId: number, planName?: string) =>
     request.get<Blob>(
       `/test-plan-executions/${executionId}/report/html`,
       { responseType: 'blob' }
-    ).then((blob) => triggerDownload(blob, `test_report_${executionId}.html`)),
+    ).then((blob) => triggerDownload(blob, `测试报告-${planName || executionId}.html`)),
 
-  downloadJunit: (executionId: number) =>
+  downloadJunit: (executionId: number, planName?: string) =>
     request.get<Blob>(
       `/test-plan-executions/${executionId}/report/junit`,
       { responseType: 'blob' }
-    ).then((blob) => triggerDownload(blob, `test_report_${executionId}.xml`)),
+    ).then((blob) => triggerDownload(blob, `测试报告-${planName || executionId}.xml`)),
 }
 
 /** 触发浏览器下载 */
