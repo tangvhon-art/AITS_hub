@@ -1,13 +1,14 @@
-version: '3.8'
-
 services:
+  # ═══════════════════════════════════════════════
+  #  MySQL 数据库
+  # ═══════════════════════════════════════════════
   mysql:
     image: mysql:8.0
     container_name: aits-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root123}
-      MYSQL_DATABASE: ${DB_NAME:-AITS_hub}
+      MYSQL_DATABASE: ${DB_NAME:-aits_hub}
       MYSQL_USER: ${DB_USER:-aits}
       MYSQL_PASSWORD: ${DB_PASSWORD:-aits123}
     ports:
@@ -16,11 +17,14 @@ services:
       - mysql_data:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-root123}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ═══════════════════════════════════════════════
+  #  Redis（Celery 消息队列 + 缓存）
+  # ═══════════════════════════════════════════════
   redis:
     image: redis:7-alpine
     container_name: aits-redis
@@ -35,10 +39,14 @@ services:
       timeout: 5s
       retries: 5
 
+  # ═══════════════════════════════════════════════
+  #  后端 API 服务
+  # ═══════════════════════════════════════════════
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: aits-backend:latest
     container_name: aits-backend
     restart: unless-stopped
     depends_on:
@@ -46,35 +54,151 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - .env.docker
     environment:
-      - APP_NAME=AITS 智能测试管理平台
-      - APP_ENV=production
-      - DEBUG=false
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_USER=${DB_USER:-aits}
       - DB_PASSWORD=${DB_PASSWORD:-aits123}
-      - DB_NAME=${DB_NAME:-AITS_hub}
+      - DB_NAME=${DB_NAME:-aits_hub}
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY:-aits-hub-dev-secret-key-change-in-production}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
-      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
-      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-openai_compatible}
-      - DEFAULT_LLM_BASE_URL=${DEFAULT_LLM_BASE_URL:-https://api.deepseek.com/v1}
-      - DEFAULT_LLM_API_KEY=${DEFAULT_LLM_API_KEY:-}
-      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-deepseek-chat}
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
-      - /app/venv
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+      - backend_uploads:/app/uploads
+      - backend_logs:/app/logs
+      - backend_data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
 
+  # ═══════════════════════════════════════════════
+  #  Celery AI 队列 Worker（用例生成/评审/需求生成等）
+  # ═══════════════════════════════════════════════
+  worker-ai:
+    image: aits-backend:latest
+    container_name: aits-worker-ai
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-aits}
+      - DB_PASSWORD=${DB_PASSWORD:-aits123}
+      - DB_NAME=${DB_NAME:-aits_hub}
+      - REDIS_URL=redis://redis:6379/0
+    command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2 --hostname=ai-worker@%h -Q ai --events --heartbeat-interval=5 --max-tasks-per-child=100
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_logs:/app/logs
+      - backend_data:/app/data
+
+  # ═══════════════════════════════════════════════
+  #  Celery 执行队列 Worker（UI执行/脚本执行/性能测试等）
+  # ═══════════════════════════════════════════════
+  worker-execution:
+    image: aits-backend:latest
+    container_name: aits-worker-execution
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-aits}
+      - DB_PASSWORD=${DB_PASSWORD:-aits123}
+      - DB_NAME=${DB_NAME:-aits_hub}
+      - REDIS_URL=redis://redis:6379/0
+    command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=4 --hostname=execution-worker@%h -Q execution --events --heartbeat-interval=5 --max-tasks-per-child=100
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_logs:/app/logs
+      - backend_data:/app/data
+
+  # ═══════════════════════════════════════════════
+  #  Celery 默认队列 Worker（知识聚合/清理/通知等）
+  # ═══════════════════════════════════════════════
+  worker-default:
+    image: aits-backend:latest
+    container_name: aits-worker-default
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-aits}
+      - DB_PASSWORD=${DB_PASSWORD:-aits123}
+      - DB_NAME=${DB_NAME:-aits_hub}
+      - REDIS_URL=redis://redis:6379/0
+    command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2 --hostname=default-worker@%h -Q default --events --heartbeat-interval=5 --max-tasks-per-child=100
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_logs:/app/logs
+      - backend_data:/app/data
+
+  # ═══════════════════════════════════════════════
+  #  Celery Beat 定时任务调度器（仅一个实例）
+  # ═══════════════════════════════════════════════
+  beat:
+    image: aits-backend:latest
+    container_name: aits-beat
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-aits}
+      - DB_PASSWORD=${DB_PASSWORD:-aits123}
+      - DB_NAME=${DB_NAME:-aits_hub}
+      - REDIS_URL=redis://redis:6379/0
+    command: celery -A app.celery_app.celery_app beat --loglevel=info
+
+  # ═══════════════════════════════════════════════
+  #  Flower 监控面板
+  # ═══════════════════════════════════════════════
+  flower:
+    image: aits-backend:latest
+    container_name: aits-flower
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    command: celery -A app.celery_app.celery_app flower --port=5555 --conf=flowerconfig.py
+    ports:
+      - "5555:5555"
+
+  # ═══════════════════════════════════════════════
+  #  前端（nginx 生产构建）
+  # ═══════════════════════════════════════════════
   frontend:
     build:
       context: ./frontend
@@ -84,14 +208,11 @@ services:
     depends_on:
       - backend
     ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    command: npm run dev -- --host 0.0.0.0
-    environment:
-      - VITE_API_BASE_URL=http://localhost:8000/api
+      - "80:80"
 
 volumes:
   mysql_data:
   redis_data:
+  backend_uploads:
+  backend_logs:
+  backend_data:

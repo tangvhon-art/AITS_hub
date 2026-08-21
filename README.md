@@ -139,6 +139,47 @@ npm run dev
 - Flower 监控: http://localhost:5555/flower
 - 默认账号: admin / admin123
 
+### 方式三：Docker 部署（生产环境推荐）
+
+```bash
+# 1. 复制环境变量配置文件并修改
+cp .env.docker.example .env.docker
+# 编辑 .env.docker，至少修改 SECRET_KEY 和 DEFAULT_LLM_API_KEY
+
+# 2. 一键启动全部服务（MySQL + Redis + 后端 + 3个队列Worker + Beat + Flower + 前端nginx）
+docker compose up -d --build
+
+# 3. 查看服务状态
+docker compose ps
+
+# 4. 查看日志
+docker compose logs -f backend
+docker compose logs -f worker-ai
+docker compose logs -f worker-execution
+
+# 5. 停止全部服务
+docker compose down
+
+# 6. 停止并清除数据卷（慎用，会删除数据库和上传文件）
+docker compose down -v
+```
+
+**Docker 服务架构（8 个容器）**:
+
+| 容器 | 说明 | 端口 |
+|------|------|------|
+| `aits-mysql` | MySQL 8.0 数据库 | 3306 |
+| `aits-redis` | Redis 7 消息队列 | 6379 |
+| `aits-backend` | FastAPI 后端 API | 8000 |
+| `aits-worker-ai` | AI 队列 Worker（并发2） | — |
+| `aits-worker-execution` | 执行队列 Worker（并发4） | — |
+| `aits-worker-default` | 默认队列 Worker（并发2） | — |
+| `aits-beat` | Celery Beat 定时调度器 | — |
+| `aits-flower` | Flower 任务监控面板 | 5555 |
+| `aits-frontend` | nginx 前端（生产构建） | 80 |
+
+> Docker 部署使用多阶段构建：前端编译为静态文件由 nginx 托管，nginx 代理 `/api` 到后端、`/flower` 到 Flower。后端镜像同时用于 API 服务和所有 Celery Worker（通过 `command` 覆盖启动命令）。
+
 ## 项目结构
 
 ```
@@ -290,7 +331,8 @@ AITS_hub/
 │   ├── start_all_workers.sh           # 一键启动全部 Worker + Beat + Flower
 │   ├── stop_all_workers.sh            # 停止全部 Worker
 │   ├── requirements.txt
-│   └── Dockerfile
+│   ├── Dockerfile                     # 后端镜像（Python 3.13 + Playwright）
+│   └── .dockerignore
 ├── frontend/                         # 前端应用
 │   ├── src/
 │   │   ├── views/                    # 页面组件（53 个页面）
@@ -378,10 +420,16 @@ AITS_hub/
 │   │   ├── router/index.ts           # Vue Router（63 条路由）
 │   │   └── main.ts
 │   ├── package.json
-│   └── vite.config.ts
+│   ├── vite.config.ts
+│   ├── Dockerfile                    # 多阶段构建（Node编译 + nginx部署）
+│   ├── nginx.conf                    # nginx 配置（/api→backend, /flower→flower 代理）
+│   └── .dockerignore
 ├── docs/                             # 项目文档（含 UI 自愈设计文档等）
 ├── start.sh / start_backend.sh / start_frontend.sh
-└── .env.example
+├── docker-compose.yml                # Docker 编排（MySQL+Redis+后端+3Worker+Beat+Flower+前端nginx）
+├── .env.docker.example               # Docker 环境变量模板
+├── .env.example
+└── .gitignore
 ```
 
 ## 核心模块说明

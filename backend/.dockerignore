@@ -1,0 +1,49 @@
+__pycache__/
+*.py[cod]
+*.so
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+*.egg
+
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+.env
+.env.local
+.env.*.local
+
+*.log
+logs/
+
+tmp/
+temp/
+*.tmp
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# 运行时文件
+celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
+celerybeat.pid
+dump.rdb
+
+# 上传文件和知识库数据
+uploads/
+data/knowledge_base/
+
+# 文档
+docs/
+*.md
