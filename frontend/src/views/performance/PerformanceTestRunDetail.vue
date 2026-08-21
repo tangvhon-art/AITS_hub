@@ -114,7 +114,7 @@
       v-model:open="showDetailDrawer"
       title="执行记录详情"
       placement="right"
-      width="720"
+      width="900"
       @after-open="renderDetailChart"
     >
       <template v-if="detailRun.id">
@@ -129,8 +129,42 @@
           <a-col :span="8"><a-card size="small"><a-statistic title="P95响应" :value="detailRun.p95_response_time || 0" :precision="1" suffix="ms" :value-style="{ color: (detailRun.p95_response_time || 0) > 1000 ? '#cf1322' : '#3f8600' }" /></a-card></a-col>
         </a-row>
 
-        <a-card title="响应时间趋势" size="small" style="margin-bottom: 16px">
+        <a-card v-if="detailEndpointStats.length > 0" title="聚合报告（JMeter 风格）" size="small" style="margin-bottom: 16px">
+          <a-table
+            :columns="aggregateColumns"
+            :data-source="detailEndpointStats"
+            :pagination="false"
+            row-key="label"
+            size="small"
+            :scroll="{ x: 1200 }"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'error_pct'">
+                <span :style="{ color: (record.error_pct || 0) > 0 ? '#cf1322' : '#3f8600' }">
+                  {{ (record.error_pct || 0).toFixed(1) }}%
+                </span>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+
+        <a-card title="运行趋势（虚拟用户数 / QPS）" size="small" style="margin-bottom: 16px">
           <div v-if="hasDetailTrendData" ref="detailChartRef" class="chart-container"></div>
+          <a-empty v-else :description="detailTrendEmptyText" class="chart-empty" />
+        </a-card>
+
+        <a-card title="Total Requests per Second（QPS 趋势）" size="small" style="margin-bottom: 16px">
+          <div v-if="hasDetailTrendData" ref="detailRpsChartRef" class="chart-container"></div>
+          <a-empty v-else :description="detailTrendEmptyText" class="chart-empty" />
+        </a-card>
+
+        <a-card title="Response Times (ms) 响应时间趋势" size="small" style="margin-bottom: 16px">
+          <div v-if="hasDetailTrendData" ref="detailRespTimeChartRef" class="chart-container"></div>
+          <a-empty v-else :description="detailTrendEmptyText" class="chart-empty" />
+        </a-card>
+
+        <a-card title="Number of Users 虚拟用户数趋势" size="small" style="margin-bottom: 16px">
+          <div v-if="hasDetailTrendData" ref="detailUsersChartRef" class="chart-container"></div>
           <a-empty v-else :description="detailTrendEmptyText" class="chart-empty" />
         </a-card>
 
@@ -193,6 +227,14 @@ const detailRun = ref<Partial<PerformanceTestRun>>({})
 const detailErrorData = ref<any[]>([])
 const detailChartRef = ref<HTMLElement>()
 let detailChartInstance: echarts.ECharts | null = null
+const detailRpsChartRef = ref<HTMLElement>()
+const detailRespTimeChartRef = ref<HTMLElement>()
+const detailUsersChartRef = ref<HTMLElement>()
+let detailRpsChartInstance: echarts.ECharts | null = null
+let detailRespTimeChartInstance: echarts.ECharts | null = null
+let detailUsersChartInstance: echarts.ECharts | null = null
+
+const detailEndpointStats = computed(() => Array.isArray(detailRun.value.endpoint_stats) ? detailRun.value.endpoint_stats : [])
 
 const runColumns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -217,7 +259,6 @@ const endpointStats = computed(() => Array.isArray(run.value.endpoint_stats) ? r
 const aggregateColumns = [
   { title: 'Name', dataIndex: 'label', key: 'label', width: 200, fixed: 'left' },
   { title: '# requests', dataIndex: 'samples', key: 'samples', width: 100 },
-  { title: '# failures', dataIndex: 'failures', key: 'failures', width: 100 },
   { title: 'Median', dataIndex: 'median', key: 'median', width: 90 },
   { title: '90%', dataIndex: 'p90', key: 'p90', width: 80 },
   { title: '95%', dataIndex: 'p95', key: 'p95', width: 80 },
@@ -227,6 +268,7 @@ const aggregateColumns = [
   { title: 'Max', dataIndex: 'max', key: 'max', width: 80 },
   { title: 'Average size', dataIndex: 'avg_size_bytes', key: 'avg_size_bytes', width: 110 },
   { title: 'QPS', dataIndex: 'throughput', key: 'throughput', width: 90 },
+  { title: '# failures', dataIndex: 'failures', key: 'failures', width: 100 },
   { title: '失败率', key: 'error_pct', width: 90 },
 ]
 
@@ -483,11 +525,64 @@ function renderLocustCharts() {
 function renderDetailChart() {
   nextTick(() => {
     if (!hasDetailTrendData.value) return
-    if (!detailChartRef.value) return
-    if (!detailChartInstance) {
-      detailChartInstance = echarts.init(detailChartRef.value)
+
+    // 原始运行趋势图（虚拟用户数 / QPS）
+    if (detailChartRef.value) {
+      if (!detailChartInstance) detailChartInstance = echarts.init(detailChartRef.value)
+      doRenderChart(detailChartInstance, detailRun.value)
     }
-    doRenderChart(detailChartInstance, detailRun.value)
+
+    const trend = extractTrendData(detailRun.value)
+    const commonGrid = { left: '3%', right: '4%', bottom: '3%', containLabel: true }
+    const commonTooltip = { trigger: 'axis' }
+    const rotate = trend.categories.length > 15 ? 30 : 0
+
+    // QPS 趋势
+    if (detailRpsChartRef.value) {
+      if (!detailRpsChartInstance) detailRpsChartInstance = echarts.init(detailRpsChartRef.value)
+      detailRpsChartInstance.setOption({
+        tooltip: commonTooltip,
+        legend: { data: ['QPS', 'Failures/s'], type: 'scroll' },
+        grid: commonGrid,
+        xAxis: { type: 'category', data: trend.categories, axisLabel: { rotate } },
+        yAxis: { type: 'value', name: '次/秒' },
+        series: [
+          { name: 'QPS', type: 'line', data: trend.rps, smooth: true, areaStyle: { opacity: 0.1 }, itemStyle: { color: '#1677ff' } },
+          { name: 'Failures/s', type: 'line', data: trend.failuresPerS, smooth: true, itemStyle: { color: '#cf1322' }, lineStyle: { type: 'dashed' } },
+        ],
+      })
+    }
+
+    // 响应时间趋势
+    if (detailRespTimeChartRef.value) {
+      if (!detailRespTimeChartInstance) detailRespTimeChartInstance = echarts.init(detailRespTimeChartRef.value)
+      detailRespTimeChartInstance.setOption({
+        tooltip: commonTooltip,
+        legend: { data: ['Median(P50)', 'P95', 'P99'], type: 'scroll' },
+        grid: commonGrid,
+        xAxis: { type: 'category', data: trend.categories, axisLabel: { rotate } },
+        yAxis: { type: 'value', name: 'ms' },
+        series: [
+          { name: 'Median(P50)', type: 'line', data: trend.p50, smooth: true, itemStyle: { color: '#52c41a' } },
+          { name: 'P95', type: 'line', data: trend.p95, smooth: true, itemStyle: { color: '#faad14' } },
+          { name: 'P99', type: 'line', data: trend.p99, smooth: true, itemStyle: { color: '#f5222d' } },
+        ],
+      })
+    }
+
+    // 虚拟用户数趋势
+    if (detailUsersChartRef.value) {
+      if (!detailUsersChartInstance) detailUsersChartInstance = echarts.init(detailUsersChartRef.value)
+      detailUsersChartInstance.setOption({
+        tooltip: commonTooltip,
+        grid: commonGrid,
+        xAxis: { type: 'category', data: trend.categories, axisLabel: { rotate } },
+        yAxis: { type: 'value', name: '用户数' },
+        series: [
+          { name: '虚拟用户数', type: 'line', data: trend.users, smooth: true, areaStyle: { opacity: 0.2 }, itemStyle: { color: '#722ed1' }, step: 'end' },
+        ],
+      })
+    }
   })
 }
 
@@ -578,6 +673,9 @@ function doRenderChart(instance: echarts.ECharts, data: Partial<PerformanceTestR
 function handleResize() {
   chartInstance?.resize()
   detailChartInstance?.resize()
+  detailRpsChartInstance?.resize()
+  detailRespTimeChartInstance?.resize()
+  detailUsersChartInstance?.resize()
   rpsChartInstance?.resize()
   respTimeChartInstance?.resize()
   usersChartInstance?.resize()
@@ -593,6 +691,9 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   chartInstance?.dispose()
   detailChartInstance?.dispose()
+  detailRpsChartInstance?.dispose()
+  detailRespTimeChartInstance?.dispose()
+  detailUsersChartInstance?.dispose()
   rpsChartInstance?.dispose()
   respTimeChartInstance?.dispose()
   usersChartInstance?.dispose()

@@ -21,7 +21,7 @@ from app.models.agent_task import AgentTask
 from app.schemas.api_test import (
     ApiTestCaseCreate, ApiTestCaseUpdate, ApiTestCaseResponse,
     ApiCaseAssertionCreate, ApiCaseAssertionUpdate, ApiCaseAssertionResponse,
-    ApiCaseRunRequest, ApiCaseRunResponse,
+    ApiCaseRunRequest, ApiCaseRunResponse, ApiCaseBatchRunRequest,
     AiGenerateRequest, AiGenerateSaveRequest,
     PaginatedResponse,
 )
