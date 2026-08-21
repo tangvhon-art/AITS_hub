@@ -41,6 +41,8 @@
 | 任务监控 | Celery + Flower 监控面板 | Worker 节点状态、任务执行记录、成功/失败统计，Flower 实时监控 |
 | 审计日志 | 操作审计追踪 | 记录关键操作日志 |
 | 数据导入导出 | 批量数据管理 | 导入/导出用例、缺陷等数据 |
+| 团队协作 | 项目成员管理 + 权限控制 | 项目绑定用户成员，用户仅见参与的项目，项目内模块全可见；管理员专属功能控制 |
+| 多队列 Worker | Celery 按任务类型分队列 | AI生成/执行/后台三类队列独立Worker，资源隔离互不阻塞 |
 
 ## 技术栈
 
@@ -62,7 +64,7 @@ AI    DeepSeek / Claude / vLLM-TGI / Ollama（4 种接入模式，自动降级 +
 ### 方式一：一键启动脚本（推荐本地开发）
 
 ```bash
-# 同时启动后端 + 前端 + Celery Worker + Flower（全部服务）
+# 启动全部服务（前端 + 后端 + 3个队列Worker + Beat + Flower）
 ./start.sh
 
 # 仅启动后端
@@ -71,11 +73,22 @@ AI    DeepSeek / Claude / vLLM-TGI / Ollama（4 种接入模式，自动降级 +
 # 仅启动前端
 ./start_frontend.sh --port 5173
 
-# 仅启动 Celery Worker（4 并发）
+# 按队列单独启动 Worker（可指定并发数）
+cd backend && ./start_worker_ai.sh 2          # AI生成类任务
+cd backend && ./start_worker_execution.sh 4    # 执行类任务
+cd backend && ./start_worker_default.sh 2      # 后台轻量任务
+
+# 一键启动全部 Worker + Beat + Flower
+cd backend && ./start_all_workers.sh
+
+# 停止全部 Worker
+cd backend && ./stop_all_workers.sh
+
+# 兼容模式：单 Worker 消费所有队列
 cd backend && ./start_celery_worker.sh 4
 ```
 
-`start.sh` 会按顺序启动：后端（自动建表/迁移）→ Celery Worker（就绪检测）→ Flower 监控 → 前端。脚本自动检测并安装依赖（Python venv / Node.js node_modules / Playwright Chromium）。
+`start.sh` 会按顺序启动：后端（自动建表/迁移）→ 3个队列Worker（AI/Execution/Default + 就绪检测）→ Beat定时调度器 → Flower 监控 → 前端。脚本自动检测并安装依赖（Python venv / Node.js node_modules / Playwright Chromium）。
 
 > **注意**: 启动前请确保 MySQL 和 Redis 已运行。后端启动时会自动创建数据表和新增字段。
 
@@ -95,9 +108,22 @@ playwright install chromium
 cp .env.example .env   # 编辑数据库连接信息和 Redis 地址
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# ─── 3. 启动 Celery Worker + Flower（另一个终端）───
+# ─── 3. 启动 Celery 多队列 Worker + Beat + Flower（另一个终端）───
 cd backend && source venv/bin/activate
-celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=4 --events --heartbeat-interval=5
+
+# AI队列 Worker（用例生成/评审/需求生成等）
+celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2 --hostname=ai-worker@%h -Q ai --events --heartbeat-interval=5
+
+# 执行队列 Worker（UI执行/脚本执行/性能测试等，另一个终端）
+celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=4 --hostname=execution-worker@%h -Q execution --events --heartbeat-interval=5
+
+# 默认队列 Worker（知识聚合/清理/通知，另一个终端）
+celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2 --hostname=default-worker@%h -Q default --events --heartbeat-interval=5
+
+# Beat 定时调度器（另一个终端，只需一个实例）
+celery -A app.celery_app.celery_app beat --loglevel=info
+
+# Flower 监控（另一个终端）
 FLOWER_UNAUTHENTICATED_API=true celery -A app.celery_app.celery_app flower --port=5555 --conf=flowerconfig.py
 
 # ─── 4. 前端 ───
@@ -193,6 +219,7 @@ AITS_hub/
 │   │   │   ├── mcp_connector.py      #   MCP 连接器
 │   │   │   ├── skill.py              #   Skill 包（文件树/脚本/提示词）
 │   │   │   ├── prompt.py             #   Prompt 模板
+│   │   │   ├── project_member.py     #   项目成员（多对多关联）
 │   │   │   └── execution_base.py     #   执行记录公共基类
 │   │   ├── schemas/                  # Pydantic 请求/响应模型
 │   │   │   ├── common.py             #   通用分页响应（泛型）
@@ -253,10 +280,15 @@ AITS_hub/
 │   │   │   └── notification_tasks.py #   通知异步发送（重试2次）
 │   │   ├── config.py                 # Pydantic Settings 配置
 │   │   ├── database.py               # 数据库连接 + Mixin（SoftDelete/Timestamp/ProjectScoped/CreatedBy）
-│   │   ├── celery_app.py             # Celery 实例
+│   │   ├── celery_app.py             # Celery 实例 + 多队列配置（ai/execution/default）+ Beat 定时任务
 │   │   ├── flowerconfig.py           # Flower 监控配置
-│   │   └── main.py                   # FastAPI 入口（自动建表+迁移，280+ 路由，静态文件双目录兼容）
-│   ├── start_celery_worker.sh
+│   │   └── main.py                   # FastAPI 入口（自动建表+迁移+项目成员迁移，280+ 路由，静态文件双目录兼容）
+│   ├── start_celery_worker.sh         # 兼容模式（消费所有队列）
+│   ├── start_worker_ai.sh             # AI 队列 Worker 启动脚本
+│   ├── start_worker_execution.sh      # 执行队列 Worker 启动脚本
+│   ├── start_worker_default.sh        # 默认队列 Worker 启动脚本
+│   ├── start_all_workers.sh           # 一键启动全部 Worker + Beat + Flower
+│   ├── stop_all_workers.sh            # 停止全部 Worker
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/                         # 前端应用
@@ -286,6 +318,7 @@ AITS_hub/
 │   │   │   ├── Skills.vue            #   Skill 管理（导入/导出/文件浏览/匹配测试）
 │   │   │   ├── UiHealingRecords.vue  #   自愈记录（统计+列表+详情+确认+截图对比）
 │   │   │   ├── UiHealingProfiles.vue #   页面知识（画像列表+详情+手动聚合）
+│   │   │   ├── ProjectMembers.vue    #   项目成员管理（角色/搜索/添加/移除）
 │   │   │   ├── TaskMonitor.vue       #   任务监控（Flower Worker 状态）
 │   │   │   ├── performance/          #   性能测试页面（多接口配置+聚合报告+AI分析）
 │   │   │   ├── data/                 #   数据池页面
@@ -331,7 +364,7 @@ AITS_hub/
 │   │   │   ├── project.ts            #   项目全局状态
 │   │   │   └── user.ts               #   用户状态
 │   │   ├── composables/
-│   │   │   ├── useMenu.ts            #   路由派生菜单 + 分组（项目管理/UI自动化/测试质量/通知中心）
+│   │   │   ├── useMenu.ts            #   路由派生菜单 + 分组 + 管理员菜单过滤
 │   │   │   ├── useList.ts            #   列表数据 composable（分页+搜索）
 │   │   │   ├── useCRUD.ts            #   CRUD 操作 composable
 │   │   │   └── useUrlSearch.ts       #   URL 参数同步（已停用，筛选条件仅在前端内存维护）
@@ -607,6 +640,64 @@ Playwright 操作失败（click/fill 超时或 not found）
 - **Flower 集成**：通过 Vite 代理访问 Flower API，实时刷新
 - **启动保障**：start.sh 启动 Worker 后自动 ping 检测就绪，再启动 Flower
 
+### 团队协作与权限控制
+
+项目级成员管理 + 系统级管理员权限控制，用户仅可见参与的项目：
+
+```
+项目 → project_members 关联表 → 用户
+                              ↓
+                    用户登录 → 仅见参与的项目 → 项目内所有模块无差别可见
+
+管理员专属功能（is_admin=true）:
+  - 审计日志
+
+所有登录用户可用:
+  - 项目管理（基于成员关系）
+  - 模型配置 / MCP 连接器 / Skill 管理（调用大模型时需要）
+  - Prompt 管理（默认模板不可编辑/删除，仅管理员可操作）
+  - 智能助手 / Agent 任务 / 任务监控 / 通知中心
+```
+
+- **项目成员表**：`project_members`（project_id, user_id, role, joined_at），项目与用户多对多关联
+- **成员角色**：owner（创建者）、admin、developer、tester — 项目内所有模块对所有角色无差别可见
+- **项目访问控制**：`get_project()` 统一校验成员关系，非成员无法访问项目数据
+- **存量迁移**：后端启动时自动将存量项目 owner 迁移为成员记录，无缝过渡
+- **管理员专属**：审计日志仅 `is_admin=true` 用户可见
+- **Prompt 默认模板保护**：默认模板（`is_default=true`）仅管理员可编辑/删除，非管理员按钮隐藏 + 后端 403 拦截
+- **前端菜单过滤**：`useMenu.ts` 根据用户 `is_admin` 自动过滤管理员专属菜单项
+
+### 多队列任务架构
+
+Celery 按任务类型分 3 个队列，资源隔离互不阻塞：
+
+```
+                      ┌─── ai 队列（并发2）──────────────────────┐
+                      │  用例生成/评审/优化、需求生成、             │
+                      │  API文档生成、报告生成、知识处理             │
+                      └──────────────────────────────────────────┘
+任务分发 → ┌─── execution 队列（并发4）─────────────┐
+                      │  UI执行、脚本/套件执行、                     │
+                      │  性能测试、测试计划执行                      │
+                      └──────────────────────────────────────────┘
+                      ┌─── default 队列（并发2）────────────────┐
+                      │  页面知识聚合、上传文件清理、通知发送       │
+                      │  + Celery Beat 定时任务                    │
+                      └──────────────────────────────────────────┘
+```
+
+| 队列 | 定位 | 默认并发 | 任务数 | 说明 |
+|------|------|---------|--------|------|
+| `ai` | AI 生成类（IO 密集，调 LLM） | 2 | 9 | 用例生成/评审/优化、需求生成、API文档/用例生成、报告生成、知识处理、需求拆分 |
+| `execution` | 执行类（耗 CPU/内存） | 4 | 6 | UI执行、脚本/套件执行、性能测试/分析、测试计划执行 |
+| `default` | 后台轻量 + 定时 | 2 | 3 | 页面知识聚合、上传文件清理、通知发送 |
+
+- **资源隔离**：UI/性能测试等耗资源的执行任务不会阻塞 AI 生成任务
+- **弹性扩展**：未来可单独给 execution 队列加机器，AI 队列保持不变
+- **Beat 调度器**：仅启动一个实例，定时任务（知识聚合每小时、截图清理每3小时）自动分发到 default 队列
+- **Flower 监控**：访问 `http://localhost:5555` 可查看 3 个 Worker 节点状态
+- **向后兼容**：`start_celery_worker.sh` 消费所有队列，单节点模式也能用
+
 ### 统一列表查询设计
 
 所有列表页采用统一的查询架构，确保一致的筛选体验：
@@ -702,7 +793,7 @@ DEFAULT_LLM_MODEL=deepseek-chat
 
 - 后端启动时通过 `Base.metadata.create_all()` 自动创建新表
 - 新增字段通过 main.py 中的轻量自动迁移逻辑（ALTER TABLE ADD COLUMN IF NOT EXISTS）
-- 51 张数据表覆盖全部业务模块（含页面知识 4 张表：ui_page_visit/ui_page_profile/ui_element_fingerprint/ui_healing_record）
+- 51 张数据表覆盖全部业务模块（含页面知识 4 张表：ui_page_visit/ui_page_profile/ui_element_fingerprint/ui_healing_record，项目成员 1 张表：project_members）
 - 所有表包含软删除字段（`is_deleted`/`deleted_at`）和时间戳（`created_at`/`updated_at`）
 
 ## 常见问题
@@ -714,7 +805,7 @@ admin / admin123
 重启后端服务，main.py 启动时会自动执行 ALTER TABLE 添加缺失字段。
 
 **Q: Celery 任务不执行？**
-确保 Redis 已启动且 Celery Worker 正在运行：`cd backend && ./start_celery_worker.sh 4`。修改任务代码后必须重启 Worker。
+确保 Redis 已启动且 Celery Worker 正在运行。项目使用多队列架构（ai/execution/default），推荐用 `./start.sh` 一键启动全部队列 Worker。修改任务代码后必须重启对应队列的 Worker。
 
 **Q: 任务监控页显示 Flower 离线 / Worker 进程 0？**
 确保 Flower 已启动（`start.sh` 会自动启动）。手动启动需设置环境变量：`FLOWER_UNAUTHENTICATED_API=true celery -A app.celery_app.celery_app flower --port=5555`。Worker 需加 `--events --heartbeat-interval=5` 参数。
