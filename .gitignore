@@ -74,3 +74,9 @@ dist-ssr/
 
 /backend/app/uploads/
 /backend/uploads/
+
+# Celery Beat 运行时文件
+celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
+celerybeat.pid

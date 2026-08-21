@@ -747,6 +747,7 @@ UI自动化 (▸)    → 自动化执行、自动化编排、自动化脚本库�
 | `{{$randomString(8)}}` | 随机字符串 | a3Kx9mP2 |
 | `{{$uuid}}` | UUID | a1b2c3d4-... |
 | `{{$randomEmail}}` | 随机邮箱 | test_xxx@example.com |
+| `{{$randomEmail(example.com)}}` | 指定后缀随机邮箱 | test_xxx@example.com |
 | `{{$randomName}}` | 随机中文名 | 张三 |
 | `{{$timestamp}}` | 当前时间戳 | 1700000000 |
 | `{{$datetime}}` | 当前日期时间 | 2024-01-15 10:30:00 |

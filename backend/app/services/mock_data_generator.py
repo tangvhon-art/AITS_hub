@@ -126,10 +126,10 @@ class MockDataGenerator:
             },
             {
                 "name": "randomEmail",
-                "description": "随机生成邮箱地址",
-                "syntax": "{{$randomEmail()}}",
-                "example": "user123@gmail.com",
-                "args": [],
+                "description": "随机生成邮箱地址，可选指定域名后缀",
+                "syntax": "{{$randomEmail()}} 或 {{$randomEmail(example.com)}}",
+                "example": "user123@gmail.com 或 user123@example.com",
+                "args": ["domain: 域名后缀（可选，如 example.com，不传则随机）"],
             },
             {
                 "name": "randomName",
@@ -300,10 +300,13 @@ class MockDataGenerator:
         """UUID v4"""
         return str(uuid.uuid4())
 
-    def _random_email(self) -> str:
-        """随机邮箱"""
+    def _random_email(self, domain: str = "") -> str:
+        """随机邮箱，可选指定域名后缀（如 example.com）"""
         username = "".join(random.choices(string.ascii_lowercase + string.digits, k=random.randint(6, 12)))
-        domain = random.choice(EMAIL_DOMAINS)
+        if domain:
+            domain = domain.lstrip("@")
+        else:
+            domain = random.choice(EMAIL_DOMAINS)
         return f"{username}@{domain}"
 
     def _random_name(self) -> str:
