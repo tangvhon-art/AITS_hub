@@ -1,8 +1,10 @@
 """
 数据导入导出 API
-支持 Excel 格式的测试用例导入导出
+支持 Excel/Xmind 格式的测试用例导入导出
 """
 import json
+import uuid
+import zipfile
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import List
@@ -11,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from io import BytesIO
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_project
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.test_case import TestCase
@@ -25,6 +27,26 @@ except ImportError:
 
 router = APIRouter()
 project_router = APIRouter(prefix="/api/projects/{project_id}/data")
+
+
+def _steps_to_text(steps_raw: str) -> str:
+    """将测试步骤 JSON 转为自然语言文本"""
+    if not steps_raw:
+        return ""
+    try:
+        steps_list = json.loads(steps_raw)
+    except (json.JSONDecodeError, TypeError):
+        return steps_raw
+
+    parts = []
+    for i, step in enumerate(steps_list):
+        if isinstance(step, dict):
+            action = step.get("action", "")
+            expected = step.get("expected", "")
+            parts.append(f"步骤{i+1}：{action}，预期结果：{expected}")
+        elif isinstance(step, str):
+            parts.append(f"步骤{i+1}：{step}")
+    return "；".join(parts)
 
 
 # Excel 列定义
@@ -50,10 +72,14 @@ def export_cases(
     current_user: User = Depends(get_current_user)
 ):
     """导出测试用例为 Excel"""
+    get_project(project_id, db, current_user)
     if not HAS_OPENPYXL:
         raise HTTPException(status_code=500, detail="openpyxl 未安装，请运行 pip install openpyxl")
 
-    cases = db.query(TestCase).filter(TestCase.project_id == project_id).order_by(TestCase.module, TestCase.priority).all()
+    cases = db.query(TestCase).filter(
+        TestCase.project_id == project_id,
+        TestCase.is_deleted == False,
+    ).order_by(TestCase.module, TestCase.priority).all()
 
     log_audit(
         db, action="export", resource_type="case",
@@ -78,12 +104,8 @@ def export_cases(
     for row_idx, case in enumerate(cases, 2):
         for col_idx, (_, field, _) in enumerate(CASE_COLUMNS, 1):
             value = getattr(case, field, "")
-            if field == "steps" and isinstance(value, str):
-                try:
-                    steps_list = json.loads(value)
-                    value = "\n".join([f"{i+1}. {s}" for i, s in enumerate(steps_list)])
-                except (json.JSONDecodeError, TypeError):
-                    pass
+            if field == "steps":
+                value = _steps_to_text(value) if isinstance(value, str) else value
             ws.cell(row=row_idx, column=col_idx, value=value or "")
 
     # 生成文件
@@ -109,6 +131,7 @@ async def import_cases(
     current_user: User = Depends(get_current_user)
 ):
     """从 Excel 导入测试用例"""
+    get_project(project_id, db, current_user)
     if not HAS_OPENPYXL:
         raise HTTPException(status_code=500, detail="openpyxl 未安装，请运行 pip install openpyxl")
 
@@ -216,8 +239,9 @@ async def import_cases(
 
 
 @project_router.get("/cases/template")
-def download_template(project_id: int, current_user: User = Depends(get_current_user)):
+def download_template(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """下载用例导入模板"""
+    get_project(project_id, db, current_user)
     if not HAS_OPENPYXL:
         raise HTTPException(status_code=500, detail="openpyxl 未安装，请运行 pip install openpyxl")
 
@@ -255,6 +279,92 @@ def download_template(project_id: int, current_user: User = Depends(get_current_
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=test_case_template.xlsx"}
+    )
+
+
+def _make_xmind_topic(title: str, children: list = None) -> dict:
+    """构建 XMind topic 节点"""
+    topic = {"id": uuid.uuid4().hex, "class": "topic", "title": title}
+    if children:
+        topic["children"] = {"attached": children}
+    return topic
+
+
+@project_router.get("/cases/export-xmind")
+def export_cases_xmind(
+    project_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """导出测试用例为 XMind 文件，节点结构：所属模块 → 用例标题 → 前置条件 → 测试步骤 → 预期结果"""
+    get_project(project_id, db, current_user)
+
+    cases = db.query(TestCase).filter(
+        TestCase.project_id == project_id,
+        TestCase.is_deleted == False,
+    ).order_by(TestCase.module, TestCase.priority).all()
+
+    log_audit(
+        db, action="export", resource_type="case",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "count": len(cases), "format": "xmind"},
+    )
+    db.commit()
+
+    # 按模块分组
+    modules: dict[str, list] = {}
+    for case in cases:
+        module_name = case.module or "未分类模块"
+        modules.setdefault(module_name, []).append(case)
+
+    # 构建 XMind 树
+    module_topics = []
+    for module_name, module_cases in modules.items():
+        case_topics = []
+        for case in module_cases:
+            steps_text = _steps_to_text(case.steps) if case.steps else "无步骤"
+            expected_topic = _make_xmind_topic(f"预期结果：{case.expected_result or '无'}")
+            steps_topic = _make_xmind_topic(f"测试步骤：{steps_text}", [expected_topic])
+            precond_topic = _make_xmind_topic(f"前置条件：{case.preconditions or '无'}", [steps_topic])
+            case_topics.append(_make_xmind_topic(case.title, [precond_topic]))
+
+        module_topics.append(_make_xmind_topic(module_name, case_topics))
+
+    root_topic = _make_xmind_topic("测试用例", module_topics)
+
+    content = [{
+        "id": uuid.uuid4().hex,
+        "class": "sheet",
+        "title": "测试用例",
+        "rootTopic": root_topic,
+    }]
+
+    metadata = {"creator": {"name": "AITS", "version": "1.0"}}
+
+    manifest = {
+        "file-entries": {
+            "content.json": {},
+            "metadata.json": {},
+        }
+    }
+
+    # 生成 XMind 文件（ZIP 格式）
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("content.json", json.dumps(content, ensure_ascii=False))
+        zf.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False))
+        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
+    output.seek(0)
+
+    filename = f"test_cases_{project_id}_{china_now_naive().strftime('%Y%m%d_%H%M%S')}.xmind"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.xmind.workbook",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 

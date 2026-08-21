@@ -45,7 +45,7 @@ function groupMenuItems(items: MenuItem[]): MenuItem[] {
   const qualityChildren: MenuItem[] = []
   const remaining: MenuItem[] = []
 
-  const projectMgmtSuffixes = ['/versions', '/requirements', '/cases', '/case-reviews', '/plans']
+  const projectMgmtSuffixes = ['/versions', '/requirements', '/cases', '/case-reviews', '/plans', '/import-export']
   const uiAutomationSuffixes = ['/execution', '/scripts', '/suites', '/ui-healing/records', '/ui-healing/profiles']
   const qualitySuffixes = ['/reports', '/dashboard', '/coverage', '/performance-tests', '/defects']
 

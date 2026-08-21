@@ -6,6 +6,12 @@ export function exportCases(projectId: number) {
   })
 }
 
+export function exportCasesXmind(projectId: number) {
+  return request.get(`/projects/${projectId}/data/cases/export-xmind`, {
+    responseType: 'blob'
+  })
+}
+
 export function importCases(projectId: number, file: File) {
   const formData = new FormData()
   formData.append('file', file)

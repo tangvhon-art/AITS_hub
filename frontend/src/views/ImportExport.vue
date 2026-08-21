@@ -8,17 +8,21 @@
       <a-col :span="12">
         <a-card title="用例导出">
           <p style="color: #666; margin-bottom: 16px">
-            将项目中的所有测试用例导出为 Excel 文件，包含用例标题、模块、优先级、步骤、预期结果等字段。
+            将项目中的所有测试用例导出为 Excel 或 XMind 文件，包含用例标题、模块、优先级、步骤、预期结果等字段。
           </p>
-          <a-button type="primary" @click="handleExport" :loading="exporting">
-            <DownloadOutlined /> 导出全部用例
-          </a-button>
+          <a-space>
+            <a-button type="primary" @click="handleExport" :loading="exporting">
+              <DownloadOutlined /> 导出 Excel
+            </a-button>
+            <a-button @click="handleExportXmind" :loading="exportingXmind">
+              <DownloadOutlined /> 导出 XMind
+            </a-button>
+          </a-space>
           <a-divider />
-          <h4>导出字段说明</h4>
+          <h4>导出说明</h4>
           <a-list size="small">
-            <a-list-item>用例标题、所属模块、优先级</a-list-item>
-            <a-list-item>用例类型、前置条件、测试步骤</a-list-item>
-            <a-list-item>预期结果、状态、关联需求ID、BDD内容</a-list-item>
+            <a-list-item>Excel：用例标题、所属模块、优先级、前置条件、测试步骤、预期结果等</a-list-item>
+            <a-list-item>XMind：所属模块 → 用例标题 → 前置条件 → 测试步骤（自然语言）</a-list-item>
           </a-list>
         </a-card>
       </a-col>
@@ -72,12 +76,13 @@ import { message } from 'ant-design-vue'
 import {
   DownloadOutlined, UploadOutlined, FileTextOutlined
 } from '@ant-design/icons-vue'
-import { exportCases, importCases, downloadTemplate } from '@/api/importExport'
+import { exportCases, exportCasesXmind, importCases, downloadTemplate } from '@/api/importExport'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
 
 const exporting = ref(false)
+const exportingXmind = ref(false)
 const importing = ref(false)
 const importResult = ref<{ imported: number; failed: number; errors?: string[] } | null>(null)
 
@@ -102,6 +107,19 @@ async function handleExport() {
     message.error(e.response?.data?.detail || '导出失败')
   } finally {
     exporting.value = false
+  }
+}
+
+async function handleExportXmind() {
+  exportingXmind.value = true
+  try {
+    const blob = await exportCasesXmind(projectId) as any
+    downloadBlob(blob, `test_cases_${projectId}.xmind`)
+    message.success('导出成功')
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '导出失败')
+  } finally {
+    exportingXmind.value = false
   }
 }
 
