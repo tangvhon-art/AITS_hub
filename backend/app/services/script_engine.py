@@ -190,6 +190,10 @@ class ScriptEngine:
             ctx.add_callable("__py_b64_encode__", lambda text: __import__("base64").b64encode(text.encode("utf-8")).decode("ascii"))
             ctx.add_callable("__py_b64_decode__", lambda text: __import__("base64").b64decode(text.encode("ascii")).decode("utf-8"))
 
+            # 保存执行前快照，用于计算 delta
+            pre_env = dict(env_vars)
+            pre_glob = dict(glob_vars)
+
             # 注入 CryptoJS + pm 对象
             prelude = self._build_prelude_js(env_vars, glob_vars, request, response)
             ctx.eval(prelude)
@@ -212,10 +216,19 @@ class ScriptEngine:
             new_glob_raw = ctx.eval("JSON.stringify(pm.globals.toObject())")
             new_glob = json.loads(new_glob_raw) if new_glob_raw else {}
 
+            # 只返回脚本实际新增或修改的变量（delta），避免把传入的静态环境变量泄漏到 scenario_vars
+            delta = {}
+            for k, v in new_env.items():
+                if k not in pre_env or pre_env[k] != v:
+                    delta[k] = v
+            for k, v in new_glob.items():
+                if k not in pre_glob or pre_glob[k] != v:
+                    delta[k] = v
+
             return ScriptResult(
                 success=True,
                 output=output or "",
-                variables={**new_env, **new_glob},
+                variables=delta,
                 tests=tests,
             )
         except Exception as e:
@@ -372,6 +385,117 @@ var __request_body__ = {{
     }}
 }};
 
+// ==================== Chai-style expect ====================
+function _chaiExpect(actual) {{
+
+    function _deepEqual(a, b) {{
+        if (a === b) return true;
+        if (a === null || b === null) return false;
+        if (typeof a !== 'object' || typeof b !== 'object') return false;
+        if (Array.isArray(a) && Array.isArray(b)) {{
+            if (a.length !== b.length) return false;
+            for (var i = 0; i < a.length; i++) if (!_deepEqual(a[i], b[i])) return false;
+            return true;
+        }}
+        var ka = Object.keys(a), kb = Object.keys(b);
+        if (ka.length !== kb.length) return false;
+        for (var i = 0; i < ka.length; i++) {{
+            if (ka[i] !== kb[i]) return false;
+            if (!_deepEqual(a[ka[i]], b[kb[i]])) return false;
+        }}
+        return true;
+    }}
+
+    function _check(pass, negate, msg) {{
+        if (negate) {{
+            if (pass) throw new Error("expected NOT: " + msg);
+            return true;
+        }}
+        if (!pass) throw new Error(msg);
+        return true;
+    }}
+
+    function _build(negate) {{
+        var obj = {{}};
+
+        obj.equal = obj.eql = function(exp) {{
+            return _check(_deepEqual(actual, exp), negate, "expected " + JSON.stringify(actual) + " to equal " + JSON.stringify(exp));
+        }};
+        obj.include = function(exp) {{
+            var pass;
+            if (typeof actual === 'string') pass = actual.indexOf(exp) >= 0;
+            else if (Array.isArray(actual)) pass = actual.indexOf(exp) >= 0;
+            else if (typeof actual === 'object' && actual !== null) pass = exp in actual;
+            else pass = false;
+            return _check(pass, negate, "expected " + JSON.stringify(actual) + " to include " + JSON.stringify(exp));
+        }};
+
+        // to.have.property(...)
+        // to.have.status(code) -- only on pm.response, handled separately
+        obj.have = {{
+            property: function(prop) {{
+                var pass = (typeof actual === 'object' && actual !== null && prop in actual);
+                return _check(pass, negate, "expected property '" + prop + "' to exist");
+            }},
+            _status: function(code) {{
+                var pass = (actual === code);
+                return _check(pass, negate, "expected status " + code + " but got " + actual);
+            }}
+        }};
+
+        // to.be.xxx -- use getters for property-style access
+        var _be = {{}};
+        Object.defineProperty(_be, 'null', {{ get: function() {{ return _check(actual === null, negate, "expected " + JSON.stringify(actual) + " to be null"); }} }});
+        Object.defineProperty(_be, 'undefined', {{ get: function() {{ return _check(actual === undefined, negate, "expected " + JSON.stringify(actual) + " to be undefined"); }} }});
+        Object.defineProperty(_be, 'true', {{ get: function() {{ return _check(actual === true, negate, "expected " + JSON.stringify(actual) + " to be true"); }} }});
+        Object.defineProperty(_be, 'false', {{ get: function() {{ return _check(actual === false, negate, "expected " + JSON.stringify(actual) + " to be false"); }} }});
+        Object.defineProperty(_be, 'ok', {{ get: function() {{ return _check(!!actual, negate, "expected " + JSON.stringify(actual) + " to be truthy"); }} }});
+        Object.defineProperty(_be, 'empty', {{ get: function() {{
+            var pass;
+            if (typeof actual === 'string' || Array.isArray(actual)) pass = actual.length === 0;
+            else if (typeof actual === 'object' && actual !== null) pass = Object.keys(actual).length === 0;
+            else pass = false;
+            return _check(pass, negate, "expected " + JSON.stringify(actual) + " to be empty");
+        }} }});
+        _be.an = function(type) {{
+            var pass;
+            if (type === 'array') pass = Array.isArray(actual);
+            else if (type === 'object') pass = (typeof actual === 'object' && actual !== null && !Array.isArray(actual));
+            else pass = (typeof actual === type);
+            return _check(pass, negate, "expected " + JSON.stringify(actual) + " to be " + type);
+        }};
+        _be.a = function(type) {{ return _be.an(type); }};
+        _be.above = function(exp) {{ return _check(Number(actual) > Number(exp), negate, "expected " + actual + " to be above " + exp); }};
+        _be.below = function(exp) {{ return _check(Number(actual) < Number(exp), negate, "expected " + actual + " to be below " + exp); }};
+        _be.at = {{
+            least: function(exp) {{ return _check(Number(actual) >= Number(exp), negate, "expected " + actual + " to be at least " + exp); }},
+            most: function(exp) {{ return _check(Number(actual) <= Number(exp), negate, "expected " + actual + " to be at most " + exp); }}
+        }};
+        _be.within = function(start, end) {{ var n = Number(actual); return _check(n >= start && n <= end, negate, "expected " + actual + " to be within " + start + ".." + end); }};
+        _be.match = function(regex) {{ return _check(regex.test(String(actual)), negate, "expected " + JSON.stringify(actual) + " to match " + regex); }};
+        obj.be = _be;
+
+        // to.not.xxx -- lazy build to avoid infinite recursion
+        var _notCache = null;
+        Object.defineProperty(obj, 'not', {{
+            get: function() {{
+                if (!_notCache) _notCache = _build(true);
+                return _notCache;
+            }}
+        }});
+
+        // direct shortcuts: pm.expect(x).eql(y), pm.expect(x).not.empty, etc.
+        obj.a = _be.a;
+        obj.an = _be.an;
+        // pm.expect(x).to.eql(y) -- 'to' is a self-reference (already has eql/have/be/not)
+        obj.to = obj;
+
+        return obj;
+    }}
+
+    return _build(false);
+}}
+
 var pm = {{
     environment: {{
         _vars: __env_vars__,
@@ -429,24 +553,24 @@ var pm = {{
         status: {response.get('status_code', 0)},
         json: function() {{ try {{ return JSON.parse({json.dumps(response.get('body', ''))}); }} catch(e) {{ return null; }} }},
         text: function() {{ return {json.dumps(response.get('body', ''))}; }},
-        headers: function() {{ return {json.dumps(response.get('headers', {}))}; }}
+        headers: function() {{ return {json.dumps(response.get('headers', {}))}; }},
+        to: {{
+            have: {{
+                status: function(code) {{
+                    if ({response.get('status_code', 0)} !== code) {{
+                        throw new Error("expected status " + code + " but got " + {response.get('status_code', 0)});
+                    }}
+                    return true;
+                }}
+            }}
+        }}
     }},
     test: function(name, func) {{
-        try {{ var r = func(); __tests__.push({{name: name, passed: !!r, error: ""}}); }}
+        try {{ var r = func(); __tests__.push({{name: name, passed: true, error: ""}}); }}
         catch(e) {{ __tests__.push({{name: name, passed: false, error: e.message}}); }}
     }},
     expect: function(actual) {{
-        return {{
-            to: {{
-                equal: function(exp) {{ return String(actual) === String(exp); }},
-                not: {{ equal: function(exp) {{ return String(actual) !== String(exp); }} }},
-                include: function(exp) {{ return String(actual).indexOf(String(exp)) >= 0; }},
-                be: {{
-                    above: function(exp) {{ return Number(actual) > Number(exp); }},
-                    below: function(exp) {{ return Number(actual) < Number(exp); }}
-                }}
-            }}
-        }};
+        return _chaiExpect(actual);
     }}
 }};
 
@@ -463,6 +587,9 @@ var console = {{
         try:
             ctx = py_mini_racer.MiniRacer()
 
+            pre_env = dict(env_vars)
+            pre_glob = dict(glob_vars)
+
             prelude = self._build_prelude_js(env_vars, glob_vars, request, response)
             ctx.eval(prelude)
 
@@ -475,10 +602,18 @@ var console = {{
             new_env = json.loads(ctx.eval("JSON.stringify(pm.environment.toObject())"))
             new_glob = json.loads(ctx.eval("JSON.stringify(pm.globals.toObject())"))
 
+            delta = {}
+            for k, v in new_env.items():
+                if k not in pre_env or pre_env[k] != v:
+                    delta[k] = v
+            for k, v in new_glob.items():
+                if k not in pre_glob or pre_glob[k] != v:
+                    delta[k] = v
+
             return ScriptResult(
                 success=True,
                 output=output or "",
-                variables={**new_env, **new_glob},
+                variables=delta,
                 tests=tests,
             )
         except Exception as e:
@@ -488,6 +623,8 @@ var console = {{
                             request: Dict, response: Dict) -> ScriptResult:
         """简化版执行器 - 仅支持变量设置/获取和基本断言"""
         try:
+            pre_env = dict(env_vars)
+            pre_glob = dict(glob_vars)
             pm = _PmApi(env_vars, glob_vars, request, response)
             output_lines = []
 
@@ -498,10 +635,18 @@ var console = {{
                     continue
                 self._execute_line(line, pm, output_lines)
 
+            delta = {}
+            for k, v in pm._environment.items():
+                if k not in pre_env or pre_env[k] != v:
+                    delta[k] = v
+            for k, v in pm._globals.items():
+                if k not in pre_glob or pre_glob[k] != v:
+                    delta[k] = v
+
             return ScriptResult(
                 success=True,
                 output="\n".join(output_lines),
-                variables={**pm._environment, **pm._globals},
+                variables=delta,
                 tests=pm._tests,
             )
         except Exception as e:

@@ -254,8 +254,8 @@ class ScenarioExecutor:
 
         # 合并请求配置
         request_config = step.get("request_config", {})
-        method = request_config.get("method", api.method)
-        path = request_config.get("path", api.path)
+        method = request_config.get("method") or api.method
+        path = api.path or request_config.get("path", "")
 
         # 原始请求上下文（变量替换前）
         base_url = self.variable_engine.get("base_url") or ""
@@ -263,6 +263,9 @@ class ScenarioExecutor:
         raw_headers = request_config.get("headers", api.headers) or []
         raw_params = request_config.get("query_params", api.query_params) or []
         raw_body_type = request_config.get("body_type", api.body_type) or "raw"
+
+        # 清除上一步骤脚本生成的变量（如 signature），确保当前步骤从干净状态重新计算
+        self.variable_engine.clear_script_vars()
 
         # 第一遍：替换静态环境变量
         resolved_url = self.variable_engine.replace(raw_url)
@@ -451,6 +454,9 @@ class ScenarioExecutor:
         raw_url = base_url + path
         raw_headers = case.headers or []
         raw_params = case.query_params or []
+
+        # 清除上一步骤脚本生成的变量（如 signature），确保当前步骤从干净状态重新计算
+        self.variable_engine.clear_script_vars()
 
         # 第一遍：替换静态环境变量
         resolved_url = self.variable_engine.replace(raw_url)

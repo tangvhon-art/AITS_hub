@@ -460,6 +460,9 @@ async def _execute_case_node(
     base_url = var_engine.get("base_url") or ""
     raw_url = base_url + (case.path or "")
 
+    # 清除上一步骤脚本生成的变量（如 signature），确保当前步骤从干净状态重新计算
+    var_engine.clear_script_vars()
+
     # 第一遍：替换静态环境变量
     resolved_url = var_engine.replace(raw_url)
     resolved_headers = var_engine.replace_headers(case.headers)

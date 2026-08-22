@@ -499,7 +499,7 @@ const addApiStep = (api: any) => {
   steps.value.push(createStep('api', {
     step_name: api.name,
     api_id: api.id,
-    request_config: { method: api.method, path: api.path },
+    request_config: {},
   }))
   const newIdx = steps.value.length - 1
   selectedStepIndex.value = newIdx
@@ -668,6 +668,18 @@ const handleSave = async () => {
       savedScenario = await apiScenariosApi.update(projectId, Number(scenarioId), form.value)
     } else {
       savedScenario = await apiScenariosApi.create(projectId, form.value)
+    }
+    // 删除已移除的步骤：对比数据库中已有步骤与当前步骤列表
+    if (isEdit.value) {
+      try {
+        const existingSteps = await apiScenariosApi.listSteps(projectId, savedScenario.id)
+        const currentStepIds = new Set(steps.value.filter(s => s.id && s.id > 0).map(s => s.id))
+        for (const existing of existingSteps) {
+          if (!currentStepIds.has(existing.id)) {
+            await apiScenariosApi.deleteStep(projectId, existing.id)
+          }
+        }
+      } catch {}
     }
     // 保存步骤
     for (let i = 0; i < steps.value.length; i++) {

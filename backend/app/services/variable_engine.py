@@ -22,6 +22,8 @@ class VariableEngine:
         self.local_vars: Dict[str, Any] = {}
         self.mock_generator = mock_generator
         self._script_vars: list = []
+        self._script_generated_keys: set = set()
+        self._script_original_values: Dict[str, Any] = {}
 
     def set(self, scope: str, name: str, value: Any):
         """设置变量"""
@@ -125,6 +127,8 @@ class VariableEngine:
             return
 
         self._script_vars = []
+        self._script_generated_keys.clear()
+        self._script_original_values.clear()
         for v in variables:
             if not isinstance(v, dict) or not v.get("key"):
                 continue
@@ -142,8 +146,10 @@ class VariableEngine:
         _logger = logging.getLogger(__name__)
         engine = ScriptEngine()
         console_output = ""
+
         for v in self._script_vars:
             _logger.info(f"[SCRIPT] Executing env script: key={v.get('key')}")
+            pre_env_snapshot = dict(self.environment_vars)
             result = engine.execute(
                 script=v["script"],
                 environment_vars=dict(self.environment_vars),
@@ -153,6 +159,13 @@ class VariableEngine:
             if result.success:
                 _logger.info(f"[SCRIPT] Success. result.variables keys: {list(result.variables.keys())}")
                 if result.variables:
+                    for k, new_val in result.variables.items():
+                        if k not in pre_env_snapshot:
+                            self._script_generated_keys.add(k)
+                        elif pre_env_snapshot[k] != new_val:
+                            self._script_generated_keys.add(k)
+                            if k not in self._script_original_values:
+                                self._script_original_values[k] = pre_env_snapshot[k]
                     self.environment_vars.update(result.variables)
                 _logger.info(f"[SCRIPT] After update, env_vars keys: {list(self.environment_vars.keys())}")
                 for _k in ["signature"]:
@@ -163,6 +176,16 @@ class VariableEngine:
                 _logger.warning(f"[SCRIPT] Failed [{v.get('key')}]: {result.error}")
                 console_output += f"[ERROR] 脚本 {v.get('key')} 执行失败: {result.error}\n"
         return console_output
+
+    def clear_script_vars(self):
+        """清除脚本生成的动态变量值，恢复静态环境变量，在每步执行前调用"""
+        for key in self._script_generated_keys:
+            if key in self._script_original_values:
+                self.environment_vars[key] = self._script_original_values[key]
+            else:
+                self.environment_vars.pop(key, None)
+        self._script_generated_keys.clear()
+        self._script_original_values.clear()
 
     def load_from_dict(self, scope: str, data: Dict[str, Any]):
         """从字典批量加载变量"""

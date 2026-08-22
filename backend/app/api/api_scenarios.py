@@ -199,7 +199,8 @@ def list_steps(
         raise HTTPException(status_code=404, detail="场景不存在")
 
     steps = db.query(ApiScenarioStep).filter(
-        ApiScenarioStep.scenario_id == scenario_id
+        ApiScenarioStep.scenario_id == scenario_id,
+        ApiScenarioStep.is_deleted == False,
     ).order_by(ApiScenarioStep.sort_order).all()
     return steps
 
