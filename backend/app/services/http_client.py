@@ -45,14 +45,28 @@ class HttpClient:
         self.verify_ssl = verify_ssl
         self.follow_redirects = follow_redirects
 
-    def _build_headers(self, headers_list: Optional[List[Dict[str, Any]]]) -> Dict[str, str]:
-        """将 [{key, value, enabled}] 格式转为 dict"""
-        result = {}
+    def _build_headers(self, headers_list: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+        """将 [{key, value, enabled}] 格式转为 dict
+
+        HTTP/1.1 (h11) 内部使用 ASCII 编码 header 值，包含非 ASCII 字符
+        （如中文、特殊符号 \u2011 等）会导致编码错误。
+        对于包含非 ASCII 字符的 header 值，编码为 UTF-8 字节串传递给 httpx，
+        h11 会直接使用字节串而不进行 ASCII 编码。
+        """
+        result: Dict[str, Any] = {}
         if not headers_list:
             return result
         for h in headers_list:
             if h.get("enabled", True) and h.get("key"):
-                result[h["key"]] = str(h.get("value", ""))
+                key = str(h["key"])
+                value = str(h.get("value", ""))
+                # 检查是否包含非 ASCII 字符
+                try:
+                    value.encode("ascii")
+                    result[key] = value
+                except UnicodeEncodeError:
+                    # 包含非 ASCII 字符，编码为 UTF-8 字节串
+                    result[key] = value.encode("utf-8")
         return result
 
     def _build_params(self, params_list: Optional[List[Dict[str, Any]]]) -> Dict[str, str]:

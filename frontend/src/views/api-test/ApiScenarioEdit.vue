@@ -604,7 +604,15 @@ const moveStep = (index: number, direction: number) => {
   selectedStepIndex.value = newIndex
 }
 
+// 记录已删除的步骤ID（保存时调用后端删除）
+const deletedStepIds = ref<number[]>([])
+
 const removeStep = (index: number) => {
+  const step = steps.value[index]
+  // 如果步骤已保存到后端（有ID），记录待删除
+  if (step.id && step.id > 0) {
+    deletedStepIds.value.push(step.id)
+  }
   steps.value.splice(index, 1)
   steps.value.forEach((s, i) => s.sort_order = i)
   if (selectedStepIndex.value >= steps.value.length) {
@@ -669,6 +677,16 @@ const handleSave = async () => {
     } else {
       savedScenario = await apiScenariosApi.create(projectId, form.value)
     }
+    // 先删除已标记的步骤
+    for (const stepId of deletedStepIds.value) {
+      try {
+        await apiScenariosApi.deleteStep(projectId, stepId)
+      } catch (e) {
+        console.warn(`删除步骤 ${stepId} 失败:`, e)
+      }
+    }
+    deletedStepIds.value = []
+
     // 保存步骤
     for (let i = 0; i < steps.value.length; i++) {
       const step = steps.value[i]
