@@ -1,6 +1,14 @@
 """
-场景执行引擎
+场景执行引擎（双缓存隔离 + 每请求独立生命周期架构）
+
 支持6种步骤类型: api, case, script, wait, condition, loop
+
+每个接口请求的固定生命周期（由 api_request_lifecycle 装饰器保证）：
+  [1] 请求前：execjs 重新执行前置 JS（环境脚本变量 + 步骤/用例前置脚本），
+      返回 JSON 对象写入请求级 DynamicVarContext；
+  [2] 使用动态变量发起 HTTP 请求 → 断言；
+      响应提取值 / 后置脚本产出写入场景级 ExtractedVarCache（与动态变量隔离）；
+  [3] finally：清理本次生成的全部动态环境变量（成功/失败/异常必定执行）。
 """
 import asyncio
 import json
@@ -10,9 +18,10 @@ from typing import Any, Dict, List, Optional
 
 from app.core.timezone import china_now_naive
 from app.services.http_client import HttpClient, HttpResponse
-from app.services.variable_engine import VariableEngine
 from app.services.assertion_engine import AssertionEngine
 from app.services.script_engine import ScriptEngine
+from app.services.api_test_context import ScenarioVarStore
+from app.services.js_env_generator import JsEnvGenerator, api_request_lifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -66,135 +75,186 @@ class StepExecutionResult:
 
 
 class ScenarioExecutor:
-    """场景执行引擎"""
+    """场景执行引擎（双缓存隔离 + 每请求独立生命周期）"""
 
-    def __init__(self, db_session, variable_engine: Optional[VariableEngine] = None):
+    def __init__(self, db_session, variable_engine=None):
         self.db = db_session
         self.http_client = HttpClient()
         self.assertion_engine = AssertionEngine()
-        self.script_engine = ScriptEngine()
-        self.variable_engine = variable_engine or VariableEngine()
+        self.script_engine = ScriptEngine()  # 仅用于后置脚本（pm.* 兼容）
+        # 双缓存变量仓库：动态缓存(请求级) + 响应缓存(场景级) + 静态层
+        self.var_store = ScenarioVarStore()
+        # execjs 前置 JS 动态变量生成器
+        self.js_generator = JsEnvGenerator()
+        # 环境配置中的脚本类型变量（每次请求前都会重新执行）
+        self._env_scripts: List[Dict[str, Any]] = []
         self.results: List[StepExecutionResult] = []
+
+        # 兼容测试计划共享引擎调用：外部已有变量导入静态层（只读语义）
+        if variable_engine is not None:
+            try:
+                self.var_store.load_static(variable_engine.all_vars())
+            except Exception as e:
+                logger.warning(f"导入外部变量引擎数据失败（忽略）: {e}")
+
+    # ==================== 场景执行入口 ====================
 
     async def execute_scenario(self, scenario: Dict[str, Any], steps: List[Dict[str, Any]],
                                environment: Optional[Dict[str, Any]] = None,
                                extra_vars: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        执行测试场景
-        返回汇总结果
-        """
+        """执行测试场景，返回汇总结果"""
         start_time = time.time()
         self.results = []
 
-        # 加载环境变量
-        if environment:
-            self.variable_engine.load_environment(environment.get("config", {}))
-            base_url = environment.get("base_url", "")
-            self.variable_engine.set("environment", "base_url", base_url)
+        try:
+            # 加载环境：静态变量进静态层，脚本类型变量登记到 _env_scripts（每请求重执行）
+            if environment:
+                self._load_environment(environment)
 
-        # 加载额外变量
-        if extra_vars:
-            self.variable_engine.load_from_dict("scenario", extra_vars)
+            # 额外变量进静态层
+            if extra_vars:
+                self.var_store.load_static(extra_vars)
 
-        # 场景前置脚本
-        if scenario.get("pre_script"):
-            script_result = self.script_engine.execute(
-                scenario["pre_script"],
-                environment_vars=self.variable_engine.environment_vars,
-                global_vars=self.variable_engine.global_vars,
-                request={},
-            )
-            if script_result.variables:
-                for k, v in script_result.variables.items():
-                    self.variable_engine.set("scenario", k, v)
-
-        # 执行步骤
-        passed = 0
-        failed = 0
-        skipped = 0
-
-        for idx, step in enumerate(steps):
-            if not step.get("enabled", True):
-                result = StepExecutionResult()
-                result.step_id = step.get("id")
-                result.step_name = step.get("step_name", f"步骤{idx+1}")
-                result.sort_order = idx
-                result.status = "skipped"
-                self.results.append(result)
-                skipped += 1
-                continue
-
-            result = await self._execute_step(step, idx)
-            self.results.append(result)
-
-            if result.status == "passed":
-                passed += 1
-            elif result.status == "failed":
-                failed += 1
-                if not step.get("continue_on_failure", False):
-                    # 后续步骤标记为跳过
-                    for remaining_step in steps[idx + 1:]:
-                        skip_result = StepExecutionResult()
-                        skip_result.step_id = remaining_step.get("id")
-                        skip_result.step_name = remaining_step.get("step_name", "")
-                        skip_result.sort_order = steps.index(remaining_step)
-                        skip_result.status = "skipped"
-                        self.results.append(skip_result)
-                        skipped += 1
-                    break
-
-        # 场景后置脚本
-        if scenario.get("post_script"):
-            self.script_engine.execute(
-                scenario["post_script"],
-                environment_vars=self.variable_engine.environment_vars,
-                global_vars=self.variable_engine.global_vars,
-                request={},
-            )
-
-        total_duration = time.time() - start_time
-        total = len(self.results)
-        pass_rate = (passed / total * 100) if total > 0 else 0
-
-        exec_result = {
-            "total_steps": total,
-            "passed_steps": passed,
-            "failed_steps": failed,
-            "skipped_steps": skipped,
-            "pass_rate": round(pass_rate, 2),
-            "total_duration": round(total_duration, 3),
-            "avg_duration": round(total_duration / total, 3) if total > 0 else 0,
-            "status": "passed" if failed == 0 else ("partial" if passed > 0 else "failed"),
-            "results": [r.to_dict() for r in self.results],
-        }
-
-        # 独立场景执行（非测试计划内）时发送通知
-        project_id = scenario.get("project_id")
-        if project_id:
-            try:
-                from app.services.notification_service import notify_event
-                notify_event(
-                    project_id,
-                    "api.scenario.completed",
-                    {
-                        "scenario_id": scenario.get("id"),
-                        "scenario_name": scenario.get("name", ""),
-                        "execution_id": scenario.get("execution_id"),
-                        "environment_name": scenario.get("environment_name", "默认环境"),
-                        "total_steps": exec_result["total_steps"],
-                        "passed_steps": exec_result["passed_steps"],
-                        "failed_steps": exec_result["failed_steps"],
-                        "total_duration": exec_result["total_duration"],
-                    },
-                    triggered_by=scenario.get("triggered_by"),
+            # 场景前置脚本：执行一次，产出写入响应缓存（场景级语义）
+            if scenario.get("pre_script"):
+                gen = self.js_generator.generate(
+                    scenario["pre_script"], self.var_store.readable_vars(), {}
                 )
-            except Exception as notify_e:
-                logger.warning(f"发送场景执行通知失败（不影响业务）: {notify_e}")
+                if gen.success:
+                    for k, v in gen.variables.items():
+                        self.var_store.extracted.set(k, v)
+                else:
+                    logger.warning(f"场景前置脚本执行失败: {gen.error}")
 
-        return exec_result
+            # 执行步骤
+            passed = 0
+            failed = 0
+            skipped = 0
+
+            for idx, step in enumerate(steps):
+                if not step.get("enabled", True):
+                    result = StepExecutionResult()
+                    result.step_id = step.get("id")
+                    result.step_name = step.get("step_name", f"步骤{idx+1}")
+                    result.sort_order = idx
+                    result.status = "skipped"
+                    self.results.append(result)
+                    skipped += 1
+                    continue
+
+                result = await self._execute_step(step, idx)
+                self.results.append(result)
+
+                if result.status == "passed":
+                    passed += 1
+                elif result.status == "failed":
+                    failed += 1
+                    if not step.get("continue_on_failure", False):
+                        # 后续步骤标记为跳过
+                        for remaining_step in steps[idx + 1:]:
+                            skip_result = StepExecutionResult()
+                            skip_result.step_id = remaining_step.get("id")
+                            skip_result.step_name = remaining_step.get("step_name", "")
+                            skip_result.sort_order = steps.index(remaining_step)
+                            skip_result.status = "skipped"
+                            self.results.append(skip_result)
+                            skipped += 1
+                        break
+
+            # 场景后置脚本：场景结束时执行一次
+            if scenario.get("post_script"):
+                gen = self.js_generator.generate(
+                    scenario["post_script"], self.var_store.readable_vars(), {}
+                )
+                if not gen.success:
+                    logger.warning(f"场景后置脚本执行失败: {gen.error}")
+
+            total_duration = time.time() - start_time
+            total = len(self.results)
+            pass_rate = (passed / total * 100) if total > 0 else 0
+
+            exec_result = {
+                "total_steps": total,
+                "passed_steps": passed,
+                "failed_steps": failed,
+                "skipped_steps": skipped,
+                "pass_rate": round(pass_rate, 2),
+                "total_duration": round(total_duration, 3),
+                "avg_duration": round(total_duration / total, 3) if total > 0 else 0,
+                "status": "passed" if failed == 0 else ("partial" if passed > 0 else "failed"),
+                "results": [r.to_dict() for r in self.results],
+            }
+
+            # 独立场景执行（非测试计划内）时发送通知
+            project_id = scenario.get("project_id")
+            if project_id:
+                try:
+                    from app.services.notification_service import notify_event
+                    notify_event(
+                        project_id,
+                        "api.scenario.completed",
+                        {
+                            "scenario_id": scenario.get("id"),
+                            "scenario_name": scenario.get("name", ""),
+                            "execution_id": scenario.get("execution_id"),
+                            "environment_name": scenario.get("environment_name", "默认环境"),
+                            "total_steps": exec_result["total_steps"],
+                            "passed_steps": exec_result["passed_steps"],
+                            "failed_steps": exec_result["failed_steps"],
+                            "total_duration": exec_result["total_duration"],
+                        },
+                        triggered_by=scenario.get("triggered_by"),
+                    )
+                except Exception as notify_e:
+                    logger.warning(f"发送场景执行通知失败（不影响业务）: {notify_e}")
+
+            return exec_result
+        finally:
+            # 场景结束：响应缓存与动态缓存全部清理，不留任何残留
+            self.var_store.clear_all()
+
+    def _load_environment(self, environment: Dict[str, Any]):
+        """解析环境配置：静态变量入静态层，脚本类型变量登记待每请求执行"""
+        config = environment.get("config") or {}
+        variables = config.get("variables", {})
+        if isinstance(variables, dict):
+            variables = [{"key": k, "value": v} for k, v in variables.items()]
+
+        self._env_scripts = []
+        if isinstance(variables, list):
+            for v in variables:
+                if not isinstance(v, dict) or not v.get("key"):
+                    continue
+                if v.get("value_type") == "script" and v.get("script"):
+                    self._env_scripts.append({"key": v["key"], "script": v["script"]})
+                else:
+                    self.var_store.load_static({v["key"]: v.get("value", "")})
+
+        base_url = environment.get("base_url", "")
+        if base_url:
+            self.var_store.load_static({"base_url": base_url})
+
+    # ==================== 前置 JS 收集（生命周期装饰器回调） ====================
+
+    def _collect_pre_scripts(self, step: Dict[str, Any], kwargs: Dict[str, Any]) -> List[str]:
+        """收集本次请求需要执行的前置 JS 脚本列表
+
+        来源：环境配置的脚本类型变量 + 步骤/用例前置脚本（kwargs 传入）。
+        每次接口调用都会重新执行一遍，保证动态变量实时生成。
+        """
+        scripts: List[str] = []
+        for v in self._env_scripts:
+            if v.get("script"):
+                scripts.append(v["script"])
+        extra = kwargs.get("extra_pre_script")
+        if extra and str(extra).strip():
+            scripts.append(extra)
+        return scripts
+
+    # ==================== 步骤调度 ====================
 
     async def _execute_step(self, step: Dict[str, Any], index: int) -> StepExecutionResult:
-        """执行单个步骤"""
+        """执行单个步骤（每次重试都完整走一遍生命周期）"""
         result = StepExecutionResult()
         result.step_id = step.get("id")
         result.step_name = step.get("step_name", f"步骤{index+1}")
@@ -236,8 +296,10 @@ class ScenarioExecutor:
         result.completed_at = china_now_naive()
         return result
 
+    # ==================== API / 用例步骤 ====================
+
     async def _execute_api_step(self, step: Dict[str, Any], result: StepExecutionResult):
-        """执行 API 步骤"""
+        """执行 API 步骤：准备请求上下文后交给生命周期装饰器"""
         from app.models.api_test import ApiDefinition
 
         api_id = step.get("api_id")
@@ -252,31 +314,30 @@ class ScenarioExecutor:
             result.error_message = f"接口不存在: {api_id}"
             return
 
-        # 合并请求配置
+        # 合并请求配置（保留原有业务参数语义）
         request_config = step.get("request_config", {})
-        method = request_config.get("method", api.method)
-        path = request_config.get("path", api.path)
+        method = request_config.get("method") or api.method
+        path = api.path or request_config.get("path", "")
 
-        # 原始请求上下文（变量替换前）
-        base_url = self.variable_engine.get("base_url") or ""
+        # 原始请求上下文（变量替换前），base_url 从上下文对象读取
+        base_url = self.var_store.get("base_url") or ""
         raw_url = base_url + path
         raw_headers = request_config.get("headers", api.headers) or []
         raw_params = request_config.get("query_params", api.query_params) or []
-        raw_body_type = request_config.get("body_type", api.body_type) or "raw"
-
-        # 第一遍：替换静态环境变量
-        resolved_url = self.variable_engine.replace(raw_url)
-        resolved_headers = self.variable_engine.replace_headers(raw_headers)
-        resolved_params = self.variable_engine.replace_params(raw_params)
         body_type = request_config.get("body_type", api.body_type)
-        resolved_body = self.variable_engine.replace_body(body_type, request_config.get("body_content", api.body_content))
+
+        # 第一遍替换：静态层 + 响应缓存（此时动态缓存必为空，上一请求已清理）
+        resolved_url = self.var_store.replace(raw_url)
+        resolved_headers = self.var_store.replace_headers(raw_headers)
+        resolved_params = self.var_store.replace_params(raw_params)
+        resolved_body = self.var_store.replace_body(body_type, request_config.get("body_content", api.body_content))
 
         # Query Params 覆盖：{"name":"${name}"} 格式，合并到原参数列表
         params_override = request_config.get("query_params_override")
         if params_override:
             try:
                 if isinstance(params_override, str):
-                    override_str = self.variable_engine.replace(params_override)
+                    override_str = self.var_store.replace(params_override)
                     override_dict = json.loads(override_str)
                 else:
                     override_dict = params_override
@@ -291,7 +352,7 @@ class ScenarioExecutor:
         if body_override:
             try:
                 if isinstance(body_override, str):
-                    override_str = self.variable_engine.replace(body_override)
+                    override_str = self.var_store.replace(body_override)
                     override_data = json.loads(override_str)
                 else:
                     override_data = body_override
@@ -303,51 +364,50 @@ class ScenarioExecutor:
             except Exception as e:
                 logger.warning(f"请求参数覆盖合并失败: {e}，使用原请求体")
 
-        # 执行环境脚本变量（用已解析的 body/headers，保证签名与实际请求一致）
-        result.console_log += self.variable_engine.run_environment_scripts({
+        # 组装请求上下文（供前置 JS 计算签名等使用，保证签名与实际请求一致）
+        request_ctx = {
             "method": method,
             "url": resolved_url,
             "headers": resolved_headers,
             "query_params": resolved_params,
             "body": HttpClient.serialize_body(body_type, resolved_body),
             "body_type": body_type or "raw",
-        })
+        }
 
-        # 前置脚本
-        if step.get("pre_script"):
-            script_result = self.script_engine.execute(
-                step["pre_script"],
-                environment_vars=self.variable_engine.environment_vars,
-                global_vars=self.variable_engine.global_vars,
-                request={
-                    "method": method,
-                    "url": resolved_url,
-                    "headers": resolved_headers,
-                    "query_params": resolved_params,
-                    "body": HttpClient.serialize_body(body_type, resolved_body),
-                    "body_type": body_type or "raw",
-                },
-            )
-            for k, v in script_result.variables.items():
-                self.variable_engine.set("scenario", k, v)
-            result.console_log += script_result.output
+        # 进入固定生命周期：JS生成变量 -> HTTP请求 -> finally清理
+        await self._request_api_with_lifecycle(
+            step, result, request_ctx,
+            extra_pre_script=step.get("pre_script") or "",
+            body_type=body_type,
+            resolved_body=resolved_body,
+            raw_headers=raw_headers,
+            raw_params=raw_params,
+            assertions=step.get("assertions", []),
+        )
 
-        # 第二遍：替换脚本生成的变量（如 {{signature}}），从已覆盖参数的基础上重新解析
-        url = self.variable_engine.replace(resolved_url)
-        if resolved_url != url:
-            logger.info(f"步骤 {step.get('step_name')} URL变量替换: {resolved_url} -> {url}")
-        headers = self.variable_engine.replace_headers(resolved_headers)
-        params = self.variable_engine.replace_params(resolved_params)
-        body_content = self.variable_engine.replace_body(body_type, resolved_body)
+    @api_request_lifecycle
+    async def _request_api_with_lifecycle(self, step: Dict[str, Any], result: StepExecutionResult,
+                                          request_ctx: Dict[str, Any], **kwargs):
+        """API 请求本体（动态变量已就绪，finally 清理由装饰器保证）"""
+        body_type = kwargs.get("body_type") or "raw"
+        resolved_body = kwargs.get("resolved_body")
 
-        result.request_method = method
+        # 第二遍替换：动态环境变量就绪后重新解析（如 {{signature}}、{{timestamp}}）
+        url = self.var_store.replace(request_ctx["url"])
+        if request_ctx["url"] != url:
+            logger.info(f"步骤 {step.get('step_name')} URL动态变量替换: {request_ctx['url']} -> {url}")
+        headers = self.var_store.replace_headers(request_ctx["headers"])
+        params = self.var_store.replace_params(request_ctx["query_params"])
+        body_content = self.var_store.replace_body(body_type, resolved_body)
+
+        result.request_method = request_ctx["method"]
         result.request_url = url
         result.request_headers = {h.get("key", ""): h.get("value", "") for h in headers if h.get("enabled", True)}
         result.request_body = json.dumps(body_content, ensure_ascii=False) if body_content else ""
 
-        # 发送请求
+        # 发送 HTTP 请求（变量全部来自上下文对象，不使用全局变量）
         response = await self.http_client.asend(
-            method=method, url=url, headers=headers, params=params,
+            method=request_ctx["method"], url=url, headers=headers, params=params,
             body_type=body_type, body_content=body_content,
         )
 
@@ -362,36 +422,19 @@ class ScenarioExecutor:
             result.error_message = response.error
             return
 
-        # 后置脚本 + 变量提取
+        # 后置脚本：产出写入响应缓存（与动态环境变量隔离），保留 pm.* 兼容
         if step.get("post_script"):
-            script_result = self.script_engine.execute(
-                step["post_script"],
-                environment_vars=self.variable_engine.environment_vars,
-                global_vars=self.variable_engine.global_vars,
-                request={
-                    "method": method,
-                    "url": url,
-                    "headers": raw_headers,
-                    "query_params": raw_params,
-                    "body": HttpClient.serialize_body(body_type, body_content),
-                    "body_type": body_type or "raw",
-                },
-                response=response.to_dict(),
-            )
-            for k, v in script_result.variables.items():
-                self.variable_engine.set("scenario", k, v)
-            result.console_log += script_result.output
+            self._run_post_script(step["post_script"], request_ctx, url, response, result)
 
-        # 提取变量
+        # 响应提取变量：写入响应缓存，供后续步骤引用
         self._extract_variables(step.get("id"), response)
 
         # 断言：优先使用步骤自带的断言，否则尝试从关联用例加载
-        assertions = step.get("assertions", [])
+        assertions = kwargs.get("assertions") or []
         if not assertions and step.get("case_id"):
             from app.models.api_test import ApiCaseAssertion
-            case_id = step.get("case_id")
             case_assertions = self.db.query(ApiCaseAssertion).filter(
-                ApiCaseAssertion.case_id == case_id,
+                ApiCaseAssertion.case_id == step.get("case_id"),
                 ApiCaseAssertion.enabled == True,
             ).order_by(ApiCaseAssertion.sort_order).all()
             assertions = [
@@ -405,20 +448,11 @@ class ScenarioExecutor:
                 for a in case_assertions
             ]
 
-        if assertions:
-            assertion_results = self.assertion_engine.run_all(assertions, response)
-            result.assertions = [a.to_dict() for a in assertion_results]
-            all_passed = all(a.passed for a in assertion_results) if assertion_results else True
-            result.status = "passed" if all_passed else "failed"
-            if not all_passed:
-                failed = [a for a in assertion_results if not a.passed]
-                result.error_message = f"{len(failed)}个断言失败"
-        else:
-            result.status = "passed" if response.status_code < 400 else "failed"
+        self._run_assertions(assertions, response, result)
 
     async def _execute_case_step(self, step: Dict[str, Any], result: StepExecutionResult):
-        """执行用例步骤（复用用例执行逻辑）"""
-        from app.models.api_test import ApiTestCase, ApiCaseAssertion
+        """执行用例步骤（复用用例执行逻辑，同样走独立生命周期）"""
+        from app.models.api_test import ApiTestCase
 
         case_id = step.get("case_id")
         if not case_id:
@@ -447,17 +481,17 @@ class ScenarioExecutor:
             path = case.path or ""
 
         # 原始请求上下文（变量替换前）
-        base_url = self.variable_engine.get("base_url") or ""
+        base_url = self.var_store.get("base_url") or ""
         raw_url = base_url + path
         raw_headers = case.headers or []
         raw_params = case.query_params or []
 
-        # 第一遍：替换静态环境变量
-        resolved_url = self.variable_engine.replace(raw_url)
-        resolved_headers = self.variable_engine.replace_headers(raw_headers)
-        resolved_params = self.variable_engine.replace_params(raw_params)
+        # 第一遍替换：静态层 + 响应缓存
+        resolved_url = self.var_store.replace(raw_url)
+        resolved_headers = self.var_store.replace_headers(raw_headers)
+        resolved_params = self.var_store.replace_params(raw_params)
         body_type = case.body_type
-        resolved_body = self.variable_engine.replace_body(body_type, case.body_content)
+        resolved_body = self.var_store.replace_body(body_type, case.body_content)
 
         # Query Params 覆盖（用例步骤同样支持）
         request_config = step.get("request_config", {})
@@ -465,7 +499,7 @@ class ScenarioExecutor:
         if params_override:
             try:
                 if isinstance(params_override, str):
-                    override_str = self.variable_engine.replace(params_override)
+                    override_str = self.var_store.replace(params_override)
                     override_dict = json.loads(override_str)
                 else:
                     override_dict = params_override
@@ -475,50 +509,49 @@ class ScenarioExecutor:
             except Exception as e:
                 logger.warning(f"用例步骤 QueryParams覆盖合并失败: {e}")
 
-        # 执行环境脚本变量（用已解析的 body/headers）
-        result.console_log += self.variable_engine.run_environment_scripts({
+        request_ctx = {
             "method": method,
             "url": resolved_url,
             "headers": resolved_headers,
             "query_params": resolved_params,
             "body": HttpClient.serialize_body(body_type, resolved_body),
             "body_type": body_type or "raw",
-        })
+        }
 
-        # 前置脚本
-        if case.pre_script:
-            script_result = self.script_engine.execute(
-                case.pre_script,
-                environment_vars=self.variable_engine.environment_vars,
-                global_vars=self.variable_engine.global_vars,
-                request={
-                    "method": method,
-                    "url": resolved_url,
-                    "headers": resolved_headers,
-                    "query_params": resolved_params,
-                    "body": HttpClient.serialize_body(body_type, resolved_body),
-                    "body_type": body_type or "raw",
-                },
-            )
-            for k, v in script_result.variables.items():
-                self.variable_engine.set("scenario", k, v)
-            result.console_log += script_result.output
+        # 进入固定生命周期（用例前置脚本作为额外前置 JS）
+        await self._request_case_with_lifecycle(
+            step, result, request_ctx,
+            extra_pre_script=case.pre_script or "",
+            case_id=case.id,
+            body_type=body_type,
+            resolved_body=resolved_body,
+            raw_headers=raw_headers,
+            raw_params=raw_params,
+            case_post_script=case.post_script or "",
+        )
 
-        # 第二遍：替换脚本生成的变量（如 {{signature}}）
-        url = self.variable_engine.replace(resolved_url)
-        if resolved_url != url:
-            logger.info(f"用例步骤 {step.get('step_name')} URL变量替换: {resolved_url} -> {url}")
-        headers = self.variable_engine.replace_headers(resolved_headers)
-        params = self.variable_engine.replace_params(resolved_params)
-        body_content = self.variable_engine.replace_body(body_type, resolved_body)
+    @api_request_lifecycle
+    async def _request_case_with_lifecycle(self, step: Dict[str, Any], result: StepExecutionResult,
+                                           request_ctx: Dict[str, Any], **kwargs):
+        """用例请求本体（动态变量已就绪，finally 清理由装饰器保证）"""
+        body_type = kwargs.get("body_type") or "raw"
+        resolved_body = kwargs.get("resolved_body")
 
-        result.request_method = method
+        # 第二遍替换：动态环境变量就绪后重新解析
+        url = self.var_store.replace(request_ctx["url"])
+        if request_ctx["url"] != url:
+            logger.info(f"用例步骤 {step.get('step_name')} URL动态变量替换: {request_ctx['url']} -> {url}")
+        headers = self.var_store.replace_headers(request_ctx["headers"])
+        params = self.var_store.replace_params(request_ctx["query_params"])
+        body_content = self.var_store.replace_body(body_type, resolved_body)
+
+        result.request_method = request_ctx["method"]
         result.request_url = url
         result.request_headers = {h.get("key", ""): h.get("value", "") for h in headers if h.get("enabled", True)}
         result.request_body = json.dumps(body_content, ensure_ascii=False) if body_content else ""
 
         response = await self.http_client.asend(
-            method=method, url=url, headers=headers, params=params,
+            method=request_ctx["method"], url=url, headers=headers, params=params,
             body_type=body_type, body_content=body_content,
         )
 
@@ -533,32 +566,17 @@ class ScenarioExecutor:
             result.error_message = response.error
             return
 
-        # 后置脚本
-        if case.post_script:
-            script_result = self.script_engine.execute(
-                case.post_script,
-                environment_vars=self.variable_engine.environment_vars,
-                global_vars=self.variable_engine.global_vars,
-                request={
-                    "method": method,
-                    "url": url,
-                    "headers": raw_headers,
-                    "query_params": raw_params,
-                    "body": HttpClient.serialize_body(body_type, body_content),
-                    "body_type": body_type or "raw",
-                },
-                response=response.to_dict(),
-            )
-            for k, v in script_result.variables.items():
-                self.variable_engine.set("scenario", k, v)
-            result.console_log += script_result.output
+        # 后置脚本：产出写入响应缓存
+        if kwargs.get("case_post_script"):
+            self._run_post_script(kwargs["case_post_script"], request_ctx, url, response, result)
 
-        # 提取变量（与 api 步骤一致）
+        # 响应提取变量：写入响应缓存
         self._extract_variables(step.get("id"), response)
 
         # 断言
+        from app.models.api_test import ApiCaseAssertion
         assertions = self.db.query(ApiCaseAssertion).filter(
-            ApiCaseAssertion.case_id == case_id,
+            ApiCaseAssertion.case_id == kwargs.get("case_id"),
             ApiCaseAssertion.enabled == True,
         ).order_by(ApiCaseAssertion.sort_order).all()
 
@@ -567,38 +585,66 @@ class ScenarioExecutor:
              "operator": a.operator, "expected_value": a.expected_value, "enabled": a.enabled}
             for a in assertions
         ]
+        self._run_assertions(assertion_dicts, response, result)
 
-        if assertion_dicts:
-            assertion_results = self.assertion_engine.run_all(assertion_dicts, response)
+    # ==================== 后置脚本 / 断言公共逻辑 ====================
+
+    def _run_post_script(self, script: str, request_ctx: Dict[str, Any], url: str,
+                         response: HttpResponse, result: StepExecutionResult):
+        """执行后置脚本（保留 pm.* 兼容），产出变量写入响应缓存（与动态变量隔离）"""
+        script_result = self.script_engine.execute(
+            script,
+            environment_vars=self.var_store.readable_vars(),
+            global_vars={},
+            request={
+                "method": request_ctx["method"],
+                "url": url,
+                "headers": request_ctx.get("headers", []),
+                "query_params": request_ctx.get("query_params", []),
+                "body": request_ctx.get("body", ""),
+                "body_type": request_ctx.get("body_type", "raw"),
+            },
+            response=response.to_dict(),
+        )
+        # 后置脚本属于"响应取值"语义：写入响应缓存，场景内持续有效
+        for k, v in script_result.variables.items():
+            self.var_store.extracted.set(k, v)
+        if script_result.output:
+            result.console_log += script_result.output
+
+    def _run_assertions(self, assertions: List[Dict], response: HttpResponse,
+                        result: StepExecutionResult):
+        """执行断言并落结果"""
+        if assertions:
+            assertion_results = self.assertion_engine.run_all(assertions, response)
             result.assertions = [a.to_dict() for a in assertion_results]
-            all_passed = all(a.passed for a in assertion_results)
+            all_passed = all(a.passed for a in assertion_results) if assertion_results else True
             result.status = "passed" if all_passed else "failed"
             if not all_passed:
-                result.error_message = "断言失败"
+                failed = [a for a in assertion_results if not a.passed]
+                result.error_message = f"{len(failed)}个断言失败"
         else:
             result.status = "passed" if response.status_code < 400 else "failed"
 
+    # ==================== 其他步骤类型 ====================
+
     def _execute_script_step(self, step: Dict[str, Any], result: StepExecutionResult):
-        """执行脚本步骤"""
+        """执行脚本步骤（execjs，产出写入响应缓存，场景级语义）"""
         script = step.get("script_content", "")
         if not script:
             result.status = "passed"
             return
 
-        script_result = self.script_engine.execute(
-            script,
-            environment_vars=self.variable_engine.environment_vars,
-            global_vars=self.variable_engine.global_vars,
-            request={},
-        )
-
-        for k, v in script_result.variables.items():
-            self.variable_engine.set("scenario", k, v)
-
-        result.console_log = script_result.output
-        result.status = "passed" if script_result.success else "failed"
-        if not script_result.success:
-            result.error_message = script_result.error
+        gen = self.js_generator.generate(script, self.var_store.readable_vars(), {})
+        if gen.output:
+            result.console_log = gen.output
+        if gen.success:
+            for k, v in gen.variables.items():
+                self.var_store.extracted.set(k, v)
+            result.status = "passed"
+        else:
+            result.status = "failed"
+            result.error_message = gen.error
 
     def _execute_wait_step(self, step: Dict[str, Any], result: StepExecutionResult):
         """执行等待步骤"""
@@ -608,7 +654,7 @@ class ScenarioExecutor:
         result.console_log = f"等待 {seconds} 秒"
 
     def _execute_condition_step(self, step: Dict[str, Any], result: StepExecutionResult):
-        """执行条件步骤（简化：判断变量是否存在/等于）"""
+        """执行条件步骤（简化：判断变量是否存在/等于），变量从上下文对象读取"""
         expr = step.get("condition_expr", "")
         if not expr:
             result.status = "passed"
@@ -620,35 +666,37 @@ class ScenarioExecutor:
                 parts = expr.split("==")
                 var_name = parts[0].strip()
                 expected = parts[1].strip().strip('"').strip("'")
-                actual = str(self.variable_engine.get(var_name) or "")
+                actual = str(self.var_store.get(var_name) or "")
                 result.status = "passed" if actual == expected else "skipped"
             elif "!=" in expr:
                 parts = expr.split("!=")
                 var_name = parts[0].strip()
                 expected = parts[1].strip().strip('"').strip("'")
-                actual = str(self.variable_engine.get(var_name) or "")
+                actual = str(self.var_store.get(var_name) or "")
                 result.status = "passed" if actual != expected else "skipped"
             else:
                 # 判断变量是否存在且为真
-                actual = self.variable_engine.get(expr.strip())
+                actual = self.var_store.get(expr.strip())
                 result.status = "passed" if actual else "skipped"
         except Exception as e:
             result.status = "failed"
             result.error_message = f"条件判断异常: {e}"
 
     async def _execute_loop_step(self, step: Dict[str, Any], result: StepExecutionResult):
-        """执行循环步骤（简化：固定次数循环）"""
+        """执行循环步骤（简化：固定次数循环），每次迭代索引写入响应缓存"""
         loop_config = step.get("loop_config", {})
         loop_count = loop_config.get("count", 1)
         loop_var = loop_config.get("variable", "loop_index")
 
         for i in range(loop_count):
-            self.variable_engine.set("local", loop_var, i)
-            # 循环体中的子步骤执行（简化：只记录）
-            pass
+            # 循环索引供子步骤引用；循环结束后移除，避免污染后续步骤
+            self.var_store.extracted.set(loop_var, i)
 
+        self.var_store.extracted.delete(loop_var)
         result.status = "passed"
         result.console_log = f"循环执行 {loop_count} 次"
+
+    # ==================== 工具方法 ====================
 
     @staticmethod
     def _deep_merge(base: dict, override: dict) -> dict:
@@ -681,7 +729,7 @@ class ScenarioExecutor:
         return result
 
     def _extract_variables(self, step_id: Optional[int], response: HttpResponse):
-        """从响应中提取变量"""
+        """从响应中提取变量，写入响应缓存（与动态环境变量隔离，场景内持续有效）"""
         if not step_id:
             logger.warning(f"变量提取跳过: step_id 为空")
             return
@@ -735,9 +783,9 @@ class ScenarioExecutor:
                     value = cookies if cookies else var.default_value
 
                 if value is not None:
-                    scope = var.scope if var.scope in ("scenario", "global") else "scenario"
-                    self.variable_engine.set(scope, var.var_name, value)
-                    logger.info(f"变量已设置: {var.var_name}={value} (scope={scope})")
+                    # 统一写入响应缓存（scope=global 兼容旧配置，语义同为场景内可见）
+                    self.var_store.extracted.set(var.var_name, value)
+                    logger.info(f"响应缓存变量已设置: {var.var_name}={value}")
                 else:
                     logger.warning(f"变量提取 {var.var_name}: 值为None，使用默认值={var.default_value}")
             except Exception as e:
