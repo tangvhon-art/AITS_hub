@@ -270,14 +270,17 @@
                       <div class="override-tip">GET 请求的查询参数用此方式覆盖，支持变量引用</div>
                     </a-form-item>
                     <a-tabs size="small">
-                      <a-tab-pane key="pre" tab="前置脚本">
+                      <a-tab-pane key="pre" tab="前置JS变量生成脚本">
                         <div class="script-header">
-                          <span class="script-tip">支持 JavaScript，<code>variables.set('key','val')</code> 设置变量</span>
+                          <span class="script-tip">
+                            每次请求前用 execjs 重新执行，<code>return</code> JSON 对象写入动态环境变量（请求结束含异常自动全部清理）；
+                            支持内联脚本或 <code>@file:xxx.js</code> 引用外部文件，可用 <code>__vars__</code> 读变量、<code>__request__</code> 读请求上下文
+                          </span>
                           <a-button size="small" @click="handleAiGenerateScript(step, 'pre_script')" :loading="step._aiLoading">
                             <template #icon><RobotOutlined /></template>AI 生成
                           </a-button>
                         </div>
-                        <a-textarea v-model:value="step.pre_script" :rows="4" style="font-family: monospace" placeholder="// 请求前执行" />
+                        <a-textarea v-model:value="step.pre_script" :rows="4" style="font-family: monospace" placeholder="// 返回 JSON 对象生成动态环境变量，如：&#10;// return { timestamp: Date.now(), sign: require('crypto').createHash('md5').update(__vars__.app_key + Date.now()).digest('hex') }" />
                       </a-tab-pane>
                       <a-tab-pane key="post" tab="后置脚本">
                         <div class="script-header">
@@ -288,9 +291,9 @@
                         </div>
                         <a-textarea v-model:value="step.post_script" :rows="4" style="font-family: monospace" placeholder="// 响应后执行" />
                       </a-tab-pane>
-                      <a-tab-pane key="extract" tab="响应变量提取">
+                      <a-tab-pane key="extract" tab="响应变量提取（响应缓存）">
                         <div class="extract-header">
-                          <span class="extract-tip">从响应中提取变量，后续步骤可通过 <code>${变量名}</code> 引用</span>
+                          <span class="extract-tip">提取值写入独立的响应缓存（与动态环境变量隔离），整个场景内有效，后续步骤用 <code>{'{{'}变量名{'}}'}</code> 或 <code>${变量名}</code> 引用</span>
                           <a-button type="dashed" size="small" @click="addExtractVar(step)">+ 添加提取</a-button>
                         </div>
                         <a-table
@@ -570,7 +573,7 @@ const copyVar = (varName: string) => {
 const handleAiGenerateScript = async (step: any, field: string) => {
   step._aiLoading = true
   try {
-    const fieldName = field === 'pre_script' ? '前置脚本' : field === 'post_script' ? '后置脚本' : '脚本'
+    const fieldName = field === 'pre_script' ? '前置JS变量生成脚本（要求 return 一个 JSON 对象作为动态环境变量）' : field === 'post_script' ? '后置脚本' : '脚本'
     const prompt = `请为接口测试场景步骤生成${fieldName}（JavaScript）：
 
 步骤名称：${step.step_name}

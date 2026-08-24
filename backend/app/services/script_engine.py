@@ -30,12 +30,15 @@ class ScriptResult:
 
     def __init__(self, success: bool, output: str = "", error: str = "",
                  variables: Optional[Dict[str, Any]] = None,
-                 tests: Optional[List[Dict[str, Any]]] = None):
+                 tests: Optional[List[Dict[str, Any]]] = None,
+                 request_headers: Optional[List[Dict[str, Any]]] = None):
         self.success = success
         self.output = output
         self.error = error
         self.variables = variables or {}
         self.tests = tests or []
+        # 脚本通过 pm.request.headers.add/upsert 修改后的完整请求头数组（无修改时为 None）
+        self.request_headers = request_headers
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -44,6 +47,7 @@ class ScriptResult:
             "error": self.error,
             "variables": self.variables,
             "tests": self.tests,
+            "request_headers": self.request_headers,
         }
 
 
@@ -201,8 +205,8 @@ class ScriptEngine:
             # 处理 require('crypto-js')
             user_script = self._patch_require(script)
 
-            # 用 IIFE 包裹以支持顶层 return
-            wrapped_script = "(function() {\n" + user_script + "\n})();"
+            # 用 IIFE 包裹以支持顶层 return；return 的 JSON 对象存入 __ret__（供结果提取）
+            wrapped_script = "var __ret__ = (function() {\n" + user_script + "\n})(); if (__ret__ && typeof __ret__ === 'object') { __ret__ = JSON.stringify(__ret__); } else if (typeof __ret__ === 'string') { } else { __ret__ = ''; }"
 
             # 执行用户脚本
             ctx.eval(wrapped_script)
@@ -215,6 +219,8 @@ class ScriptEngine:
             new_env = json.loads(new_env_raw) if new_env_raw else {}
             new_glob_raw = ctx.eval("JSON.stringify(pm.globals.toObject())")
             new_glob = json.loads(new_glob_raw) if new_glob_raw else {}
+            ret_raw = ctx.eval("typeof __ret__ !== 'undefined' ? __ret__ : ''")
+            headers_raw = ctx.eval("JSON.stringify(pm.request.headers)")
 
             # 只返回脚本实际新增或修改的变量（delta），避免把传入的静态环境变量泄漏到 scenario_vars
             delta = {}
@@ -224,12 +230,15 @@ class ScriptEngine:
             for k, v in new_glob.items():
                 if k not in pre_glob or pre_glob[k] != v:
                     delta[k] = v
+            # 顶层 return 的 JSON 对象也并入 delta
+            self._merge_returned_vars(ret_raw, delta)
 
             return ScriptResult(
                 success=True,
                 output=output or "",
                 variables=delta,
                 tests=tests,
+                request_headers=self._extract_header_patch(headers_raw, request),
             )
         except Exception as e:
             return ScriptResult(success=False, error=str(e))
@@ -250,12 +259,65 @@ class ScriptEngine:
         )
         return script
 
+    @staticmethod
+    def _merge_returned_vars(ret_raw: Any, delta: Dict):
+        """合并脚本顶层 return 的 JSON 对象到 delta 变量"""
+        if not ret_raw or not isinstance(ret_raw, str):
+            return
+        try:
+            ret_obj = json.loads(ret_raw)
+        except Exception:
+            return
+        if isinstance(ret_obj, dict):
+            delta.update(ret_obj)
+
+    @staticmethod
+    def _extract_header_patch(headers_raw: Any, request: Dict) -> Optional[List[Dict[str, Any]]]:
+        """对比脚本执行前后的 pm.request.headers，有修改则返回修改后的完整数组"""
+        if not headers_raw or not isinstance(headers_raw, str):
+            return None
+        try:
+            new_headers = json.loads(headers_raw)
+        except Exception:
+            return None
+        if not isinstance(new_headers, list):
+            return None
+        orig = [
+            {"key": (h or {}).get("key", ""), "value": (h or {}).get("value", ""),
+             "disabled": bool((h or {}).get("disabled", False))}
+            for h in (request.get("headers") or [])
+            if isinstance(h, dict)
+        ]
+        if new_headers == orig:
+            return None
+        return new_headers
+
     def _build_prelude_js(self, env_vars: Dict, glob_vars: Dict,
                           request: Dict, response: Dict) -> str:
         """构建 QuickJS 前置代码：CryptoJS（Python桥接）+ pm API + console"""
         return f"""
 var __tests__ = [];
 var __output__ = "";
+
+// 为请求头/查询参数/formdata 数组挂载 Postman 风格辅助方法（数组本身支持 map/filter 等）
+function __attach_pm_list_methods__(arr) {{
+    arr.find = function(fn) {{
+        for (var i = 0; i < this.length; i++) {{ if (fn(this[i])) return this[i]; }}
+        return undefined;
+    }};
+    arr.each = function(fn) {{ this.forEach(function(item) {{ fn(item); }}); }};
+    arr.upsert = function(item) {{
+        var found = false;
+        for (var i = 0; i < this.length; i++) {{
+            if (this[i].key === item.key) {{ this[i].value = item.value; found = true; break; }}
+        }}
+        if (!found) this.push(item);
+    }};
+    arr.add = function(item) {{ this.push(item); }};
+    arr.remove = function(key) {{
+        for (var i = this.length - 1; i >= 0; i--) {{ if (this[i].key === key) this.splice(i, 1); }}
+    }};
+}}
 
 // ==================== CryptoJS 兼容层（Python 桥接） ====================
 var CryptoJS = (function() {{
@@ -337,15 +399,18 @@ var __request_obj__ = {json.dumps(request)};
 var __request_headers__ = (__request_obj__.headers || []).map(function(h) {{
     return {{ key: h.key || "", value: h.value || "", disabled: h.disabled || false }};
 }});
+__attach_pm_list_methods__(__request_headers__);
 
-// 构建查询参数数组（支持 each）
+// 构建查询参数数组（真数组，支持 map/filter/each）
 var __request_query__ = (__request_obj__.query_params || []).map(function(q) {{
     return {{ key: q.key || "", value: q.value || "", disabled: q.disabled || false }};
 }});
+__attach_pm_list_methods__(__request_query__);
 
-// 构建 body（兼容 Postman formdata 语法）
+// 构建 body（兼容 Postman formdata 语法；Postman 中 json/text 均为 raw 模式）
 var __body_mode__ = __request_obj__.body_type || "raw";
 if (__body_mode__ === "form-data") __body_mode__ = "formdata";
+if (__body_mode__ === "json" || __body_mode__ === "text" || __body_mode__ === "binary") __body_mode__ = "raw";
 
 var __formdata_arr__ = [];
 if (__body_mode__ === "formdata") {{
@@ -368,6 +433,7 @@ if (__body_mode__ === "formdata") {{
         }} catch(e) {{}}
     }}
 }}
+__attach_pm_list_methods__(__formdata_arr__);
 
 var __raw_body_str__ = "";
 if (typeof __request_obj__.body === 'string') {{
@@ -379,10 +445,7 @@ if (typeof __request_obj__.body === 'string') {{
 var __request_body__ = {{
     mode: __body_mode__,
     raw: __raw_body_str__,
-    formdata: {{
-        _arr: __formdata_arr__,
-        each: function(fn) {{ this._arr.forEach(function(item) {{ fn(item); }}); }}
-    }}
+    formdata: __formdata_arr__
 }};
 
 // ==================== Chai-style expect ====================
@@ -513,39 +576,9 @@ var pm = {{
         method: __request_obj__.method || "GET",
         url: {{
             raw: __request_obj__.url || "",
-            query: {{
-                each: function(fn) {{
-                    __request_query__.forEach(function(q) {{ fn(q); }});
-                }}
-            }}
+            query: __request_query__
         }},
-        headers: {{
-            _arr: __request_headers__,
-            find: function(fn) {{
-                for (var i = 0; i < this._arr.length; i++) {{
-                    if (fn(this._arr[i])) return this._arr[i];
-                }}
-                return undefined;
-            }},
-            each: function(fn) {{
-                this._arr.forEach(function(h) {{ fn(h); }});
-            }},
-            upsert: function(item) {{
-                var found = false;
-                for (var i = 0; i < this._arr.length; i++) {{
-                    if (this._arr[i].key === item.key) {{
-                        this._arr[i].value = item.value;
-                        found = true;
-                        break;
-                    }}
-                }}
-                if (!found) this._arr.push(item);
-            }},
-            add: function(item) {{ this._arr.push(item); }},
-            remove: function(key) {{
-                this._arr = this._arr.filter(function(h) {{ return h.key !== key; }});
-            }}
-        }},
+        headers: __request_headers__,
         body: __request_body__
     }},
     response: {{
@@ -594,13 +627,15 @@ var console = {{
             ctx.eval(prelude)
 
             user_script = self._patch_require(script)
-            wrapped_script = "(function() {\n" + user_script + "\n})();"
+            wrapped_script = "var __ret__ = (function() {\n" + user_script + "\n})(); if (__ret__ && typeof __ret__ === 'object') { __ret__ = JSON.stringify(__ret__); } else if (typeof __ret__ === 'string') { } else { __ret__ = ''; }"
             ctx.eval(wrapped_script)
 
             output = ctx.eval("typeof __output__ !== 'undefined' ? __output__ : ''")
             tests = json.loads(ctx.eval("JSON.stringify(__tests__)"))
             new_env = json.loads(ctx.eval("JSON.stringify(pm.environment.toObject())"))
             new_glob = json.loads(ctx.eval("JSON.stringify(pm.globals.toObject())"))
+            ret_raw = ctx.eval("typeof __ret__ !== 'undefined' ? __ret__ : ''")
+            headers_raw = ctx.eval("JSON.stringify(pm.request.headers)")
 
             delta = {}
             for k, v in new_env.items():
@@ -609,12 +644,14 @@ var console = {{
             for k, v in new_glob.items():
                 if k not in pre_glob or pre_glob[k] != v:
                     delta[k] = v
+            self._merge_returned_vars(ret_raw, delta)
 
             return ScriptResult(
                 success=True,
                 output=output or "",
                 variables=delta,
                 tests=tests,
+                request_headers=self._extract_header_patch(headers_raw, request),
             )
         except Exception as e:
             return ScriptResult(success=False, error=str(e))

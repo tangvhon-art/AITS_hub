@@ -100,6 +100,9 @@ async def send_debug_request(
         )
         for k, v in script_result.variables.items():
             var_engine.set("scenario", k, v)
+        # 前置脚本对 pm.request.headers 的修改同样纳入补丁
+        if script_result.request_headers:
+            var_engine.collect_header_patches(script_result.request_headers, resolved_headers)
         console_log += script_result.output
 
     # 第二遍：从原始数据重新替换所有变量（静态 + 脚本生成的），
@@ -114,6 +117,9 @@ async def send_debug_request(
     headers = var_engine.replace_headers(data.headers)
     params = var_engine.replace_params(data.query_params)
     body_content = var_engine.replace_body(data.body_type, data.body_content)
+    # 合并环境/前置脚本注入的请求头（如签名头，同名覆盖占位符）
+    if var_engine.script_header_patches:
+        headers = var_engine.apply_header_patches(headers)
     _sig_val = [h.get('value') for h in (headers or []) if h.get('key') == 'XP-Signature']
     _logger.info(f"[DEBUG] XP-Signature after 2nd pass: {_sig_val}")
 

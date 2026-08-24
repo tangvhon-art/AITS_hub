@@ -91,7 +91,7 @@
                   size="small"
                 />
                 <div v-else class="script-cell">
-                  <a-button size="small" type="dashed" @click="openScriptEditor(record, index)">
+                  <a-button size="small" type="dashed" @click="openScriptEditor(record)">
                     <template #icon><CodeOutlined /></template>
                     编辑脚本
                   </a-button>
@@ -218,7 +218,6 @@ const showCreateEnv = ref(false)
 const showEditEnv = ref(false)
 const showScriptEditor = ref(false)
 const editingScript = ref('')
-const editingVarIndex = ref(-1)
 const editingVar = ref<any>(null)
 
 const envForm = ref({
@@ -262,16 +261,16 @@ const addVar = () => {
   variables.value.push({ key: '', value: '', value_type: 'static', script: '', description: '' })
 }
 
-const openScriptEditor = (record: any, index: number) => {
+// 直接持有行对象引用定位，避免依赖表格 slot index（分页/排序时 index 是页内下标，会写错行）
+const openScriptEditor = (record: any) => {
   editingVar.value = record
-  editingVarIndex.value = index
   editingScript.value = record.script || ''
   showScriptEditor.value = true
 }
 
 const saveScript = () => {
-  if (editingVarIndex.value >= 0 && variables.value[editingVarIndex.value]) {
-    variables.value[editingVarIndex.value].script = editingScript.value
+  if (editingVar.value) {
+    editingVar.value.script = editingScript.value
   }
   showScriptEditor.value = false
   message.success('脚本已保存，请点击「保存变量」生效')

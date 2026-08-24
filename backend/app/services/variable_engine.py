@@ -24,6 +24,8 @@ class VariableEngine:
         self._script_vars: list = []
         self._script_generated_keys: set = set()
         self._script_original_values: Dict[str, Any] = {}
+        # 脚本通过 pm.request.headers.add/upsert 注入的请求头补丁：[{key, value}, ...]
+        self.script_header_patches: list = []
 
     def set(self, scope: str, name: str, value: Any):
         """设置变量"""
@@ -146,6 +148,7 @@ class VariableEngine:
         _logger = logging.getLogger(__name__)
         engine = ScriptEngine()
         console_output = ""
+        input_headers = (request or {}).get("headers") or []
 
         for v in self._script_vars:
             _logger.info(f"[SCRIPT] Executing env script: key={v.get('key')}")
@@ -171,6 +174,10 @@ class VariableEngine:
                 for _k in ["signature"]:
                     if _k in self.environment_vars:
                         _logger.info(f"[SCRIPT] env_vars[{_k}] = {str(self.environment_vars[_k])[:80]}")
+                # 收集脚本对 pm.request.headers 的修改（如签名头注入/占位符覆盖）
+                if result.request_headers:
+                    self.collect_header_patches(result.request_headers, input_headers)
+                    _logger.info(f"[SCRIPT] header patches: {self.script_header_patches}")
                 console_output += result.output
             else:
                 _logger.warning(f"[SCRIPT] Failed [{v.get('key')}]: {result.error}")
@@ -186,6 +193,49 @@ class VariableEngine:
                 self.environment_vars.pop(key, None)
         self._script_generated_keys.clear()
         self._script_original_values.clear()
+        self.script_header_patches = []
+
+    def collect_header_patches(self, result_headers: Optional[list], input_headers: Optional[list]):
+        """对比脚本执行后的 pm.request.headers 与输入请求头，收集新增/值被修改的头
+
+        同名头只记录最后一次修改（覆盖式），禁用头忽略。
+        """
+        input_map: Dict[str, str] = {}
+        for h in (input_headers or []):
+            if isinstance(h, dict) and h.get("key"):
+                input_map[str(h["key"]).lower()] = str(h.get("value", ""))
+        patched = {str(p["key"]).lower(): p for p in self.script_header_patches}
+        for h in (result_headers or []):
+            if not isinstance(h, dict) or h.get("disabled"):
+                continue
+            key = str(h.get("key", ""))
+            if not key:
+                continue
+            value = str(h.get("value", ""))
+            lk = key.lower()
+            if lk not in input_map or input_map[lk] != value:
+                if lk in patched:
+                    patched[lk]["value"] = value
+                else:
+                    patch = {"key": key, "value": value}
+                    self.script_header_patches.append(patch)
+                    patched[lk] = patch
+            input_map[lk] = value
+
+    def apply_header_patches(self, headers: Optional[list]) -> list:
+        """将脚本注入的头补丁合并进请求头：同名更新值，不同名追加"""
+        result = [dict(h) for h in (headers or []) if isinstance(h, dict)]
+        for patch in self.script_header_patches:
+            pk = str(patch["key"]).lower()
+            merged = False
+            for h in result:
+                if str(h.get("key", "")).lower() == pk:
+                    h["value"] = patch["value"]
+                    merged = True
+                    break
+            if not merged:
+                result.append({"key": patch["key"], "value": patch["value"], "enabled": True})
+        return result
 
     def load_from_dict(self, scope: str, data: Dict[str, Any]):
         """从字典批量加载变量"""
