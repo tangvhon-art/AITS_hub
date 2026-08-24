@@ -19,6 +19,9 @@ export interface ApiDefinition {
   path_params: any[]
   body_type: string
   body_content: any
+  raw_language: string
+  pre_script: string
+  post_script: string
   response_examples: any[]
   created_by: number
   created_at: string

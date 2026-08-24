@@ -101,6 +101,13 @@
             <a-radio value="form-data">form-data</a-radio>
             <a-radio value="x-www-form-urlencoded">x-www-form-urlencoded</a-radio>
             <a-radio value="raw">raw</a-radio>
+            <a-select
+              v-if="request.body_type === 'raw'"
+              v-model:value="request.raw_language"
+              size="small"
+              style="width: 120px; margin-left: 8px"
+              :options="rawLanguageOptions"
+            />
           </a-radio-group>
           <div v-if="request.body_type === 'json' || request.body_type === 'raw'" style="margin-bottom: 8px; display: flex; justify-content: flex-end">
             <MockDataInserter v-model="bodyContent" />
@@ -297,6 +304,7 @@ const request = ref<any>({
   query_params: [],
   body_type: 'none',
   body_content: null,
+  raw_language: 'Text',
   pre_script: '',
   post_script: '',
   timeout: 30,
@@ -374,9 +382,18 @@ watch(() => request.value.url, (newUrl) => {
 })
 
 const bodyContent = computed({
-  get: () => typeof request.value.body_content === 'string' ? request.value.body_content : JSON.stringify(request.value.body_content, null, 2),
+  get: () => {
+    if (request.value.body_type === 'raw' && request.value.raw_language !== 'JSON') {
+      return typeof request.value.body_content === 'string' ? request.value.body_content : JSON.stringify(request.value.body_content)
+    }
+    return typeof request.value.body_content === 'string' ? request.value.body_content : JSON.stringify(request.value.body_content, null, 2)
+  },
   set: (val: string) => {
-    try { request.value.body_content = JSON.parse(val) } catch { request.value.body_content = val }
+    if (request.value.body_type === 'raw' && request.value.raw_language !== 'JSON') {
+      request.value.body_content = val
+    } else {
+      try { request.value.body_content = JSON.parse(val) } catch { request.value.body_content = val }
+    }
   }
 })
 
@@ -385,6 +402,14 @@ const paramColumns = [
   { title: '参数名', dataIndex: 'key', key: 'key' },
   { title: '参数值', dataIndex: 'value', key: 'value' },
   { title: '操作', key: 'action', width: 60 },
+]
+
+const rawLanguageOptions = [
+  { label: 'Text', value: 'Text' },
+  { label: 'JavaScript', value: 'JavaScript' },
+  { label: 'JSON', value: 'JSON' },
+  { label: 'HTML', value: 'HTML' },
+  { label: 'XML', value: 'XML' },
 ]
 
 const fullUrl = computed(() => {
@@ -687,6 +712,9 @@ const loadApiFromQuery = async () => {
       request.value.query_params = api.query_params || []
       request.value.body_type = api.body_type
       request.value.body_content = api.body_content
+      request.value.raw_language = api.raw_language || 'Text'
+      request.value.pre_script = api.pre_script || ''
+      request.value.post_script = api.post_script || ''
       if ((api.body_type === 'form-data' || api.body_type === 'x-www-form-urlencoded')
           && Array.isArray(api.body_content)) {
         bodyParams.value = api.body_content

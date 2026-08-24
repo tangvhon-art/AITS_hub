@@ -119,6 +119,13 @@
               <a-radio value="form-data">form-data</a-radio>
               <a-radio value="x-www-form-urlencoded">x-www-form-urlencoded</a-radio>
               <a-radio value="raw">raw</a-radio>
+              <a-select
+                v-if="form.body_type === 'raw'"
+                v-model:value="form.raw_language"
+                size="small"
+                style="width: 120px; margin-left: 8px"
+                :options="rawLanguageOptions"
+              />
             </a-radio-group>
             <div v-if="form.body_type === 'json' || form.body_type === 'raw'" style="margin-bottom: 8px; display: flex; justify-content: flex-end">
               <MockDataInserter v-model="bodyContent" />
@@ -283,6 +290,7 @@ const form = ref<any>({
   query_params: [],
   body_type: 'none',
   body_content: null,
+  raw_language: 'Text',
   pre_script: '',
   post_script: '',
   param_source: 'none',
@@ -296,9 +304,18 @@ const bodyParams = computed({
 })
 
 const bodyContent = computed({
-  get: () => typeof form.value.body_content === 'string' ? form.value.body_content : JSON.stringify(form.value.body_content, null, 2),
+  get: () => {
+    if (form.value.body_type === 'raw' && form.value.raw_language !== 'JSON') {
+      return typeof form.value.body_content === 'string' ? form.value.body_content : JSON.stringify(form.value.body_content)
+    }
+    return typeof form.value.body_content === 'string' ? form.value.body_content : JSON.stringify(form.value.body_content, null, 2)
+  },
   set: (val: string) => {
-    try { form.value.body_content = JSON.parse(val) } catch { form.value.body_content = val }
+    if (form.value.body_type === 'raw' && form.value.raw_language !== 'JSON') {
+      form.value.body_content = val
+    } else {
+      try { form.value.body_content = JSON.parse(val) } catch { form.value.body_content = val }
+    }
   }
 })
 
@@ -307,6 +324,14 @@ const paramColumns = [
   { title: '参数名', dataIndex: 'key', key: 'key' },
   { title: '参数值', dataIndex: 'value', key: 'value' },
   { title: '操作', key: 'action', width: 60 },
+]
+
+const rawLanguageOptions = [
+  { label: 'Text', value: 'Text' },
+  { label: 'JavaScript', value: 'JavaScript' },
+  { label: 'JSON', value: 'JSON' },
+  { label: 'HTML', value: 'HTML' },
+  { label: 'XML', value: 'XML' },
 ]
 
 const assertionColumns = [
