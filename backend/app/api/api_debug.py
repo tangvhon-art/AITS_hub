@@ -104,6 +104,8 @@ async def send_debug_request(
         if script_result.request_headers:
             var_engine.collect_header_patches(script_result.request_headers, resolved_headers)
         console_log += script_result.output
+        if not script_result.success:
+            console_log += f"[ERROR] 前置脚本执行失败: {script_result.error}\n"
 
     # 第二遍：从原始数据重新替换所有变量（静态 + 脚本生成的），
     # 不使用第一遍的结果，确保 {{signature}} 等占位符始终是未解析状态
@@ -152,6 +154,8 @@ async def send_debug_request(
             response=response.to_dict(),
         )
         console_log += script_result.output
+        if not script_result.success:
+            console_log += f"[ERROR] 后置脚本执行失败: {script_result.error}\n"
         tests = script_result.tests
 
     # 保存历史记录

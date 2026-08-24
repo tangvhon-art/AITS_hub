@@ -228,6 +228,7 @@ function __attach_pm_list_methods__(arr) {{
         if (!found) this.push(item);
     }};
     arr.add = function(item) {{ this.push(item); }};
+    arr.toArray = function() {{ return this.slice(); }};
     arr.remove = function(key) {{
         for (var i = this.length - 1; i >= 0; i--) {{ if (this[i].key === key) this.splice(i, 1); }}
     }};
@@ -289,11 +290,19 @@ var pm = {{
     }},
     variables: {{
         set: function(k, v) {{ __out__[k] = v; }},
-        get: function(k) {{ return __vars__[k]; }}
+        get: function(k) {{ return (k in __out__) ? __out__[k] : __vars__[k]; }},
+        replaceIn: function(str) {{
+            return String(str == null ? "" : str).replace(/\{{\{{([^}}]+)\}}\}}/g, function(m, name) {{
+                name = name.trim();
+                if (name in __out__) return String(__out__[name]);
+                if (name in __vars__) return String(__vars__[name]);
+                return m;
+            }});
+        }}
     }},
     request: {{
         method: __request__.method || "GET",
-        url: {{ raw: __request__.url || "", query: __request_query__ }},
+        url: {{ raw: __request__.url || "", query: __request_query__, toString: function() {{ return this.raw; }} }},
         headers: __request_headers__,
         body: {{ mode: __body_mode__, raw: __raw_body_str__, formdata: __formdata_arr__ }}
     }}

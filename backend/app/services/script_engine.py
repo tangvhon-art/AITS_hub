@@ -241,7 +241,13 @@ class ScriptEngine:
                 request_headers=self._extract_header_patch(headers_raw, request),
             )
         except Exception as e:
-            return ScriptResult(success=False, error=str(e))
+            # 尽量保留报错前已收集的 console 输出
+            partial = ""
+            try:
+                partial = ctx.eval("typeof __output__ !== 'undefined' ? __output__ : ''") or ""
+            except Exception:
+                pass
+            return ScriptResult(success=False, output=partial, error=str(e))
 
     def _patch_require(self, script: str) -> str:
         """处理 require('crypto-js')：删除赋值语句，替换裸引用为 CryptoJS 全局变量"""
@@ -314,6 +320,7 @@ function __attach_pm_list_methods__(arr) {{
         if (!found) this.push(item);
     }};
     arr.add = function(item) {{ this.push(item); }};
+    arr.toArray = function() {{ return this.slice(); }};
     arr.remove = function(key) {{
         for (var i = this.length - 1; i >= 0; i--) {{ if (this[i].key === key) this.splice(i, 1); }}
     }};
@@ -572,11 +579,25 @@ var pm = {{
         get: function(k) {{ return this._vars[k]; }},
         toObject: function() {{ return this._vars; }}
     }},
+    variables: {{
+        set: function(k, v) {{ __env_vars__[k] = v; }},
+        get: function(k) {{ return (k in __env_vars__) ? __env_vars__[k] : __glob_vars__[k]; }},
+        toObject: function() {{ var o = {{}}; for (var k in __glob_vars__) o[k] = __glob_vars__[k]; for (var k2 in __env_vars__) o[k2] = __env_vars__[k2]; return o; }},
+        replaceIn: function(str) {{
+            return String(str == null ? "" : str).replace(/\{{\{{([^}}]+)\}}\}}/g, function(m, name) {{
+                name = name.trim();
+                if (name in __env_vars__) return String(__env_vars__[name]);
+                if (name in __glob_vars__) return String(__glob_vars__[name]);
+                return m;
+            }});
+        }}
+    }},
     request: {{
         method: __request_obj__.method || "GET",
         url: {{
             raw: __request_obj__.url || "",
-            query: __request_query__
+            query: __request_query__,
+            toString: function() {{ return this.raw; }}
         }},
         headers: __request_headers__,
         body: __request_body__
@@ -654,7 +675,12 @@ var console = {{
                 request_headers=self._extract_header_patch(headers_raw, request),
             )
         except Exception as e:
-            return ScriptResult(success=False, error=str(e))
+            partial = ""
+            try:
+                partial = ctx.eval("typeof __output__ !== 'undefined' ? __output__ : ''") or ""
+            except Exception:
+                pass
+            return ScriptResult(success=False, output=partial, error=str(e))
 
     def _execute_simplified(self, script: str, env_vars: Dict, glob_vars: Dict,
                             request: Dict, response: Dict) -> ScriptResult:
