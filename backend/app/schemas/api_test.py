@@ -55,6 +55,9 @@ class ApiDefinitionBase(BaseModel):
     path_params: Optional[List[Dict[str, Any]]] = []
     body_type: str = "none"
     body_content: Optional[Dict[str, Any]] = {}
+    pre_script: Optional[str] = ""
+    post_script: Optional[str] = ""
+    raw_language: Optional[str] = "Text"
     response_examples: Optional[List[Dict[str, Any]]] = []
 
 
@@ -75,6 +78,9 @@ class ApiDefinitionUpdate(BaseModel):
     path_params: Optional[List[Dict[str, Any]]] = None
     body_type: Optional[str] = None
     body_content: Optional[Dict[str, Any]] = None
+    pre_script: Optional[str] = None
+    post_script: Optional[str] = None
+    raw_language: Optional[str] = None
     response_examples: Optional[List[Dict[str, Any]]] = None
 
 
@@ -93,6 +99,9 @@ class ApiDefinitionResponse(BaseModel):
     path_params: Optional[List[Dict[str, Any]]] = []
     body_type: str = "none"
     body_content: Optional[Dict[str, Any]] = {}
+    pre_script: Optional[str] = ""
+    post_script: Optional[str] = ""
+    raw_language: Optional[str] = "Text"
     response_examples: Optional[List[Dict[str, Any]]] = []
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None

@@ -124,13 +124,28 @@
             </div>
           </a-tab-pane>
           <a-tab-pane key="body" tab="Body">
-            <a-radio-group v-model:value="form.body_type" style="margin-bottom: 12px">
-              <a-radio value="none">none</a-radio>
-              <a-radio value="json">JSON</a-radio>
-              <a-radio value="form-data">form-data</a-radio>
-              <a-radio value="x-www-form-urlencoded">x-www-form-urlencoded</a-radio>
-              <a-radio value="raw">raw</a-radio>
-            </a-radio-group>
+            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px">
+              <a-radio-group v-model:value="form.body_type">
+                <a-radio value="none">none</a-radio>
+                <a-radio value="json">JSON</a-radio>
+                <a-radio value="form-data">form-data</a-radio>
+                <a-radio value="x-www-form-urlencoded">x-www-form-urlencoded</a-radio>
+                <a-radio value="raw">raw</a-radio>
+              </a-radio-group>
+              <a-select
+                v-if="form.body_type === 'raw'"
+                v-model:value="form.raw_language"
+                style="width: 120px"
+                size="small"
+                :options="[
+                  { value: 'Text', label: 'Text' },
+                  { value: 'JSON', label: 'JSON' },
+                  { value: 'XML', label: 'XML' },
+                  { value: 'HTML', label: 'HTML' },
+                  { value: 'JavaScript', label: 'JavaScript' },
+                ]"
+              />
+            </div>
             <a-textarea
               v-if="form.body_type === 'json' || form.body_type === 'raw'"
               v-model:value="bodyContent"
@@ -168,6 +183,22 @@
               <a-button type="dashed" @click="addBodyParam">+ 添加字段</a-button>
               <a-button @click="openBatchEdit('body')">批量编辑</a-button>
             </div>
+          </a-tab-pane>
+          <a-tab-pane key="pre-script" tab="前置脚本">
+            <a-textarea
+              v-model:value="form.pre_script"
+              :rows="10"
+              placeholder="// 请求前执行的 JS 脚本，例如：&#10;// pm.environment.set('timestamp', Date.now())&#10;// pm.request.headers.add({ key: 'X-Token', value: pm.environment.get('token') })"
+              style="font-family: monospace"
+            />
+          </a-tab-pane>
+          <a-tab-pane key="post-script" tab="后置脚本">
+            <a-textarea
+              v-model:value="form.post_script"
+              :rows="10"
+              placeholder="// 请求后执行的 JS 脚本，可访问响应数据，例如：&#10;// const data = pm.response.json()&#10;// pm.environment.set('token', data.token)"
+              style="font-family: monospace"
+            />
           </a-tab-pane>
         </a-tabs>
       </a-card>
@@ -276,6 +307,9 @@ const form = ref<any>({
   path_params: [],
   body_type: 'none',
   body_content: null,
+  raw_language: 'Text',
+  pre_script: '',
+  post_script: '',
   response_examples: [],
 })
 

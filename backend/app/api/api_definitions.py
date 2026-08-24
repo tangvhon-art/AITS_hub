@@ -105,6 +105,9 @@ def create_definition(
         path_params=data.path_params,
         body_type=data.body_type,
         body_content=data.body_content,
+        pre_script=data.pre_script,
+        post_script=data.post_script,
+        raw_language=data.raw_language,
         response_examples=data.response_examples,
         created_by=current_user.id,
     )
