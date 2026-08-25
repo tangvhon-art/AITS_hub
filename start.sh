@@ -1,5 +1,5 @@
 #!/bin/bash
-# AITS 一键启动脚本（前端 + 后端 + Redis + Celery多队列 + Beat + Flower）
+# AITS 一键启动脚本（先启动项目：后端 + 前端，再启动 Worker：Redis + Celery多队列 + Beat + Flower）
 # 用法:
 #   ./start.sh                                    # 启动全部（前端+后端+Celery+Flower）
 #   ./start.sh --backend-only                     # 仅启动后端+Celery
@@ -161,6 +161,20 @@ if [ "$START_CELERY" = true ]; then
     fi
 fi
 
+# 启动后端（先启动项目，再启动 Celery Worker）
+if [ "$START_BACKEND" = true ]; then
+    echo ">>> 启动后端 (port=$PORT_BACKEND)..."
+    bash "$SCRIPT_DIR/start_backend.sh" --port "$PORT_BACKEND" &
+    PIDS+=($!)
+fi
+
+# 启动前端
+if [ "$START_FRONTEND" = true ]; then
+    echo ">>> 启动前端 (port=$PORT_FRONTEND)..."
+    bash "$SCRIPT_DIR/start_frontend.sh" --port "$PORT_FRONTEND" &
+    PIDS+=($!)
+fi
+
 # 启动 Celery 多队列 Worker + Beat
 if [ "$START_CELERY" = true ]; then
     echo ">>> 启动 Celery 多队列 Worker..."
@@ -264,20 +278,6 @@ if [ "$START_FLOWER" = true ]; then
         > "$FLOWER_LOG" 2>&1 &
     PIDS+=($!)
     cd "$SCRIPT_DIR"
-fi
-
-# 启动后端
-if [ "$START_BACKEND" = true ]; then
-    echo ">>> 启动后端 (port=$PORT_BACKEND)..."
-    bash "$SCRIPT_DIR/start_backend.sh" --port "$PORT_BACKEND" &
-    PIDS+=($!)
-fi
-
-# 启动前端
-if [ "$START_FRONTEND" = true ]; then
-    echo ">>> 启动前端 (port=$PORT_FRONTEND)..."
-    bash "$SCRIPT_DIR/start_frontend.sh" --port "$PORT_FRONTEND" &
-    PIDS+=($!)
 fi
 
 echo ""

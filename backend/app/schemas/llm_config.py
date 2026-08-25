@@ -42,6 +42,8 @@ class LLMConfigUpdate(BaseModel):
 
 
 class LLMConfigResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=(), from_attributes=True)
+
     id: int
     name: str
     provider: str
@@ -57,9 +59,6 @@ class LLMConfigResponse(BaseModel):
     has_api_key: bool = False
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class LLMConfigTestRequest(BaseModel):
