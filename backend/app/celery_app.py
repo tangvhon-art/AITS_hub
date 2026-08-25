@@ -82,12 +82,13 @@ celery_app.conf.update(
     task_send_sent_event=True,
     # 定时任务
     beat_schedule={
-        "aggregate-ui-healing-knowledge": {
-            "task": "app.tasks.ui_healing_tasks.aggregate_page_knowledge",
-            "schedule": 3600.0,  # 每小时执行一次
-            "args": (),
-            "options": {"queue": "default"},
-        },
+        # 已关闭：UI自愈页面知识聚合不再定时自动触发（如需恢复，取消注释即可）
+        # "aggregate-ui-healing-knowledge": {
+        #     "task": "app.tasks.ui_healing_tasks.aggregate_page_knowledge",
+        #     "schedule": 3600.0,  # 每小时执行一次
+        #     "args": (),
+        #     "options": {"queue": "default"},
+        # },
         "cleanup-uploads": {
             "task": "app.tasks.cleanup_tasks.cleanup_uploads_task",
             "schedule": 10800.0,  # 每3小时执行一次
