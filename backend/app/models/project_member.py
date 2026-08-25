@@ -11,13 +11,13 @@ class ProjectMember(SoftDeleteMixin, Base):
         {"comment": "项目成员关联表"},
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    role = Column(String(20), nullable=False, default="member")  # owner / admin / member
-    joined_at = Column(DateTime, default=china_now_naive)
-    created_at = Column(DateTime, default=china_now_naive)
-    updated_at = Column(DateTime, onupdate=china_now_naive)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True, comment="自增主键")
+    project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=False, index=True, comment="所属项目ID")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True, comment="成员用户ID")
+    role = Column(String(20), nullable=False, default="member", comment="成员角色：owner-所有者，admin-管理员，member-普通成员")
+    joined_at = Column(DateTime, default=china_now_naive, comment="加入项目时间")
+    created_at = Column(DateTime, default=china_now_naive, comment="创建时间")
+    updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")
 
     project = relationship("Project", backref="members")
     user = relationship("User", backref="project_memberships")

@@ -64,8 +64,11 @@ celery_app.conf.update(
     task_soft_time_limit=540,
     # 结果过期时间（1小时）
     result_expires=3600,
-    # macOS 下使用 solo 池避免 fork 导致的 SIGABRT
+    # macOS 下使用 solo 池避免 fork 导致的 SIGABRT（solo 池不支持 autoscale，并发固定为1）
     worker_pool="solo" if platform.system() == "Darwin" else "prefork",
+    # 默认并发数（仅作为未指定并发参数时的兼容兑底）：
+    # Linux 生产环境命令行 --autoscale=MAX,MIN 会覆盖此值，动态扩缩容；
+    # autoscale 数值不在此写死，由各队列 worker 启动命令自行指定
     worker_concurrency=4,
     # 任务预取数
     worker_prefetch_multiplier=1,

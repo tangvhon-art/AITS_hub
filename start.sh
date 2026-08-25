@@ -182,53 +182,67 @@ if [ "$START_CELERY" = true ]; then
     unset PYTHONHOME PYTHONPATH
     mkdir -p "$SCRIPT_DIR/logs"
 
+    # 平台检测：Linux 生产用 prefork + autoscale 动态扩缩容；
+    # macOS solo 池（fork 会 SIGABRT）不支持 autoscale，并发固定为1
+    if [ "$(uname -s)" = "Darwin" ]; then
+        SCALE_NOTE="macOS solo 池, 并发=1, 不支持 autoscale"
+        DEFAULT_SCALE="-c 1"
+        AI_SCALE="-c 1"
+        EXEC_SCALE="-c 1"
+    else
+        # autoscale=MAX,MIN：空闲时缩到 MIN，任务堆积时扩到 MAX
+        # execution 队列最容易阻塞，给最高的扩容上限
+        SCALE_NOTE="Linux prefork + autoscale 动态扩缩容"
+        DEFAULT_SCALE="--autoscale=4,2"
+        AI_SCALE="--autoscale=6,2"
+        EXEC_SCALE="--autoscale=12,2"
+    fi
+    echo "    并发模式: $SCALE_NOTE"
+
     # --- AI 队列 Worker ---
     AI_LOG="$SCRIPT_DIR/logs/worker-ai.log"
     nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
-        --concurrency=2 \
+        $AI_SCALE \
         --hostname=ai-worker@%h \
         -Q ai \
         --events \
         --heartbeat-interval=5 \
         --max-tasks-per-child=100 \
-        --time-limit=600 \
         > "$AI_LOG" 2>&1 &
     AI_PID=$!
     PIDS+=($AI_PID)
-    echo "    AI Worker 启动 (PID=$AI_PID, 队列=ai, 并发=2)"
+    echo "    AI Worker 启动 (PID=$AI_PID, 队列=ai, $AI_SCALE)"
 
     # --- Execution 队列 Worker ---
     EXEC_LOG="$SCRIPT_DIR/logs/worker-execution.log"
     nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
-        --concurrency=4 \
+        $EXEC_SCALE \
         --hostname=execution-worker@%h \
         -Q execution \
         --events \
         --heartbeat-interval=5 \
         --max-tasks-per-child=100 \
-        --time-limit=600 \
         > "$EXEC_LOG" 2>&1 &
     EXEC_PID=$!
     PIDS+=($EXEC_PID)
-    echo "    Execution Worker 启动 (PID=$EXEC_PID, 队列=execution, 并发=4)"
+    echo "    Execution Worker 启动 (PID=$EXEC_PID, 队列=execution, $EXEC_SCALE)"
 
     # --- Default 队列 Worker ---
     DEFAULT_LOG="$SCRIPT_DIR/logs/worker-default.log"
     nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
-        --concurrency=2 \
+        $DEFAULT_SCALE \
         --hostname=default-worker@%h \
         -Q default \
         --events \
         --heartbeat-interval=5 \
         --max-tasks-per-child=100 \
-        --time-limit=600 \
         > "$DEFAULT_LOG" 2>&1 &
     DEFAULT_PID=$!
     PIDS+=($DEFAULT_PID)
-    echo "    Default Worker 启动 (PID=$DEFAULT_PID, 队列=default, 并发=2)"
+    echo "    Default Worker 启动 (PID=$DEFAULT_PID, 队列=default, $DEFAULT_SCALE)"
 
     # --- Beat 定时任务调度器 ---
     BEAT_LOG="$SCRIPT_DIR/logs/beat.log"
@@ -246,7 +260,7 @@ if [ "$START_CELERY" = true ]; then
     sleep 3
     WORKER_READY=false
     for i in $(seq 1 10); do
-        if cd "$SCRIPT_DIR/backend" && ./venv/bin/celery -A app.celery_app.celery_app inspect ping -d "celery@ai-worker@$(hostname)" > /dev/null 2>&1; then
+        if cd "$SCRIPT_DIR/backend" && ./venv/bin/celery -A app.celery_app.celery_app inspect ping -d "ai-worker@$(hostname)" > /dev/null 2>&1; then
             WORKER_READY=true
         fi
         cd "$SCRIPT_DIR"
@@ -285,10 +299,19 @@ echo "服务已启动:"
 [ "$START_BACKEND" = true ]  && echo "  后端 API:      http://localhost:$PORT_BACKEND"
 [ "$START_BACKEND" = true ]  && echo "  API 文档:      http://localhost:$PORT_BACKEND/docs"
 [ "$START_FRONTEND" = true ] && echo "  前端页面:      http://localhost:$PORT_FRONTEND"
-[ "$START_CELERY" = true ]   && echo "  Celery Worker: 3个队列已启动"
-[ "$START_CELERY" = true ]   && echo "    - ai        (并发2, AI生成类任务)"
-[ "$START_CELERY" = true ]   && echo "    - execution (并发4, 执行类任务)"
-[ "$START_CELERY" = true ]   && echo "    - default   (并发2, 后台轻量任务)"
+if [ "$START_CELERY" = true ]; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+        echo "  Celery Worker: 3个队列已启动（macOS solo 池, 每队列并发=1）"
+        echo "    - ai        (solo 并发1, AI生成类任务)"
+        echo "    - execution (solo 并发1, 执行类任务)"
+        echo "    - default   (solo 并发1, 后台轻量任务)"
+    else
+        echo "  Celery Worker: 3个队列已启动（Linux prefork + autoscale 动态扩缩容）"
+        echo "    - ai        (autoscale=6,2, AI生成类任务)"
+        echo "    - execution (autoscale=12,2, 执行类任务, 扩容上限最高)"
+        echo "    - default   (autoscale=4,2, 后台轻量任务)"
+    fi
+fi
 [ "$START_CELERY" = true ]   && echo "  Beat:          定时任务调度器已启动"
 [ "$START_FLOWER" = true ]   && echo "  Flower:        http://localhost:$PORT_FLOWER/flower/"
 [ "$START_FLOWER" = true ]   && echo "  任务监控:      http://localhost:$PORT_FRONTEND/task-monitor"
