@@ -11,6 +11,8 @@ from app.models.report import TestReport
 from app.models.knowledge_doc import KnowledgeDoc
 from app.models.test_plan import TestPlan, TestPlanCase, TestEnvironment, TestPlanItem, TestPlanExecution, TestPlanExecutionResult
 from app.models.audit_log import AuditLog
+from app.models.sys_crontab import SysCrontab
+from app.models.celery_task_log import CeleryTaskLog
 from app.models.project_version import ProjectVersion
 from app.models.automation_script import AutomationScript
 from app.models.automation_suite import (
@@ -97,4 +99,6 @@ __all__ = [
     "UIPageProfile",
     "UIElementFingerprint",
     "UIHealingRecord",
+    "SysCrontab",
+    "CeleryTaskLog",
 ]

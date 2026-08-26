@@ -54,6 +54,9 @@ const request = {
   put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
     return instance.put(url, data, config) as unknown as Promise<T>
   },
+  patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+    return instance.patch(url, data, config) as unknown as Promise<T>
+  },
   delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<T> {
     return instance.delete(url, config) as unknown as Promise<T>
   }

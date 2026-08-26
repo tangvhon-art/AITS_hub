@@ -53,6 +53,8 @@ from app.api import (
     mcp_router,
     skills_router,
     ui_healing_router,
+    crontab_router,
+    celery_beat_router,
 )
 
 logging.basicConfig(
@@ -278,6 +280,8 @@ app.include_router(notifications_router)
 app.include_router(mcp_router)
 app.include_router(skills_router)
 app.include_router(ui_healing_router)
+app.include_router(crontab_router)
+app.include_router(celery_beat_router)
 
 # 静态文件服务（截图等上传文件）
 import os as _os

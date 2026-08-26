@@ -43,6 +43,8 @@ from app.api.notifications import router as notifications_router
 from app.api.mcp import router as mcp_router
 from app.api.skills import router as skills_router
 from app.api.ui_healing import router as ui_healing_router
+from app.api.crontab import router as crontab_router
+from app.api.celery_beat import router as celery_beat_router
 
 __all__ = [
     "auth_router",
@@ -90,4 +92,6 @@ __all__ = [
     "mcp_router",
     "skills_router",
     "ui_healing_router",
+    "crontab_router",
+    "celery_beat_router",
 ]

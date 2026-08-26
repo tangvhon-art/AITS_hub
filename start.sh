@@ -185,10 +185,10 @@ if [ "$START_CELERY" = true ]; then
     # 平台检测：Linux 生产用 prefork + autoscale 动态扩缩容；
     # macOS solo 池（fork 会 SIGABRT）不支持 autoscale，并发固定为1
     if [ "$(uname -s)" = "Darwin" ]; then
-        SCALE_NOTE="macOS solo 池, 并发=1, 不支持 autoscale"
-        DEFAULT_SCALE="-c 1"
-        AI_SCALE="-c 1"
-        EXEC_SCALE="-c 1"
+        SCALE_NOTE="macOS solo 池, 并发=2, 不支持 autoscale"
+        DEFAULT_SCALE="-c 2"
+        AI_SCALE="-c 2"
+        EXEC_SCALE="-c 2"
     else
         # autoscale=MAX,MIN：空闲时缩到 MIN，任务堆积时扩到 MAX
         # execution 队列最容易阻塞，给最高的扩容上限
@@ -245,9 +245,11 @@ if [ "$START_CELERY" = true ]; then
     echo "    Default Worker 启动 (PID=$DEFAULT_PID, 队列=default, $DEFAULT_SCALE)"
 
     # --- Beat 定时任务调度器 ---
+    # ⚠️ Beat 必须单实例运行（多个 beat 会重复派发任务），--pidfile 防止重复启动
     BEAT_LOG="$SCRIPT_DIR/logs/beat.log"
     nohup ./venv/bin/celery -A app.celery_app.celery_app beat \
         --loglevel=info \
+        --pidfile="$SCRIPT_DIR/logs/beat.pid" \
         > "$BEAT_LOG" 2>&1 &
     BEAT_PID=$!
     PIDS+=($BEAT_PID)
@@ -301,10 +303,10 @@ echo "服务已启动:"
 [ "$START_FRONTEND" = true ] && echo "  前端页面:      http://localhost:$PORT_FRONTEND"
 if [ "$START_CELERY" = true ]; then
     if [ "$(uname -s)" = "Darwin" ]; then
-        echo "  Celery Worker: 3个队列已启动（macOS solo 池, 每队列并发=1）"
-        echo "    - ai        (solo 并发1, AI生成类任务)"
-        echo "    - execution (solo 并发1, 执行类任务)"
-        echo "    - default   (solo 并发1, 后台轻量任务)"
+        echo "  Celery Worker: 3个队列已启动（macOS solo 池, 每队列并发=2）"
+        echo "    - ai        (solo 并发2, AI生成类任务)"
+        echo "    - execution (solo 并发2, 执行类任务)"
+        echo "    - default   (solo 并发2, 后台轻量任务)"
     else
         echo "  Celery Worker: 3个队列已启动（Linux prefork + autoscale 动态扩缩容）"
         echo "    - ai        (autoscale=6,2, AI生成类任务)"

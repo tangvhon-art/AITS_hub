@@ -243,6 +243,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '任务监控', icon: 'MonitorOutlined' }
       },
       {
+        path: 'celery-beat',
+        name: 'CeleryBeat',
+        component: () => import('@/views/CeleryBeat.vue'),
+        meta: { title: '任务调度', icon: 'ScheduleOutlined', requireAdmin: true }
+      },
+      {
         path: 'notification/channels',
         name: 'NotificationChannels',
         component: () => import('@/views/notification/NotificationChannels.vue'),
