@@ -41,6 +41,7 @@ class TestCaseCreate(TestCaseBase):
 class TestCaseUpdate(BaseModel):
     title: Optional[str] = None
     module: Optional[str] = None
+    req_id: Optional[int] = None
     priority: Optional[str] = None
     case_type: Optional[str] = None
     preconditions: Optional[str] = None

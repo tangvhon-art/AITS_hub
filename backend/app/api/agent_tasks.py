@@ -187,6 +187,7 @@ def review_cases(
                 "id": c.id,
                 "title": c.title,
                 "module": c.module or "",
+                "case_type": c.case_type or "functional",
                 "priority": c.priority or "",
                 "preconditions": c.preconditions or "",
                 "steps": steps,
@@ -239,6 +240,9 @@ def review_cases(
             "modules": modules,
             "groups": list(groups.values()),
             "prompt_id": req.prompt_id,
+            # 单需求/单模块时写入单数字段，供评审优化任务直接关联补充用例
+            "requirement_id": requirement_ids[0] if len(requirement_ids or []) == 1 else None,
+            "module": modules[0] if len(modules or []) == 1 else None,
         },
         created_by=current_user.id,
         llm_config_id=req.llm_config_id,

@@ -91,7 +91,7 @@ class AICreationService:
 
                 case = TestCase(
                     project_id=project_id,
-                    req_id=requirement_id,
+                    req_id=case_data.get("req_id") or requirement_id,
                     feature_id=feature_id,
                     title=case_data.get("title", "未命名用例")[:200],
                     module=case_data.get("module") or "",

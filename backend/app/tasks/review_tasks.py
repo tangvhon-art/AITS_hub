@@ -173,6 +173,8 @@ def _build_review_human_text(cases, requirement, groups):
     for i, case in enumerate(cases):
         parts.append(f"\n用例[{i}]：{case.get('title', '（无标题）')}")
         parts.append(f"  模块：{case.get('module', '未设置')}")
+        _type_map = {"functional": "功能测试", "performance": "性能测试", "security": "安全测试"}
+        parts.append(f"  类型：{_type_map.get(case.get('case_type', 'functional'), case.get('case_type', '功能测试'))}")
         parts.append(f"  优先级：{case.get('priority', '未设置')}")
         pre = case.get("preconditions", "")
         parts.append(f"  前置条件：{pre if pre else '（无）'}")
@@ -280,6 +282,24 @@ def optimize_cases_from_review_task(
         project_id = opt_task.project_id
         requirement_id = review_input.get("requirement_id")
         module_filter = review_input.get("module")
+        requirement_ids = review_input.get("requirement_ids") or []
+        modules_list = review_input.get("modules") or []
+        groups = review_input.get("groups") or []
+        if not module_filter and modules_list:
+            module_filter = modules_list[0]
+
+        def _resolve_req_id(case_module=None):
+            """推导补充用例应关联的需求ID：单需求直接用；多需求按模块匹配分组，兜底取第一个"""
+            if requirement_id:
+                return requirement_id
+            if len(requirement_ids) == 1:
+                return requirement_ids[0]
+            target_module = case_module or module_filter
+            if target_module and groups:
+                for g in groups:
+                    if g.get("module") == target_module and g.get("requirement_id"):
+                        return g.get("requirement_id")
+            return requirement_ids[0] if requirement_ids else None
         original_cases = review_input.get("cases", [])
         requirement_text = review_input.get("requirement", "")
         issues = review_output.get("issues", [])
@@ -456,11 +476,15 @@ def optimize_cases_from_review_task(
         from app.services.ai_creation_service import AICreationService
         created_cases = []
         if new_cases:
+            # 逐条关联需求ID，避免生成的补充用例缺失需求关联
+            for c in new_cases:
+                if not c.get("req_id"):
+                    c["req_id"] = _resolve_req_id(c.get("module"))
             created_cases = AICreationService.create_test_cases(
                 db,
                 project_id=project_id,
                 cases=new_cases,
-                requirement_id=requirement_id,
+                requirement_id=requirement_id or _resolve_req_id(),
                 created_by=opt_task.created_by,
             )
 

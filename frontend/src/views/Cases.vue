@@ -90,13 +90,17 @@
       width="720px"
     >
       <a-form layout="vertical">
+        <a-form-item label="用例名称" required>
+          <a-input v-model:value="caseForm.title" placeholder="请输入用例名称" />
+        </a-form-item>
         <a-row :gutter="16">
-          <a-col :span="16">
-            <a-form-item label="用例名称" required>
-              <a-input v-model:value="caseForm.title" placeholder="请输入用例名称" />
+          <a-col :span="12">
+            <a-form-item label="关联需求">
+              <a-select v-model:value="caseForm.req_id" placeholder="选择需求" allow-clear show-search style="width: 100%"
+                :options="requirements.map(req => ({ label: req.title, value: req.id }))" />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :span="12">
             <a-form-item label="模块">
               <a-input v-model:value="caseForm.module" placeholder="所属模块" />
             </a-form-item>
@@ -310,6 +314,7 @@ const editingCase = ref<any>(null)
 const caseForm = reactive({
   title: '',
   module: '',
+  req_id: undefined as number | undefined,
   priority: 'P1',
   case_type: 'functional',
   status: 'draft',
@@ -419,7 +424,7 @@ function handleReset() {
 function openCreateDialog() {
   editingCase.value = null
   Object.assign(caseForm, {
-    title: '', module: '', priority: 'P1', case_type: 'functional',
+    title: '', module: '', req_id: undefined, priority: 'P1', case_type: 'functional',
     status: 'draft', preconditions: '', steps: [{ action: '', expected: '' }], expected_result: ''
   })
   showCaseModal.value = true
@@ -430,6 +435,7 @@ function editCase(row: any) {
   Object.assign(caseForm, {
     title: row.title,
     module: row.module,
+    req_id: row.req_id ?? undefined,
     priority: row.priority,
     case_type: row.case_type,
     status: row.status,
@@ -447,11 +453,13 @@ async function saveCase() {
   }
   saving.value = true
   try {
+    // req_id 显式携带：清空选择时传 null 以解除需求关联
+    const payload = { ...caseForm, req_id: caseForm.req_id ?? null }
     if (editingCase.value) {
-      await updateCase(projectId, editingCase.value.id, caseForm)
+      await updateCase(projectId, editingCase.value.id, payload)
       message.success('更新成功')
     } else {
-      await createCase(projectId, caseForm)
+      await createCase(projectId, payload)
       message.success('创建成功')
     }
     showCaseModal.value = false
