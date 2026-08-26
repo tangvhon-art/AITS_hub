@@ -8,10 +8,15 @@ RAG 知识库服务
 """
 import json
 import logging
+import os
 import threading
 from typing import List, Dict, Any, Optional, Tuple
 
 import numpy as np
+
+# 强制离线模式：模型已在本地缓存，避免每次加载时访问 HuggingFace 网络检查更新（网络不通时会卡死超时）
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,10 @@ def _get_embedding_model():
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+        # local_files_only 从本地缓存加载，不走网络，首次加载从分钟级降到秒级
+        _model = SentenceTransformer(
+            "paraphrase-multilingual-MiniLM-L12-v2", local_files_only=True
+        )
     return _model
 
 
@@ -134,6 +142,22 @@ class KnowledgeBaseService:
         with self._cache_lock:
             self._index_cache[project_id] = result
         return result
+
+    def warmup(self, db, project_ids: List[int]):
+        """预热：预加载 Embedding 模型并构建指定项目的 FAISS 索引，避免首次检索卡顿"""
+        import time
+        start = time.time()
+        try:
+            _get_embedding_model()
+            logger.info(f"知识库 Embedding 模型预加载完成，耗时 {time.time() - start:.1f}s")
+        except Exception as e:
+            logger.warning(f"知识库 Embedding 模型预加载失败: {e}")
+            return
+        for pid in project_ids:
+            try:
+                self._get_index(db, pid)
+            except Exception as e:
+                logger.warning(f"知识库项目 {pid} 索引预热失败: {e}")
 
     def add_document(
         self,

@@ -73,7 +73,7 @@ def review_cases_task(self, task_id: int):
             db,
             messages,
             preferred_config_id=task.llm_config_id,
-            max_tokens=8192,
+            max_tokens=16384,
             temperature=0.2,
         )
         elapsed = time.time() - start
@@ -93,7 +93,7 @@ def review_cases_task(self, task_id: int):
             **extracted,
             "token_usage": token_usage,
             "llm_config_id": used_config_id,
-            "raw_content": raw_content[:5000],
+            "raw_content": raw_content,
         }
 
         logger.info(

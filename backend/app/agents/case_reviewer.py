@@ -35,12 +35,12 @@ REVIEW_SYSTEM_PROMPT = """你是一位资深测试评审专家，拥有10年以�
 
 ## 输出格式（最高优先级）
 输出以下 5 个部分，每部分用 Markdown 二级标题分隔。不要输出任何其他内容。
-> 注意：下方仅为格式展示样例，样例分数 score:85、passed:true 仅演示排版，严禁直接复用该评审结果。
+> 注意：下方仅为格式展示样例，样例中的分数与评审内容仅演示排版，严禁直接复用该评审结果。
 
 ## 评分
-score: 85
+score: 73
 passed: true
-summary: 整体评价，80字以内，概括用例整体质量，简要说明主要优点与突出问题
+summary: 整体评价，80字以内，概括用例整体质量，简要说明主要优点与突出问题（此处 73 仅为格式示例，实际分数必须独立评定）
 
 ## 问题列表
 | case_index | case_title | module | issue_type | severity | description | suggestion |
@@ -74,6 +74,9 @@ summary: 整体评价，80字以内，概括用例整体质量，简要说明主
 8. 评审维度：需求覆盖度、完整性、场景覆盖、可执行性、规范性、冗余性、数据合理性。
 9. 如果没有发现问题，问题列表输出空表格（只有表头），但遗漏场景和整体改进建议仍需给出。
 10. 所有内容使用中文。
+11. score 必须根据本次评审实际发现的问题数量、严重度与场景覆盖情况独立评定，严禁复用样例分数；用例质量不同分数必须不同，先统计 high/medium/low 问题数与遗漏场景数，再对照打分基线确定最终分数。
+12. 问题列表最多输出 30 行：优先输出 high 严重问题，同类/重复问题必须合并为一条并在 description 中说明涉及哪些用例，禁止逐条用例罗列相似问题。
+13. 必须保证五个部分全部完整输出；若篇幅有限，优先压缩问题列表行数，绝不允许截断遗漏场景与整体改进建议章节。
 """
 
 
@@ -131,8 +134,8 @@ class CaseReviewerAgent(BaseAgent):
         ]
 
         try:
-            # 使用 _call_llm，max_tokens=8192 确保评审输出不被截断
-            response = self._call_llm(messages, temperature=0.2, max_tokens=8192)
+            # 使用 _call_llm，max_tokens=16384 确保评审输出不被截断
+            response = self._call_llm(messages, temperature=0.2, max_tokens=16384)
             self._log_step("llm_call", {}, "success")
 
             content = response.content if hasattr(response, "content") else str(response)

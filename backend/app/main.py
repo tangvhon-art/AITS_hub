@@ -211,6 +211,27 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_reconnect_mcp_connectors())
 
+    # 后台预加载知识库 Embedding 模型并预热 FAISS 索引（避免首次检索卡顿，不阻塞启动）
+    async def _warmup_knowledge_base():
+        await asyncio.sleep(3)
+        def _run():
+            try:
+                from app.database import SessionLocal
+                from app.models.knowledge_doc import KnowledgeChunk
+                from app.services.knowledge_base import knowledge_base_service
+                db = SessionLocal()
+                try:
+                    pids = [r[0] for r in db.query(KnowledgeChunk.project_id).distinct().all()]
+                    if pids:
+                        knowledge_base_service.warmup(db, pids)
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.warning(f"知识库预热异常: {e}")
+        await asyncio.to_thread(_run)
+
+    asyncio.create_task(_warmup_knowledge_base())
+
     yield
     logger.info("应用关闭")
 
