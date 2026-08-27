@@ -228,7 +228,8 @@ OPTIMIZE_CASES_SYSTEM_PROMPT = """你是一名资深软件测试工程师。请�
 8. module 必须与原有用例保持一致
 9. 如果优化模式为 supplement（仅补充），则优化用例表格输出空表格（只有表头）
 10. 如果优化模式为 optimize（仅优化），则补充用例表格输出空表格（只有表头）
-11. 所有内容使用中文"""
+11. 所有内容使用中文
+12. 【关键】每行数据的列数必须与表头完全一致，缺少的列必须用空值占位（即 ||），不得跳过任何列。尤其 module 列不能省略，如果无法确定模块名则输出空值"""
 
 OPTIMIZE_CASES_USER_PROMPT = """## 原始需求
 {requirement}
@@ -379,7 +380,7 @@ def optimize_cases_from_review_task(
                 clean = re.sub(r'^```\w*\n?', '', clean)
                 clean = re.sub(r'\n?```$', '', clean)
 
-            sections = re.split(r'\n##\s+', clean)
+            sections = re.split(r'\n##+\s*', clean)
             sections = [s.strip() for s in sections if s.strip()]
 
             for section in sections:
@@ -480,6 +481,24 @@ def optimize_cases_from_review_task(
             for c in new_cases:
                 if not c.get("req_id"):
                     c["req_id"] = _resolve_req_id(c.get("module"))
+
+            # 通过模块名匹配 RequirementFeature，恢复 feature_id 关联
+            from app.models.requirement import RequirementFeature
+            _req_ids = set(c.get("req_id") for c in new_cases if c.get("req_id"))
+            _module_feat_map = {}
+            if _req_ids:
+                _feats = db.query(RequirementFeature).filter(
+                    RequirementFeature.requirement_id.in_(_req_ids),
+                    RequirementFeature.is_deleted == False,
+                ).all()
+                _module_feat_map = {f.module_name: f.id for f in _feats}
+            if _module_feat_map:
+                for c in new_cases:
+                    if not c.get("feature_id") and c.get("module"):
+                        fid = _module_feat_map.get(c["module"])
+                        if fid:
+                            c["feature_id"] = fid
+
             created_cases = AICreationService.create_test_cases(
                 db,
                 project_id=project_id,

@@ -16,30 +16,31 @@ from app.agents.base_agent import BaseAgent
 logger = logging.getLogger(__name__)
 
 
-SCRIPT_GENERATE_SYSTEM_PROMPT = """你是一个专业的 Playwright 自动化测试脚本生成专家。
-请根据用户的测试需求描述，生成完整的、可直接运行的 Playwright Python 异步脚本。
+SCRIPT_GENERATE_SYSTEM_PROMPT = """你是一名自动化测试专家，精通 Playwright 测试框架与 UI 自动化最佳实践，能够编写可靠、可维护的自动化测试脚本。请根据测试需求描述生成结构清晰、可维护的 Playwright Python 异步脚本。
 
-要求：
-1. 脚本必须包含 async def run_test() 函数
-2. 使用 async_playwright 上下文管理
-3. 浏览器使用 chromium，headless=True
-4. 视口大小 1280x720
-5. 根据描述生成合理的测试步骤，包括：
-   - 页面导航 page.goto()
-   - 元素点击 page.click()
-   - 输入框填写 page.fill()
-   - 等待操作 page.wait_for_timeout() / page.wait_for_selector()
-   - 截图 page.screenshot()
-   - 断言/验证（如需要）
-6. 选择器使用常见的 CSS 选择器（id、class、type、placeholder等）
-7. 每步添加中文注释
-8. 只输出 Python 代码，不要输出解释文字
-9. 代码用 ```python 和 ``` 包裹
+## 输出要求（最高优先级）
+只输出一个完整的 Python 脚本，使用 ```python 代码块包裹，禁止输出任何解释性文字。
 
-示例输出：
+## 脚本结构（必须遵守）
+1. 包含 async def run_test() 函数，作为脚本唯一入口
+2. 使用 async_playwright 上下文管理器（async with async_playwright() as p:）
+3. 浏览器使用 chromium，headless=True；视口大小 1280x720
+4. 结尾包含 if __name__ == "__main__": asyncio.run(run_test())
+5. 关键步骤添加截图与必要等待，便于失败定位
+
+## Playwright 最佳实践（行业标准）
+1. 定位器优先使用语义化 API：page.get_by_role() / get_by_label() / get_by_placeholder() / get_by_test_id() / get_by_text()；CSS 选择器次之；避免依赖脆弱的绝对 XPath
+2. 优先使用自动等待 API（page.fill() / page.click() / page.goto() 均内置等待），避免大量固定 sleep；仅在必要场景使用 page.wait_for_timeout() 或 page.wait_for_selector()
+3. 断言使用 expect(page.locator(...)).to_be_visible() / to_have_text() 等自动重试断言，避免手动轮询
+4. 页面加载统一使用 wait_until="domcontentloaded"（或默认 load 状态）
+5. 每个关键步骤添加中文注释，说明操作目的
+6. 测试数据与业务操作分离：测试数据写在脚本开头，便于维护与数据隔离
+7. 脚本必须具备可重复执行性：不依赖脏数据，执行前做必要的前置准备
+
+## 示例输出
 ```python
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 
 async def run_test():
     async with async_playwright() as p:
@@ -49,25 +50,26 @@ async def run_test():
 
         # 打开登录页面
         await page.goto("https://example.com/login", wait_until="domcontentloaded")
-        await page.wait_for_timeout(1000)
 
-        # 输入用户名
-        await page.fill('input[name="username"]', "admin")
+        # 输入用户名与密码
+        await page.get_by_placeholder("用户名").fill("admin")
+        await page.get_by_placeholder("密码").fill("admin123")
 
-        # 不输入密码，直接点击登录
-        await page.click('button[type="submit"]')
-        await page.wait_for_timeout(2000)
+        # 点击登录并验证跳转
+        await page.get_by_role("button", name="登录").click()
+        await page.wait_for_url("**/home")
 
-        # 截图验证错误提示
-        await page.screenshot(path="login_error.png")
+        # 断言登录成功
+        await expect(page.locator(".user-name")).to_be_visible()
 
+        # 截图留存
+        await page.screenshot(path="login_success.png")
         await browser.close()
         print("测试执行完成")
 
 if __name__ == "__main__":
     asyncio.run(run_test())
-```
-"""
+```"""
 
 
 SCRIPT_NAME_SYSTEM_PROMPT = """你是一个测试脚本命名专家。请根据用户的测试需求描述，生成一个简洁、准确、描述性强的脚本名称。

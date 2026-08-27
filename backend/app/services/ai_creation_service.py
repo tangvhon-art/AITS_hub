@@ -83,11 +83,17 @@ class AICreationService:
                 else:
                     steps_json = str(steps)
 
-                # 关联功能点
-                feature_id = None
-                if feature_name_map:
+                # 关联功能点：优先用 case_data 中已设置的 feature_id，其次用 feature_name_map 查找
+                feature_id = case_data.get("feature_id")
+                if not feature_id and feature_name_map:
                     fname = case_data.get("feature_name", "")
                     feature_id = feature_name_map.get(fname)
+
+                # 校验 priority 必须为 P0/P1/P2/P3，防止字段错位导致非法值入库
+                priority_val = str(case_data.get("priority") or "P2").strip().upper()
+                if priority_val not in ("P0", "P1", "P2", "P3"):
+                    logger.warning(f"用例 priority 值非法 '{priority_val}'，回退为 P2，title={case_data.get('title', '')}")
+                    priority_val = "P2"
 
                 case = TestCase(
                     project_id=project_id,
@@ -95,7 +101,7 @@ class AICreationService:
                     feature_id=feature_id,
                     title=case_data.get("title", "未命名用例")[:200],
                     module=case_data.get("module") or "",
-                    priority=case_data.get("priority") or "P2",
+                    priority=priority_val,
                     case_type=case_data.get("case_type") or "functional",
                     preconditions=case_data.get("preconditions") or "",
                     steps=steps_json,

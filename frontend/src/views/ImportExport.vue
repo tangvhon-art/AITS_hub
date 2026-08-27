@@ -70,16 +70,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
   DownloadOutlined, UploadOutlined, FileTextOutlined
 } from '@ant-design/icons-vue'
 import { exportCases, exportCasesXmind, importCases, downloadTemplate } from '@/api/importExport'
+import { useProjectStore } from '@/stores/project'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
+const projectStore = useProjectStore()
+
+onMounted(() => {
+  projectStore.ensureProjects()
+})
 
 const exporting = ref(false)
 const exportingXmind = ref(false)
@@ -101,7 +107,7 @@ async function handleExport() {
   exporting.value = true
   try {
     const blob = await exportCases(projectId) as any
-    downloadBlob(blob, `test_cases_${projectId}.xlsx`)
+    downloadBlob(blob, `测试用例-${projectStore.getProjectName(projectId)}.xlsx`)
     message.success('导出成功')
   } catch (e: any) {
     message.error(e.response?.data?.detail || '导出失败')
@@ -114,7 +120,7 @@ async function handleExportXmind() {
   exportingXmind.value = true
   try {
     const blob = await exportCasesXmind(projectId) as any
-    downloadBlob(blob, `test_cases_${projectId}.xmind`)
+    downloadBlob(blob, `测试用例-${projectStore.getProjectName(projectId)}.xmind`)
     message.success('导出成功')
   } catch (e: any) {
     message.error(e.response?.data?.detail || '导出失败')

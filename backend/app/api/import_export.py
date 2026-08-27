@@ -6,6 +6,7 @@ import json
 import uuid
 import zipfile
 from datetime import datetime
+from urllib.parse import quote
 from app.core.timezone import china_now_naive
 from typing import List
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
@@ -72,7 +73,7 @@ def export_cases(
     current_user: User = Depends(get_current_user)
 ):
     """导出测试用例为 Excel"""
-    get_project(project_id, db, current_user)
+    project = get_project(project_id, db, current_user)
     if not HAS_OPENPYXL:
         raise HTTPException(status_code=500, detail="openpyxl 未安装，请运行 pip install openpyxl")
 
@@ -113,12 +114,12 @@ def export_cases(
     wb.save(output)
     output.seek(0)
 
-    filename = f"test_cases_{project_id}_{china_now_naive().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"测试用例-{project.name}.xlsx"
 
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
     )
 
 
@@ -298,7 +299,7 @@ def export_cases_xmind(
     current_user: User = Depends(get_current_user),
 ):
     """导出测试用例为 XMind 文件，节点结构：所属模块 → 用例标题 → 前置条件 → 测试步骤 → 预期结果"""
-    get_project(project_id, db, current_user)
+    project = get_project(project_id, db, current_user)
 
     cases = db.query(TestCase).filter(
         TestCase.project_id == project_id,
@@ -359,12 +360,12 @@ def export_cases_xmind(
         zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
     output.seek(0)
 
-    filename = f"test_cases_{project_id}_{china_now_naive().strftime('%Y%m%d_%H%M%S')}.xmind"
+    filename = f"测试用例-{project.name}.xmind"
 
     return StreamingResponse(
         output,
         media_type="application/vnd.xmind.workbook",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
     )
 
 

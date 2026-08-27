@@ -87,6 +87,14 @@ class BDDGeneratorAgent(BaseAgent):
             input_parts.append("关联测试用例：\n" + "\n".join(case_lines))
 
         system_content = BDD_GENERATION_PROMPT
+        # RAG 知识库增强（与其它 Agent 保持一致）
+        try:
+            rag_context = self.build_rag_context(
+                f"BDD 用例生成 {requirement[:200]}",
+                top_k=3,
+            )
+        except Exception:
+            rag_context = ""
         if rag_context:
             system_content += f"\n\n{rag_context}"
 

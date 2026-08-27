@@ -182,20 +182,23 @@ if [ "$START_CELERY" = true ]; then
     unset PYTHONHOME PYTHONPATH
     mkdir -p "$SCRIPT_DIR/logs"
 
-    # 平台检测：Linux 生产用 prefork + autoscale 动态扩缩容；
-    # macOS solo 池（fork 会 SIGABRT）不支持 autoscale，并发固定为1
+    # 平台检测
     if [ "$(uname -s)" = "Darwin" ]; then
-        SCALE_NOTE="macOS solo 池, 并发=2, 不支持 autoscale"
+        # Mac开发环境：eventlet协程池，避开fork问题，支持并发
+        SCALE_NOTE="macOS eventlet 协程池，公平调度，并发=2"
+        POOL_ARG="-P eventlet"
         DEFAULT_SCALE="-c 2"
         AI_SCALE="-c 2"
         EXEC_SCALE="-c 2"
+        FAIR_ARGS="-O fair --prefetch-multiplier=1"
     else
-        # autoscale=MAX,MIN：空闲时缩到 MIN，任务堆积时扩到 MAX
-        # execution 队列最容易阻塞，给最高的扩容上限
+        # Linux生产环境：prefork + autoscale 动态扩缩容
         SCALE_NOTE="Linux prefork + autoscale 动态扩缩容"
+        POOL_ARG=""
         DEFAULT_SCALE="--autoscale=4,2"
         AI_SCALE="--autoscale=6,2"
         EXEC_SCALE="--autoscale=12,2"
+        FAIR_ARGS="-O fair --prefetch-multiplier=1"
     fi
     echo "    并发模式: $SCALE_NOTE"
 
@@ -204,6 +207,8 @@ if [ "$START_CELERY" = true ]; then
     nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
         $AI_SCALE \
+        $POOL_ARG \
+        $FAIR_ARGS \
         --hostname=ai-worker@%h \
         -Q ai \
         --events \
@@ -219,6 +224,8 @@ if [ "$START_CELERY" = true ]; then
     nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
         $EXEC_SCALE \
+        $POOL_ARG \
+        $FAIR_ARGS \
         --hostname=execution-worker@%h \
         -Q execution \
         --events \
@@ -234,6 +241,8 @@ if [ "$START_CELERY" = true ]; then
     nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
         --loglevel=info \
         $DEFAULT_SCALE \
+        $POOL_ARG \
+        $FAIR_ARGS \
         --hostname=default-worker@%h \
         -Q default \
         --events \
@@ -303,10 +312,10 @@ echo "服务已启动:"
 [ "$START_FRONTEND" = true ] && echo "  前端页面:      http://localhost:$PORT_FRONTEND"
 if [ "$START_CELERY" = true ]; then
     if [ "$(uname -s)" = "Darwin" ]; then
-        echo "  Celery Worker: 3个队列已启动（macOS solo 池, 每队列并发=2）"
-        echo "    - ai        (solo 并发2, AI生成类任务)"
-        echo "    - execution (solo 并发2, 执行类任务)"
-        echo "    - default   (solo 并发2, 后台轻量任务)"
+        echo "  Celery Worker: 3个队列已启动（macOS eventlet协程池, 每队列并发=2）"
+        echo "    - ai        (IO协程并发2, AI生成类任务)"
+        echo "    - execution (IO协程并发2, 执行类任务)"
+        echo "    - default   (IO协程并发2, 后台轻量任务)"
     else
         echo "  Celery Worker: 3个队列已启动（Linux prefork + autoscale 动态扩缩容）"
         echo "    - ai        (autoscale=6,2, AI生成类任务)"
