@@ -240,12 +240,12 @@
               :columns="issueColumns"
               :data-source="currentDetail.output_result.issues"
               :pagination="false"
-              row-key="case_index"
+              row-key="case_id"
               size="small"
             >
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'case_index'">
-                  <div>用例 #{{ record.case_index + 1 }}</div>
+                <template v-if="column.key === 'case_id'">
+                  <div>用例 #{{ record.case_id }}</div>
                   <div v-if="record.case_title" style="font-size: 12px; color: #666">{{ record.case_title }}</div>
                 </template>
                 <template v-else-if="column.key === 'requirement_title'">
@@ -482,7 +482,7 @@ const columns = [
 ]
 
 const issueColumns = [
-  { title: '用例', key: 'case_index', width: 80 },
+  { title: '用例', key: 'case_id', width: 80 },
   { title: '需求', key: 'requirement_title', width: 120, ellipsis: true },
   { title: '模块', key: 'module', width: 100, ellipsis: true },
   { title: '问题类型', key: 'issue_type', width: 100 },

@@ -476,7 +476,7 @@ class ContentExtractor:
                 desc = desc.strip().strip('"').strip("'")
                 if desc and len(desc) > 5:
                     result["issues"].append({
-                        "case_index": i,
+                        "case_id": None,
                         "case_title": "",
                         "requirement_title": "",
                         "module": "",
@@ -502,12 +502,38 @@ class ContentExtractor:
         )
         return result
 
-    @staticmethod
-    def _parse_markdown_issues_table(section: str) -> list:
-        """从 Markdown 章节中解析问题列表表格。"""
+    # 问题列表表格的列名归一化映射：将中文/别名列名映射为标准英文名
+    _ISSUE_COLUMN_ALIAS = {
+        'case_id': 'case_id', '用例id': 'case_id', '用例ID': 'case_id', 'id': 'case_id',
+        'case_title': 'case_title', '用例标题': 'case_title', '标题': 'case_title', 'title': 'case_title',
+        'requirement_title': 'requirement_title', '需求': 'requirement_title', '需求标题': 'requirement_title',
+        'req': 'requirement_title', 'requirement': 'requirement_title',
+        'module': 'module', '模块': 'module',
+        'issue_type': 'issue_type', '问题类型': 'issue_type', '类型': 'issue_type', 'type': 'issue_type',
+        'severity': 'severity', '严重程度': 'severity', '严重': 'severity',
+        'description': 'description', '问题描述': 'description', '描述': 'description', 'desc': 'description',
+        'suggestion': 'suggestion', '修改建议': 'suggestion', '建议': 'suggestion', 'fix': 'suggestion',
+    }
+
+    # 问题列表表格的标准列顺序（用于列数校验和缺失列补齐）
+    _ISSUE_STANDARD_COLUMNS = [
+        'case_id', 'case_title', 'requirement_title', 'module',
+        'issue_type', 'severity', 'description', 'suggestion',
+    ]
+
+    @classmethod
+    def _normalize_issue_column(cls, col_name: str) -> str:
+        """将表头列名归一化为标准英文名。"""
+        key = col_name.strip().lower().replace(' ', '')
+        return cls._ISSUE_COLUMN_ALIAS.get(key, col_name.strip())
+
+    @classmethod
+    def _parse_markdown_issues_table(cls, section: str) -> list:
+        """从 Markdown 章节中解析问题列表表格，支持列名映射与缺失列兜底。"""
         issues = []
         lines = section.split('\n')
-        col_order = []
+        col_order = []  # 归一化后的列名列表
+        raw_col_order = []  # 原始列名列表
         for line in lines:
             stripped = line.strip()
             if not stripped.startswith('|'):
@@ -515,30 +541,65 @@ class ContentExtractor:
             cells = [c.strip() for c in stripped.split('|')[1:-1]]
             if not cells:
                 continue
-            # 表头行
-            if not col_order and ('case_index' in cells[0].lower() or 'case_title' in ''.join(cells).lower()):
-                col_order = [c.lower().strip() for c in cells]
-                continue
+            # 表头行：检测并归一化列名
+            if not col_order:
+                # 判断是否为表头行：包含关键列名（case_id / case_title / issue_type 等）
+                cell_lowers = [c.lower() for c in cells]
+                joined = ' '.join(cell_lowers)
+                if any(kw in joined for kw in ['case_id', 'case_title', '用例', 'issue_type', '问题类型', 'severity', '严重']):
+                    raw_col_order = [c.strip() for c in cells]
+                    col_order = [cls._normalize_issue_column(c) for c in cells]
+                    continue
+                # 也尝试：如果包含 module / 模块 / description 等，也视为表头
+                if any(kw in joined for kw in ['module', '模块', 'description', '描述', 'suggestion', '建议']):
+                    raw_col_order = [c.strip() for c in cells]
+                    col_order = [cls._normalize_issue_column(c) for c in cells]
+                    continue
             # 分割行
             if not col_order and all(re.match(r'^[-:]+$', c) for c in cells):
                 continue
             if not col_order:
                 continue
-            # 数据行
+            # 数据行（跳过分割线）
             if all(re.match(r'^[-:]+$', c) for c in cells):
                 continue
+
+            # 逐列映射到标准字段
             issue = {}
             for i, val in enumerate(cells):
-                if i < len(col_order):
+                if i < len(col_order) and col_order[i]:
                     issue[col_order[i]] = val
-            if issue.get('case_index') is not None or issue.get('case_title'):
-                # 尝试转换 case_index 为 int
-                ci = issue.get('case_index', '')
-                try:
-                    issue['case_index'] = int(ci)
-                except (ValueError, TypeError):
-                    pass
+
+            # 兜底：如果行数据列数少于表头列数，用空值补齐
+            if len(cells) < len(col_order):
+                for j in range(len(cells), len(col_order)):
+                    if col_order[j] and col_order[j] not in issue:
+                        issue[col_order[j]] = ''
+
+            # 校验：至少要有 case_id 或 case_title 才视为有效问题
+            if issue.get('case_id') is not None or issue.get('case_title'):
+                # 转换 case_id 为 int
+                ci = issue.get('case_id', '')
+                if ci:
+                    try:
+                        issue['case_id'] = int(str(ci).strip())
+                    except (ValueError, TypeError):
+                        issue['case_id'] = None
+
+                # 补齐缺失的标准字段，确保前端渲染不会报错
+                for col in cls._ISSUE_STANDARD_COLUMNS:
+                    if col not in issue or issue[col] is None:
+                        issue[col] = ''
+
                 issues.append(issue)
+
+        # 如果表头解析成功，但某些标准列缺失，则在每个 issue 中补齐空值
+        if col_order:
+            for issue in issues:
+                for col in cls._ISSUE_STANDARD_COLUMNS:
+                    if col not in issue or issue[col] is None:
+                        issue[col] = ''
+
         return issues
 
     @staticmethod

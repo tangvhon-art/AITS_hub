@@ -177,12 +177,25 @@ def review_cases(
         if modules:
             query = query.filter(TestCase.module.in_(modules))
         cases_db = query.order_by(TestCase.module, TestCase.id).all()
+
+        # 一次性查询所有相关功能点，构建 feature_id -> {module_name, name} 映射
+        from app.models.requirement import RequirementFeature
+        feature_ids = {c.feature_id for c in cases_db if c.feature_id}
+        feature_map = {}
+        if feature_ids:
+            feats = db.query(RequirementFeature).filter(
+                RequirementFeature.id.in_(feature_ids),
+                RequirementFeature.is_deleted == False,
+            ).all()
+            feature_map = {f.id: {"module_name": f.module_name, "name": f.name} for f in feats}
+
         cases = []
         for c in cases_db:
             try:
                 steps = json.loads(c.steps) if c.steps else []
             except (json.JSONDecodeError, TypeError):
                 steps = []
+            feat = feature_map.get(c.feature_id) if c.feature_id else None
             cases.append({
                 "id": c.id,
                 "title": c.title,
@@ -193,6 +206,9 @@ def review_cases(
                 "steps": steps,
                 "expected_result": c.expected_result or "",
                 "req_id": c.req_id,
+                "feature_id": c.feature_id,
+                "feature_name": feat["name"] if feat else "",
+                "feature_module": feat["module_name"] if feat else "",
             })
 
     # 查询选中的需求详情

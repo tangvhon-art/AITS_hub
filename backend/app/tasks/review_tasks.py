@@ -89,6 +89,41 @@ def review_cases_task(self, task_id: int):
         from app.services.content_extractor import ContentExtractor
         extracted = ContentExtractor.extract_review(raw_content)
 
+        # 回填 issue 中缺失的 module / requirement_title：基于原始用例数据
+        issues = extracted.get("issues", [])
+        if issues:
+            # 构建 case_id → {module, requirement_title} 映射
+            case_meta_map = {}
+            for case in cases:
+                cid = case.get("id")
+                if cid is not None:
+                    # 需求标题查找
+                    req_id = case.get("req_id")
+                    req_title = ""
+                    if req_id:
+                        for r in requirements:
+                            if r.get("id") == req_id:
+                                req_title = r.get("title", "")
+                                break
+                    case_meta_map[cid] = {
+                        "module": case.get("module", "") or "",
+                        "requirement_title": req_title or "",
+                    }
+
+            filled_count = 0
+            for issue in issues:
+                cid = issue.get("case_id")
+                if cid is not None and cid in case_meta_map:
+                    meta = case_meta_map[cid]
+                    # 仅在为空时回填，保留 LLM 输出的值
+                    if not issue.get("module"):
+                        issue["module"] = meta["module"]
+                    if not issue.get("requirement_title"):
+                        issue["requirement_title"] = meta["requirement_title"]
+                    filled_count += 1
+            if filled_count:
+                logger.info(f"[review_cases] 回填 issue 元数据: {filled_count}/{len(issues)} 条")
+
         result = {
             **extracted,
             "token_usage": token_usage,
@@ -169,10 +204,24 @@ def _build_review_human_text(cases, requirement, groups):
             parts.append(f"{i}. 需求：{g.get('requirement_title', '未知')} | 模块：{g.get('module', '未分类')} | 用例数：{g.get('case_count', 0)}")
         parts.append("")
 
-    parts.append("## 待评审用例")
-    for i, case in enumerate(cases):
-        parts.append(f"\n用例[{i}]：{case.get('title', '（无标题）')}")
+    parts.append("## 待评审用例（每条标注数据库ID/需求/功能点，重复判定依据三者一致性）")
+    for case in cases:
+        case_id = case.get("id")
+        parts.append(f"\n用例[{case_id}]：{case.get('title', '（无标题）')}")
         parts.append(f"  模块：{case.get('module', '未设置')}")
+        # 需求与功能点信息：用于重复判定
+        req_id = case.get("req_id")
+        feature_name = case.get("feature_name", "")
+        feature_module = case.get("feature_module", "")
+        req_label = f"需求ID={req_id}" if req_id else "未关联需求"
+        if feature_name:
+            feat_label = f"功能点={feature_name}"
+        elif feature_module:
+            feat_label = f"功能点模块={feature_module}"
+        else:
+            feat_label = "未关联功能点"
+        parts.append(f"  需求：{req_label}")
+        parts.append(f"  功能点：{feat_label}")
         _type_map = {"functional": "功能测试", "performance": "性能测试", "security": "安全测试"}
         parts.append(f"  类型：{_type_map.get(case.get('case_type', 'functional'), case.get('case_type', '功能测试'))}")
         parts.append(f"  优先级：{case.get('priority', '未设置')}")
