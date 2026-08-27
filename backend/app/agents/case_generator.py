@@ -32,7 +32,7 @@ class TestCaseList(BaseModel):
     cases: List[TestCaseItem] = Field(description="测试用例列表")
 
 
-CASE_GENERATOR_PROMPT = """请根据以下需求描述，生成全面、专业、无重复的测试用例。
+CASE_GENERATOR_PROMPT = """请根据以下需求描述，生成全面、专业、无重复的高质量测试用例。生成时必须对照7个评审维度（需求覆盖度、完整性、场景覆盖、可执行性、规范性、冗余性、数据合理性）自检，提前规避评审阶段常见缺陷，补齐权限校验、越权操作、敏感数据防护、上下游数据一致性场景。
 
 ## 需求信息
 - 需求标题：{requirement_title}
@@ -49,21 +49,21 @@ CASE_GENERATOR_PROMPT = """请根据以下需求描述，生成全面、专业�
 
 ## 字段强制约束
 每条用例必须包含全部字段：title、module、priority、case_type、preconditions、steps、expected_result、bdd_content，不可缺省。
-1. title：用例名称，简洁明确，不超过200字符；命名建议：测试完整XX流程 / 异常场景‑XX / 边界值‑XX；禁止标题重复。
-2. module：所属模块，根据需求自行划分（如"登录模块"、"用户管理"）；模块名称用词统一。
+1. title：用例名称，简洁明确，不超过200字符；命名建议：测试完整XX流程 / 异常场景‑XX / 边界值‑XX；禁止标题重复，每条用例测试点唯一。
+2. module：所属模块，根据需求自行划分（如"登录模块"、"用户管理"）；模块名称用词统一，前后保持一致。
 3. priority：优先级，**仅允许枚举值**：P0 / P1 / P2 / P3
     - P0：核心主流程，必须通过
-    - P1：重要功能，高优先级
+    - P1：重要功能、高风险异常、权限越权等高优先级
     - P2：一般功能，中优先级
     - P3：边缘场景，低优先级
-4. case_type：用例类型，**仅允许枚举值**：functional / performance / security；默认优先 functional；性能、安全场景按需生成。
-5. preconditions：前置条件，执行用例前需要满足的环境、账号、数据准备；无特殊前置条件填写字符串"无"，禁止留空。
+4. case_type：用例类型，**仅允许枚举值**：functional / performance / security；默认优先 functional；高风险业务点补充security安全用例；存在耗时、并发场景补充performance性能用例。
+5. preconditions：前置条件，精准写明环境、账号、角色、测试数据准备；无特殊前置条件填写字符串"无"，禁止留空；用例之间相互独立，不能依赖其他用例执行结果，前置条件不可与当前测试场景冲突。
 6. steps：测试步骤数组；数组内每一步为对象，必须包含 action、expected 两个字段；
-    - action：单步操作描述；
+    - action：单步操作描述，写明具体输入值、操作对象，步骤可直接复现，禁止模糊描述；
     - expected：该步骤对应的单步预期现象；
     - 操作与预期一一对应，不可出现步骤多、预期少的失衡情况；
     - 至少1条步骤。
-7. expected_result：整体预期结果，用例最终达成的可验证结果，一句话总结最终状态。
+7. expected_result：整体预期结果，用例最终达成的可验证结果，一句话总结最终状态；禁止"无异常""正常"等模糊判定文字。
 8. bdd_content：BDD Gherkin 格式内容，使用 Given‑When‑Then 语法；若不需要也不能省略字段，无内容时值填空字符串 ""。
 
 示例单条用例结构参考：
@@ -86,7 +86,7 @@ CASE_GENERATOR_PROMPT = """请根据以下需求描述，生成全面、专业�
         }
       ],
       "expected_result": "登录成功，跳转到系统首页",
-      "bdd_content": "Given 用户进入登录页面\nWhen 输入正确用户名与密码并点击登录\nThen 用户登录成功进入首页"
+      "bdd_content": "Given 用户进入登录页面\\nWhen 输入正确用户名与密码并点击登录\\nThen 用户登录成功进入首页"
     }
   ]
 }
@@ -94,23 +94,43 @@ CASE_GENERATOR_PROMPT = """请根据以下需求描述，生成全面、专业�
 JSON语法约束：
 1. 输出第一个字符必须是 {，最后一个字符必须是 }；
 2. 禁止尾部多余逗号；
-3. 字符串内换行使用 \n 转义；
+3. 字符串内换行使用 \\n 转义；
 4. 所有字段名使用英文双引号包裹；
 5. 禁止数组元素写成普通字符串，steps子项必须为对象。
 
+## 生成自检约束（对标7大评审维度强制校验）
+### 1.需求覆盖度
+- 当前需求下所有业务功能点必须产出对应测试用例，无核心功能遗漏；
+- 禁止生成超出当前需求范围、无关业务场景的用例。
+### 2.完整性
+- 每条用例8个字段完整无缺；
+- 权限场景强制覆盖：多角色操作校验、无权限访问、接口越权、权限变更后校验、权限回收校验。
+### 3.场景覆盖
+覆盖：正向场景、异常场景（错误输入、异常操作、非法参数、权限异常、重复提交、超时调用）、边界条件（最大值‑1、最大值、正常值、最小值、最小值‑1、空值、超长文本、特殊字符）、替代流程；
+按需补充安全场景（注入攻击、敏感字段展示校验、基础数据防护）、稳定性场景（上下游业务数据校验、连续调用、服务异常）。
+### 4.可执行性
+- 操作步骤输入值、点击对象明确；
+- 分步预期现象直观可见，执行人员可清晰判断通过与否；
+- 最终预期结果判定标准唯一，无歧义。
+### 5.规范性
+- title命名格式统一；
+- priority分级合理；
+- module名称前后统一；
+- steps内action与expected一一对应，数量相等。
+### 6.冗余性（重复判定三要素同时满足禁止生成）
+1. 需求一致；2.功能点一致；3.标题语义相似指向同一测试点；
+每条用例测试点独立唯一，禁止产出重复、高度相似用例。
+### 7.数据合理性
+- 使用的账号、输入数值、边界样本符合业务规则；
+- 异常输入样本具备代表性，无效参数真实有效。
+
 ## 生成要求
-1. 覆盖以下场景类型：
-   - 正向场景（正常流程）
-   - 异常场景（错误输入、异常操作、非法参数、权限异常）
-   - 边界条件（最大值、最小值、空值、超长文本、特殊字符）
-   - 替代流程（备选路径）
-2. 优先级分级严格按照枚举规则分配；核心主流程优先分配P0；
-3. 用例类型按需生成，功能用例为主，高风险点补充安全/性能用例；
-4. 步骤清晰可执行，每步包含操作描述和该步预期；
-5. 预期结果明确、可验证，禁止模糊描述；
-6. 生成 {count} 条用例，确保场景覆盖全面，用例之间不能重复、不能高度相似；
-7. 参考已有用例数量 {existing_count}，主动规避已经覆盖过的场景，不再重复产出相同测试点；
-8. 功能点较多时，均匀拆分到多条用例，不要单条用例塞入过多场景。
+1. 优先级分级严格按照枚举规则分配；核心主流程优先分配P0；
+2. 用例类型按需生成，功能用例为主，高风险点补充安全/性能用例；
+3. 生成 {count} 条用例，确保场景覆盖全面；
+4. 参考已有用例数量 {existing_count}，主动规避已经覆盖过的场景，不再重复产出相同测试点；
+5. 功能点较多时，均匀拆分到多条用例，不要单条用例塞入过多场景；
+6. 同类场景不要合并在一条用例，一条用例只验证一个测试点。
 """
 
 DEFAULT_SYSTEM_PROMPT = """你是一名资深测试工程师（具备 ISTQB 等专业测试知识体系），精通等价类划分、边界值分析、错误推测、场景法、判定表等黑盒测试设计方法。你的任务是根据需求和功能点，生成高质量、可执行的测试用例。
@@ -242,7 +262,7 @@ class CaseGeneratorAgent(BaseAgent):
 
     # ── 功能点驱动生成 ──────────────────────────────────
 
-    FEATURE_CASE_SYSTEM_PROMPT = """你是一名资深测试工程师（具备 ISTQB 等专业测试知识体系），精通等价类划分、边界值分析、错误推测、场景法、判定表等黑盒测试设计方法。你的任务是根据需求和功能点，生成高质量、可执行的测试用例。
+    FEATURE_CASE_SYSTEM_PROMPT = """你是一名资深测试工程师。根据需求、模块与功能点清单，生成高质量、高覆盖、规范标准的测试用例。生成时必须对照7个评审维度（需求覆盖度、完整性、场景覆盖、可执行性、规范性、冗余性、数据合理性）自检，提前规避评审阶段所有常见缺陷，同时覆盖功能性+安全+权限+接口稳定性全维度场景。
 
 ## 输出格式（最高优先级，强制执行）
 **仅输出 Markdown 表格，禁止输出任何前言、解释、思考过程、标题、注释，禁止使用 ```markdown 代码块包裹表格。**
@@ -251,44 +271,64 @@ class CaseGeneratorAgent(BaseAgent):
 |-------|--------|----------|---------------|--------|----------|-----------------|--------------|
 
 ### 字段释义（严格遵守）
-1. title：测试场景标题；格式：场景类型‑具体描述，示例：测试完整注册流程、异常场景‑输入空用户名、边界值‑用户名长度超过最大值16
-2. module：所属模块，严格使用用户提供模块名称，不可自行新增模块
-3. priority：优先级，仅允许取值 P0/P1/P2/P3；P0核心主流程、P1重要异常、P2次要场景、P3低优优化场景
-4. preconditions：执行该用例前置条件；无特殊前置条件填写「无」，禁止留空
-5. action：操作步骤，多条步骤必须使用 1.  2.  3. 有序编号，步骤清晰完整
-6. expected：分步预期现象，必须和 action 操作步骤一一对应编号，1条操作对应1条预期现象
-7. expected_result：最终执行结果（一句话总结最终状态，如注册成功、提示用户名已存在）
-8. feature_name：绑定当前功能点名，不可错分到其他功能点
+1. title：测试场景标题；格式：场景类型‑具体描述，示例：测试完整注册流程、异常场景‑输入空用户名、边界值‑用户名长度超过最大值16；每条用例测试点唯一，语义不能重复。
+2. module：所属模块，严格使用用户提供模块名称，不可自行新增、修改模块名称。
+3. priority：优先级，仅允许取值 P0/P1/P2/P3；P0核心主流程、P1重要异常/边界/权限越权等高风险场景、P2次要场景、P3低优优化场景。
+4. preconditions：执行该用例前置条件；精准、具体、无歧义，明确账号、角色、测试数据、环境准备；无特殊前置条件填写「无」，禁止留空、模糊描述；用例之间互相独立，不能依赖其他用例执行结果，前置条件不能和当前测试场景冲突。
+5. action：操作步骤，多条步骤必须使用 1.  2.  3. 有序编号，步骤清晰完整、可直接复现，写明具体输入值、点击对象，禁止模糊操作描述。
+6. expected：分步预期现象，必须和 action 操作步骤一一对应编号，1条操作对应1条预期现象，严格数量一致，禁止步骤失衡、错配。
+7. expected_result：最终执行结果（一句话总结最终状态，精准可验证；禁止"无异常""正常"等模糊判定文字）。
+8. feature_name：绑定当前功能点名，严格取自给定功能点列表，不可错分、不可跨功能点绑定。
 
 单元格内**禁止出现竖线 | 字符**，避免表格解析错乱。
 
-示例参考：
-| title | module | priority | preconditions | action | expected | expected_result | feature_name |
-|-------|--------|----------|---------------|--------|----------|-----------------|--------------|
-| 测试完整注册流程 | 注册校验 | P0 | 进入注册页 | 1. 打开注册页面 2. 输入用户名admin 3. 输入密码admin123 4. 点击注册按钮 | 1. 页面正常加载 2. 用户名输入框无错误提示 3. 密码输入框无错误提示 4. 注册成功跳转到首页 | 注册成功 | 用户名校验 |
-| 异常场景‑输入已存在用户名注册 | 注册校验 | P1 | 进入注册页 | 1. 打开注册页面 2. 输入已注册用户名admin 3. 输入密码admin123 4. 点击注册按钮 | 1. 页面正常加载 2. 用户名输入框下方显示用户名已存在 3. 密码输入框无错误提示 4. 注册失败停留在注册页 | 阻止提交并提示用户名已存在 | 用户名校验 |
-| 边界值‑用户名长度5位(低于最小值6) | 注册校验 | P1 | 进入注册页 | 1. 打开注册页面 2. 输入5位用户名abc12 3. 点击注册按钮 | 1. 页面正常加载 2. 用户名输入框提示长度需6‑16位 | 阻止提交并提示长度限制 | 用户名校验 |
+## 生成自检约束（对标评审7大维度，强制校验）
+### 1.需求覆盖度（评审维度1）
+- 所有给定功能点必须产出对应用例，无核心功能遗漏；
+- 不能生成超出当前需求范围、无关业务场景的用例。
 
-## 测试设计方法（行业标准）
-根据需求特点选择合适的方法设计用例，确保覆盖充分、无重复：
-1. 等价类划分：将输入域划分为有效/无效等价类，每个等价类至少设计 1 条用例
-2. 边界值分析：重点测试最小值、最大值、临界值、超限值（长度上下限±1、数值边界）
-3. 错误推测：基于经验推测常见错误（空值、特殊字符、格式错误、未登录访问、重复提交等）
-4. 场景法：覆盖主流程（Happy Path）、备选流程、异常流程
-5. 判定表：存在多个条件组合时，确保条件组合覆盖完整（如"已登录且有权限/已登录无权限/未登录"）
+### 2.完整性（评审维度2）
+- 每条用例8个字段完整，无空字段；
+- 前置条件、操作步骤、分步预期、最终结果全部补齐；
+- 权限类功能必须覆盖：多角色操作、无权限访问、越权操作、权限变更后校验、权限回收校验。
 
-## 生成规则
+### 3.场景覆盖（评审维度3）
+单个功能点生成 3‑8 条用例，必须覆盖：正向主流程、常规异常、边界极值、空值输入、超长文本、特殊字符、重复操作场景；
+按需补充非功能场景：
+- 安全维度：基础访问控制、SQL注入、特殊字符校验、敏感数据展示、数据防护；
+- 接口稳定性：异常超时、重复调用、连续操作稳定性；
+- 数据维度：上下游数据一致性、参数合法性校验。
+
+### 4.可执行性（评审维度4）
+- action操作步骤不能模糊，输入值、操作对象明确；
+- expected分步现象清晰可见，执行人员可以直观判断是否通过；
+- expected_result判定标准唯一，不存在多义结果。
+
+### 5.规范性（评审维度5）
+- title命名格式统一；
+- priority严格使用P0‑P3，分级合理；
+- module、feature_name名称前后统一；
+- action与expected编号一一对应，数量相等；
+- 单元格无换行、无竖线符号。
+
+### 6.冗余性（评审维度6，复用评审重复判定规则）
+判定重复三要素同时满足即禁止生成：
+1. 需求一致；2.功能点一致；3.标题语义相似，指向同一测试点；
+每条用例测试点独立唯一，禁止产出重复、高度相似、冗余用例。
+
+### 7.数据合理性（评审维度7）
+- 使用的测试账号、输入数值、边界样本符合业务规则；
+- 边界值样本区分最小值‑1、最小值、正常值、最大值、最大值+1；
+- 异常输入样本具备代表性，无效参数真实有效。
+
+## 强制生成规则
 1. 只输出表格，不要输出任何标题、额外文字、代码块标记；输出第一个字符为 |
 2. 每行一条用例，字段之间用 | 分隔；所有单元格内容不能出现换行
-3. action 和 expected 必须包含完整的操作步骤，用 1. 2. 3. 编号，每个步骤之间用空格分隔
-4. action 和 expected 的步骤编号一一对应，操作几步预期就几步，不可数量失衡
-5. 优先级只能使用 P0/P1/P2/P3
-6. module 和 feature_name 必须严格使用给定的模块名、功能点名，不可自行修改、新增
-7. 单个功能点生成 3‑8 条用例；覆盖正向主流程、异常输入、边界极值、空值输入、特殊字符、超长文本等场景
-8. title 必须是有意义的测试场景标题，格式为：测试场景类型+具体描述，如 测试完整登录流程、异常场景‑输入空用户名、边界值‑用户名长度超过最大值16
-9. 禁止产出重复、高度相似的测试用例
-10. 预期结果必须可验证：明确到具体的界面提示、页面跳转、数据状态，禁止使用"正常""正确"等模糊描述
-11. 用例应互相独立、可单独执行，避免用例之间存在状态依赖"""
+3. action 和 expected 必须包含完整的操作步骤，用 1. 2. 3. 编号，步骤一一对应、数量严格一致，杜绝错配、失衡问题
+4. 优先级只能使用 P0/P1/P2/P3，分级合理，核心流程P0、异常边界P1、优化场景P2、边缘场景P3
+5. module 和 feature_name 必须严格使用给定的模块名、功能点名，不可自行修改、新增、错配
+6. title 必须规范：测试场景类型+具体描述，禁止模糊、重复标题
+7. 所有用例保证前置条件精准、步骤独立、预期唯一可验证，杜绝前置冲突、描述模糊、用例依赖问题"""
 
     FEATURE_CASE_HUMAN_TEMPLATE = """## 需求：{title}
 
@@ -545,6 +585,10 @@ class CaseGeneratorAgent(BaseAgent):
             expected_str = case.get("expected", "")
             case["steps"] = CaseGeneratorAgent._build_steps(action_str, expected_str)
 
+            # 校验并修复 title/module 错位问题
+            # 场景：LLM 可能将模块名填入 title 列，而 module 列为空
+            CaseGeneratorAgent._fix_title_module_swap(case)
+
             # 清理多余的中间字段
             for k in ["action", "expected"]:
                 pass  # 保留在 case 里也可以，create_test_cases 不依赖
@@ -553,6 +597,162 @@ class CaseGeneratorAgent(BaseAgent):
 
         logger.info(f"Markdown 表格解析: 表头 {len(col_order)} 列, 数据 {len(cases)} 行")
         return cases
+
+    # 模块名常见关键词（用于识别 title 字段是否被错误填入模块名）
+    _MODULE_KEYWORDS = [
+        "管理", "模块", "配置", "引擎", "看板", "交互", "反馈", "规则",
+        "预审", "角色", "权限", "列表", "编辑", "调试", "执行", "结果",
+        "发起", "请求", "评估", "效果", "界面", "用户",
+    ]
+
+    @staticmethod
+    def _looks_like_module_name(text: str) -> bool:
+        """判断文本是否像模块名（而非用例标题）。
+
+        判定标准：
+        1. 不以用例动词开头（测试/验证/检查/点击/输入等）
+        2. 包含模块关键词（管理/配置/引擎/看板等）
+        3. 文本较短（≤15字），为名词性短语
+        """
+        if not text or not text.strip():
+            return False
+        t = text.strip()
+
+        # 用例标题动词开头 → 不是模块名
+        _test_verbs = [
+            "测试", "验证", "检查", "确保", "确认", "校验", "边界",
+            "异常", "正常", "成功", "失败", "覆盖", "支持", "拒绝",
+            "检验", "核实", "比对", "限制",
+            "不允许", "允许", "可以", "不可", "能", "不能",
+            "点击", "输入", "查看", "进入", "提交", "选择",
+            "搜索", "筛选", "导入", "导出", "创建", "删除",
+            "编辑", "保存", "更新", "查询", "触发", "执行",
+            "添加", "新增", "修改", "加载", "打开", "关闭",
+            "获取", "读取", "写入", "发送", "接收", "处理",
+            "should", "should not", "verify", "test", "check",
+        ]
+        lower = t.lower()
+        for p in _test_verbs:
+            if lower.startswith(p.lower()):
+                return False
+
+        # 空/无/有 开头可能是合理的用例标题
+        if t.startswith(("空", "无", "有", "存在", "不存在")):
+            return False
+
+        # 包含模块关键词，且字符较短 → 大概率是模块名
+        hit_keywords = [kw for kw in CaseGeneratorAgent._MODULE_KEYWORDS if kw in t]
+        if hit_keywords and len(t) <= 15:
+            # 但如果同时包含用例动词短语，排除
+            if not any(v in t for v in ["测试", "验证", "检查", "确保", "确认", "校验",
+                                         "查看", "点击", "输入", "进入", "提交", "选择",
+                                         "搜索", "筛选", "导入", "导出", "创建", "删除"]):
+                return True
+        return False
+
+    @staticmethod
+    def _fix_title_module_swap(case: Dict[str, Any]) -> None:
+        """修复 title 和 module 字段错位的问题。
+
+        场景：LLM 可能将模块名填入 title 列，而 module 列为空或被填入了其他值。
+        修复策略：
+        1. title 像模块名 + module 为空 → 将 title 移入 module，从步骤生成新 title
+        2. title 像模块名 + module 也像模块名 → 保留更像的那个作为 module，生成 title
+        3. title 像模块名 + module 不像模块名 → 交换 title 和 module
+        注意：如果 module 已有合理值（不像模块名也不像空），则不修改 title
+        """
+        title = str(case.get("title", "") or "").strip()
+        module = str(case.get("module", "") or "").strip()
+
+        if not title:
+            return
+
+        title_is_module = CaseGeneratorAgent._looks_like_module_name(title)
+        module_is_module = CaseGeneratorAgent._looks_like_module_name(module) if module else False
+
+        # 场景1: title 像模块名，module 为空 → 交换
+        if title_is_module and not module:
+            case["module"] = title
+            new_title = CaseGeneratorAgent._generate_title_from_steps(case)
+            case["title"] = new_title
+            logger.info(f"修复 title/module 错位: title={title!r} → module, 新 title={new_title!r}")
+            return
+
+        # 场景2: title 像模块名，module 也像模块名 → 保留更像的做 module
+        if title_is_module and module_is_module:
+            title_kw_count = sum(1 for kw in CaseGeneratorAgent._MODULE_KEYWORDS if kw in title)
+            module_kw_count = sum(1 for kw in CaseGeneratorAgent._MODULE_KEYWORDS if kw in module)
+            if module_kw_count >= title_kw_count:
+                # module 更像模块名，重新生成 title
+                new_title = CaseGeneratorAgent._generate_title_from_steps(case)
+                case["title"] = new_title
+                logger.info(f"修复 title: title={title!r} 像模块名, module={module!r} 保留, 新 title={new_title!r}")
+            else:
+                # title 更像模块名，交换
+                case["module"] = title
+                new_title = CaseGeneratorAgent._generate_title_from_steps(case)
+                case["title"] = new_title
+                logger.info(f"修复 title/module 错位(双模块): title={title!r} ↔ module={module!r}, 新 title={new_title!r}")
+            return
+
+        # 场景3: title 像模块名，module 不像模块名 → 交换
+        # 但需要 module 看起来像一个合理的 title（以动词开头等）
+        if title_is_module and module and not module_is_module:
+            # 如果 module 看起来像一个合理的用例标题，则交换
+            if module and len(module) >= 4:
+                case["module"] = title
+                case["title"] = module
+                logger.info(f"修复 title/module 错位: 交换 {title!r} ↔ {module!r}")
+                return
+            # 否则重新生成 title
+            case["module"] = title
+            new_title = CaseGeneratorAgent._generate_title_from_steps(case)
+            case["title"] = new_title
+            logger.info(f"修复 title/module 错位(title→module, 生成新title): {title!r} → {new_title!r}")
+            return
+
+        # 其他情况：title 不像模块名，或 module 已有合理值 → 不修改
+
+    @staticmethod
+    def _generate_title_from_steps(case: Dict[str, Any]) -> str:
+        """从步骤和预期结果中生成合理的用例标题。"""
+        steps = case.get("steps", [])
+        expected_result = str(case.get("expected_result", "") or "")
+        module = str(case.get("module", "") or "")
+
+        # 收集步骤中的关键动作
+        key_actions = []
+        if steps and isinstance(steps, list):
+            for step in steps:
+                if isinstance(step, dict):
+                    action = str(step.get("action", "") or "").strip()
+                    if action:
+                        # 提取关键动作短语
+                        key_actions.append(action)
+
+        # 从预期结果中提取关键信息
+        key_expected = ""
+        if expected_result:
+            # 截取前20字作为标题素材
+            key_expected = expected_result[:20].strip()
+
+        # 尝试组合标题
+        if key_actions:
+            # 取第一个关键动作 + 关键预期
+            first_action = key_actions[0]
+            # 简化动作描述（取前15字）
+            short_action = first_action[:15].strip()
+            if key_expected and any(kw in key_expected for kw in ["阻止", "过滤", "提示", "跳转", "显示", "返回", "拒绝", "允许"]):
+                return f"测试{short_action}-{key_expected}"
+            return f"测试{short_action}"
+
+        if key_expected:
+            return f"测试{key_expected}"
+
+        # 兜底：使用模块名 + 通用描述
+        if module:
+            return f"测试{module}相关功能"
+        return "测试用例"
 
     @staticmethod
     def _build_steps(action_str: str, expected_str: str) -> List[Dict[str, str]]:

@@ -249,7 +249,10 @@
                   <div v-if="record.case_title" style="font-size: 12px; color: #666">{{ record.case_title }}</div>
                 </template>
                 <template v-else-if="column.key === 'requirement_title'">
-                  {{ record.requirement_title || '-' }}
+                  <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '400px' }">
+                    <template #title>{{ displayRequirementTitle(record) }}</template>
+                    <span class="cell-ellipsis">{{ displayRequirementTitle(record) }}</span>
+                  </a-tooltip>
                 </template>
                 <template v-else-if="column.key === 'module'">
                   {{ record.module || '-' }}
@@ -652,6 +655,26 @@ async function viewDetail(record: CaseReviewItem) {
   } finally {
     detailLoading.value = false
   }
+}
+
+// 需求ID → 需求名称映射：问题列表中"需求ID=x"占位符展示为需求名称（与分组评价一致）
+const requirementTitleMap = computed(() => {
+  const map: Record<string, string> = {}
+  const input: any = currentDetail.value?.input_params || {}
+  for (const r of input.requirements || []) {
+    if (r?.id != null && r?.title) map[String(r.id)] = r.title
+  }
+  for (const g of input.groups || []) {
+    if (g?.requirement_id != null && g?.requirement_title) map[String(g.requirement_id)] = g.requirement_title
+  }
+  return map
+})
+
+function displayRequirementTitle(record: any): string {
+  const raw = (record?.requirement_title || '').trim()
+  const m = raw.match(/^需求ID=(\d+)$/)
+  if (m) return requirementTitleMap.value[m[1]] || raw
+  return raw || '-'
 }
 
 // ===== 评审范围弹窗 =====

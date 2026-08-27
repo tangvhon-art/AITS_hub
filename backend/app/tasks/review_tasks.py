@@ -41,6 +41,27 @@ def review_cases_task(self, task_id: int):
                 req_parts.append(f"【需求：{r.get('title', '')}】\n{r.get('content', '')}")
             requirement_text = "\n\n".join(req_parts)
 
+        # 需求ID → 需求名称映射：优先取输入参数，缺失时查库兜底，
+        # 供 HUMAN 消息展示需求名称及回填 issue 的 requirement_title
+        req_title_map = {}
+        for r in requirements:
+            if r.get("id") is not None and r.get("title"):
+                req_title_map[r["id"]] = r["title"]
+        for g in groups:
+            rid = g.get("requirement_id")
+            if rid is not None and g.get("requirement_title") and not req_title_map.get(rid):
+                req_title_map[rid] = g["requirement_title"]
+        missing_ids = {c.get("req_id") for c in cases if c.get("req_id") and c.get("req_id") not in req_title_map}
+        if missing_ids:
+            from app.models.requirement import TestRequirement
+            rows = db.query(TestRequirement.id, TestRequirement.title).filter(
+                TestRequirement.id.in_(list(missing_ids)),
+                TestRequirement.is_deleted == False,
+            ).all()
+            for rid, title in rows:
+                if title:
+                    req_title_map[rid] = title
+
         # 获取自定义 Prompt
         system_prompt = ""
         if prompt_id:
@@ -54,7 +75,7 @@ def review_cases_task(self, task_id: int):
             system_prompt = REVIEW_SYSTEM_PROMPT
 
         # 构建 human 消息
-        human_text = _build_review_human_text(cases, requirement_text, groups)
+        human_text = _build_review_human_text(cases, requirement_text, groups, req_title_map)
 
         # 直接调用 LLM — 使用 call_with_fallback（同用例生成路径）
         from langchain_core.messages import SystemMessage, HumanMessage
@@ -97,17 +118,9 @@ def review_cases_task(self, task_id: int):
             for case in cases:
                 cid = case.get("id")
                 if cid is not None:
-                    # 需求标题查找
-                    req_id = case.get("req_id")
-                    req_title = ""
-                    if req_id:
-                        for r in requirements:
-                            if r.get("id") == req_id:
-                                req_title = r.get("title", "")
-                                break
                     case_meta_map[cid] = {
                         "module": case.get("module", "") or "",
-                        "requirement_title": req_title or "",
+                        "requirement_title": req_title_map.get(case.get("req_id"), "") or "",
                     }
 
             filled_count = 0
@@ -115,10 +128,15 @@ def review_cases_task(self, task_id: int):
                 cid = issue.get("case_id")
                 if cid is not None and cid in case_meta_map:
                     meta = case_meta_map[cid]
-                    # 仅在为空时回填，保留 LLM 输出的值
+                    # module 仅在为空时回填；requirement_title 若为"需求ID=x"占位符则用真实名称覆盖
                     if not issue.get("module"):
                         issue["module"] = meta["module"]
-                    if not issue.get("requirement_title"):
+                    cur_title = (issue.get("requirement_title") or "").strip()
+                    if meta["requirement_title"] and (
+                        not cur_title
+                        or "需求ID=" in cur_title
+                        or cur_title == "未关联需求"
+                    ):
                         issue["requirement_title"] = meta["requirement_title"]
                     filled_count += 1
             if filled_count:
@@ -189,7 +207,7 @@ def review_cases_task(self, task_id: int):
         db.close()
 
 
-def _build_review_human_text(cases, requirement, groups):
+def _build_review_human_text(cases, requirement, groups, req_title_map=None):
     """构建评审 HUMAN 消息"""
     parts = []
 
@@ -213,7 +231,11 @@ def _build_review_human_text(cases, requirement, groups):
         req_id = case.get("req_id")
         feature_name = case.get("feature_name", "")
         feature_module = case.get("feature_module", "")
-        req_label = f"需求ID={req_id}" if req_id else "未关联需求"
+        req_title = (req_title_map or {}).get(req_id, "") if req_id else ""
+        if req_title:
+            req_label = f"{req_title}（需求ID={req_id}）"
+        else:
+            req_label = f"需求ID={req_id}" if req_id else "未关联需求"
         if feature_name:
             feat_label = f"功能点={feature_name}"
         elif feature_module:
@@ -278,7 +300,8 @@ OPTIMIZE_CASES_SYSTEM_PROMPT = """你是一名资深软件测试工程师。请�
 9. 如果优化模式为 supplement（仅补充），则优化用例表格输出空表格（只有表头）
 10. 如果优化模式为 optimize（仅优化），则补充用例表格输出空表格（只有表头）
 11. 所有内容使用中文
-12. 【关键】每行数据的列数必须与表头完全一致，缺少的列必须用空值占位（即 ||），不得跳过任何列。尤其 module 列不能省略，如果无法确定模块名则输出空值"""
+12. 【关键】每行数据的列数必须与表头完全一致，缺少的列必须用空值占位（即 ||），不得跳过任何列。尤其 module 列不能省略，如果无法确定模块名则输出空值
+13. 【关键-补充用例 title 规范】补充用例的 title 字段必须是测试场景描述（如"测试SQL注入攻击防护"、"验证XSS过滤功能"、"检查边界值处理"），禁止仅填写模块名（如"用户反馈管理"、"规则配置管理"等）。title 应以"测试/验证/检查/确保/确认/校验/边界/异常"等动词开头，描述具体的测试场景。"""
 
 OPTIMIZE_CASES_USER_PROMPT = """## 原始需求
 {requirement}
@@ -526,6 +549,17 @@ def optimize_cases_from_review_task(
         from app.services.ai_creation_service import AICreationService
         created_cases = []
         if new_cases:
+            # 二次校验：修复补充用例的 title/module 错位
+            from app.agents.case_generator import CaseGeneratorAgent
+            fixed_count = 0
+            for c in new_cases:
+                old_title = c.get("title", "")
+                CaseGeneratorAgent._fix_title_module_swap(c)
+                if c.get("title") != old_title:
+                    fixed_count += 1
+            if fixed_count:
+                logger.info(f"[optimize_cases] 二次修复 title/module 错位: {fixed_count} 条")
+
             # 逐条关联需求ID，避免生成的补充用例缺失需求关联
             for c in new_cases:
                 if not c.get("req_id"):
