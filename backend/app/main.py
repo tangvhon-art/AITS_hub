@@ -57,6 +57,7 @@ from app.api import (
     celery_beat_router,
     workflow_router,
     workflow_public_router,
+    workflow_project_router,
     workflow_webhook_router,
 )
 
@@ -314,6 +315,7 @@ app.include_router(crontab_router)
 app.include_router(celery_beat_router)
 app.include_router(workflow_router)
 app.include_router(workflow_public_router)
+app.include_router(workflow_project_router)
 app.include_router(workflow_webhook_router)
 
 # 静态文件服务（截图等上传文件）

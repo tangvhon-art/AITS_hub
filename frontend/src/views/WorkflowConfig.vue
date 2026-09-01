@@ -1,7 +1,7 @@
 <template>
   <div class="workflow-config-page">
     <div class="page-header">
-      <h2>外部工作流平台接入</h2>
+      <h2>agent配置</h2>
       <a-tag color="purple">系统级配置</a-tag>
     </div>
 
@@ -182,6 +182,10 @@
             <template v-if="column.key === 'module_id'">
               <a-tag color="blue">{{ WORKFLOW_MODULE_TEXT[record.module_id] || record.module_id }}</a-tag>
             </template>
+            <template v-else-if="column.key === 'project_id'">
+              <a-tag v-if="record.project_id" color="geekblue">{{ getProjectName(record.project_id) }}</a-tag>
+              <a-tag v-else color="default">系统级</a-tag>
+            </template>
             <template v-else-if="column.key === 'default_backend'">
               <a-tag :color="record.default_backend === 'workflow' ? 'purple' : 'default'">
                 {{ AI_BACKEND_TEXT[record.default_backend] || record.default_backend }}
@@ -218,6 +222,15 @@
                 :disabled="!!moduleEditing"
                 placeholder="选择模块"
               />
+            </a-form-item>
+            <a-form-item label="项目">
+              <a-select
+                v-model:value="moduleForm.project_id"
+                :options="projectOptions"
+                allow-clear
+                placeholder="不选择则为系统级默认"
+              />
+              <span class="hint">选择项目后为项目级配置，优先于系统级；不选则为系统级</span>
             </a-form-item>
             <a-form-item label="默认执行后端">
               <a-radio-group v-model:value="moduleForm.default_backend">
@@ -269,6 +282,7 @@ import {
   type WorkflowConnector, type WorkflowWebhookConfig,
   type AgentBackendConfig,
 } from '@/api/workflow'
+import { getProjects, type Project } from '@/api/projects'
 import {
   WORKFLOW_PLATFORM_TEXT, WORKFLOW_PLATFORM_COLOR, WORKFLOW_PLATFORM_OPTIONS,
   WORKFLOW_MODULE_TEXT, WORKFLOW_MODULE_OPTIONS,
@@ -486,9 +500,28 @@ const modulesLoading = ref(false)
 const moduleModalVisible = ref(false)
 const moduleSaving = ref(false)
 const moduleEditing = ref<AgentBackendConfig | null>(null)
+const projects = ref<Project[]>([])
+
+const projectOptions = computed(() =>
+  projects.value.map(p => ({ label: p.name, value: p.id }))
+)
+
+function getProjectName(id: number) {
+  return projects.value.find(p => p.id === id)?.name || `项目#${id}`
+}
+
+async function fetchProjects() {
+  try {
+    const res = await getProjects()
+    projects.value = res
+  } catch {
+    // ignore
+  }
+}
 
 const moduleForm = reactive({
   module_id: 'requirement.generate',
+  project_id: undefined as number | undefined,
   default_backend: 'local',
   connector_id: undefined as number | undefined,
   external_agent_id: '',
@@ -497,11 +530,12 @@ const moduleForm = reactive({
 
 const moduleColumns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
-  { title: '模块', dataIndex: 'module_id', key: 'module_id', width: 160 },
-  { title: '默认后端', dataIndex: 'default_backend', key: 'default_backend', width: 120 },
+  { title: '模块', dataIndex: 'module_id', key: 'module_id', width: 140 },
+  { title: '项目', dataIndex: 'project_id', key: 'project_id', width: 140 },
+  { title: '默认后端', dataIndex: 'default_backend', key: 'default_backend', width: 110 },
   { title: '绑定连接', dataIndex: 'connector_id', key: 'connector_id' },
   { title: '外部 Agent 标识', dataIndex: 'external_agent_id', key: 'external_agent_id', ellipsis: true },
-  { title: '页面切换', dataIndex: 'page_selectable', key: 'page_selectable', width: 100 },
+  { title: '页面切换', dataIndex: 'page_selectable', key: 'page_selectable', width: 90 },
   { title: '操作', key: 'action', width: 80 },
 ]
 
@@ -520,6 +554,7 @@ function openModuleModal(row?: AgentBackendConfig) {
   if (row) {
     Object.assign(moduleForm, {
       module_id: row.module_id,
+      project_id: row.project_id || undefined,
       default_backend: row.default_backend,
       connector_id: row.connector_id || undefined,
       external_agent_id: row.external_agent_id || '',
@@ -528,6 +563,7 @@ function openModuleModal(row?: AgentBackendConfig) {
   } else {
     Object.assign(moduleForm, {
       module_id: 'requirement.generate',
+      project_id: undefined,
       default_backend: 'local',
       connector_id: undefined,
       external_agent_id: '',
@@ -542,6 +578,7 @@ async function saveModuleConfig() {
   try {
     const data = {
       module_id: moduleForm.module_id,
+      project_id: moduleForm.project_id || null,
       default_backend: moduleForm.default_backend,
       connector_id: moduleForm.connector_id || null,
       external_agent_id: moduleForm.external_agent_id || undefined,
@@ -566,6 +603,7 @@ onMounted(() => {
   fetchConnectors()
   fetchWebhookConfig()
   fetchModuleConfigs()
+  fetchProjects()
 })
 </script>
 

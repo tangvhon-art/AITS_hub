@@ -251,6 +251,7 @@ export const WORKFLOW_MODULE_TEXT: Record<string, string> = {
   'requirement.split_features': '功能点拆分',
   'case.generate': '用例生成',
   'case.review': '用例评审',
+  'report.generate': '测试报告生成',
 }
 
 export const WORKFLOW_MODULE_OPTIONS = [
@@ -258,6 +259,7 @@ export const WORKFLOW_MODULE_OPTIONS = [
   { label: '功能点拆分', value: 'requirement.split_features' },
   { label: '用例生成', value: 'case.generate' },
   { label: '用例评审', value: 'case.review' },
+  { label: '测试报告生成', value: 'report.generate' },
 ]
 
 // ─── 辅助函数 ───

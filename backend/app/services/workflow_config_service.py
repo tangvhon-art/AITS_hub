@@ -32,6 +32,7 @@ MODULE_IDS = [
     "requirement.split_features",
     "case.generate",
     "case.review",
+    "report.generate",
 ]
 
 # module_id → AgentTask.agent_type 映射（uuid 路由按 agent_type 定位模块）
@@ -40,6 +41,7 @@ MODULE_TO_AGENT_TYPE = {
     "requirement.split_features": "feature_splitter",
     "case.generate": "case_generator",
     "case.review": "case_reviewer",
+    "report.generate": "report_generator",
 }
 
 # 反向：agent_type → module_id

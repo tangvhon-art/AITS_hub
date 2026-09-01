@@ -217,3 +217,56 @@ export function getEffectiveBackend(module_id: string, project_id?: number) {
     params: { module_id, project_id },
   })
 }
+
+// ── 项目级模块执行后端配置 ───────────────────────────────
+
+export interface ProjectModuleEffectiveConfig {
+  module_id: string
+  /** 配置来源：project=项目级覆盖 / system=继承系统默认 */
+  source: 'project' | 'system'
+  webhook_enabled: boolean
+  /** 生效配置（项目级优先，无则系统级） */
+  effective: AgentBackendConfig | null
+  /** 项目级配置（无则 null，表示继承系统默认） */
+  project_config: AgentBackendConfig | null
+  /** 系统级配置 */
+  system_config: AgentBackendConfig | null
+  /** 是否具备 workflow 执行条件 */
+  workflow_ready: boolean
+}
+
+export interface ProjectModuleConfigListResponse {
+  items: AgentBackendConfig[]
+  total: number
+  project_id: number
+}
+
+export interface ProjectModuleEffectiveListResponse {
+  items: ProjectModuleEffectiveConfig[]
+  total: number
+  project_id: number
+}
+
+/** 获取项目级各模块配置（仅项目级行） */
+export function listProjectModuleConfigs(projectId: number) {
+  return request.get<ProjectModuleConfigListResponse>(`/projects/${projectId}/agent-backend-configs`)
+}
+
+/** 获取项目生效配置（合并系统级+项目级，供配置页展示） */
+export function getProjectEffectiveConfigs(projectId: number) {
+  return request.get<ProjectModuleEffectiveListResponse>(`/projects/${projectId}/agent-backend-configs/effective`)
+}
+
+/** 更新项目级某模块配置（不存在则创建） */
+export function upsertProjectModuleConfig(
+  projectId: number,
+  moduleId: string,
+  data: AgentBackendConfigUpdate,
+) {
+  return request.put<AgentBackendConfig>(`/projects/${projectId}/agent-backend-configs/${moduleId}`, data)
+}
+
+/** 删除项目级某模块配置（恢复继承系统级默认） */
+export function deleteProjectModuleConfig(projectId: number, moduleId: string) {
+  return request.delete<{ message: string }>(`/projects/${projectId}/agent-backend-configs/${moduleId}`)
+}

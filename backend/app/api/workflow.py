@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_admin, get_project
 from app.core.audit import log_audit
 from app.models.user import User
+from app.models.project import Project
 from app.services import workflow_config_service as svc
 from app.schemas.workflow import (
     WorkflowConnectorCreate, WorkflowConnectorUpdate, WorkflowConnectorResponse,
@@ -23,7 +24,7 @@ from app.schemas.workflow import (
 
 router = APIRouter(
     prefix="/api/workflow",
-    tags=["外部工作流接入"],
+    tags=["agent配置"],
     dependencies=[Depends(require_admin)],
 )
 
@@ -326,7 +327,7 @@ def list_call_logs(
 
 public_router = APIRouter(
     prefix="/api/workflow",
-    tags=["外部工作流接入"],
+    tags=["agent配置"],
     dependencies=[Depends(get_current_user)],
 )
 
@@ -365,3 +366,146 @@ def get_effective_backend(
         "module_id": module_id,
         "project_id": project_id,
     }
+
+
+# ══════════════════════════════════════════════════════════
+# 项目级模块执行后端配置（项目成员可操作，项目管理员可配置）
+# ══════════════════════════════════════════════════════════
+
+project_router = APIRouter(
+    prefix="/api/projects/{project_id}",
+    tags=["agent配置-项目级"],
+    dependencies=[Depends(get_current_user), Depends(get_project)],
+)
+
+
+@project_router.get("/agent-backend-configs")
+def list_project_module_configs(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    """获取项目级各模块执行后端配置（仅返回项目级行，不含系统级继承）
+
+    返回每个模块的项目级配置；未配置项目级的模块不在列表中（前端显示"继承系统默认"）。
+    """
+    from app.models.workflow import AgentBackendConfig
+    items = db.query(AgentBackendConfig).filter(
+        AgentBackendConfig.project_id == project_id,
+    ).order_by(AgentBackendConfig.module_id).all()
+    return {
+        "items": [svc.module_config_to_response(i) for i in items],
+        "total": len(items),
+        "project_id": project_id,
+    }
+
+
+@project_router.get("/agent-backend-configs/effective")
+def get_project_effective_configs(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    """获取项目生效配置（合并系统级+项目级，供项目配置页展示）
+
+    返回四大核心模块的生效配置，每个模块包含：
+    - effective: 生效配置（项目级优先，无则系统级）
+    - project_config: 项目级配置（无则 null，表示继承系统默认）
+    - system_config: 系统级配置
+    - source: 配置来源 project/system
+    """
+    from app.services.workflow_config_service import MODULE_IDS
+    webhook_enabled = svc.is_webhook_enabled(db)
+    result = []
+    for module_id in MODULE_IDS:
+        proj_cfg = svc.get_module_config(db, module_id, project_id)
+        sys_cfg = svc.get_module_config(db, module_id, None)
+        # 判断生效配置来源
+        has_project = db.query(__import__('app.models.workflow', fromlist=['AgentBackendConfig']).AgentBackendConfig).filter(
+            __import__('app.models.workflow', fromlist=['AgentBackendConfig']).AgentBackendConfig.module_id == module_id,
+            __import__('app.models.workflow', fromlist=['AgentBackendConfig']).AgentBackendConfig.project_id == project_id,
+        ).first() is not None
+        source = "project" if has_project else "system"
+        effective_cfg = proj_cfg if has_project else sys_cfg
+        result.append({
+            "module_id": module_id,
+            "source": source,
+            "webhook_enabled": webhook_enabled,
+            "effective": svc.module_config_to_response(effective_cfg) if effective_cfg else None,
+            "project_config": svc.module_config_to_response(proj_cfg) if has_project and proj_cfg else None,
+            "system_config": svc.module_config_to_response(sys_cfg) if sys_cfg else None,
+            "workflow_ready": bool(
+                webhook_enabled
+                and effective_cfg
+                and effective_cfg.default_backend == "workflow"
+                and effective_cfg.connector_id
+                and effective_cfg.external_agent_id
+            ),
+        })
+    return {"items": result, "total": len(result), "project_id": project_id}
+
+
+@project_router.put("/agent-backend-configs/{module_id}")
+def upsert_project_module_config(
+    project_id: int,
+    module_id: str,
+    data: AgentBackendConfigUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新项目级某模块执行后端配置（不存在则创建）
+
+    用于项目级覆盖系统默认。设置后该模块在本项目内使用项目级配置。
+    """
+    if data.default_backend is not None and data.default_backend not in ALLOWED_BACKENDS:
+        raise HTTPException(400, f"执行后端必须为: {', '.join(ALLOWED_BACKENDS)}")
+    # 校验 module_id 合法性
+    from app.services.workflow_config_service import MODULE_IDS
+    if module_id not in MODULE_IDS:
+        raise HTTPException(400, f"模块ID必须为: {', '.join(MODULE_IDS)}")
+    # 构造 upsert 数据
+    upsert_data = {"module_id": module_id, "project_id": project_id}
+    for key in ("default_backend", "connector_id", "external_agent_id", "page_selectable"):
+        val = getattr(data, key, None)
+        if val is not None:
+            upsert_data[key] = val
+    item = svc.upsert_module_config(db, upsert_data)
+    log_audit(
+        db, action="update", resource_type="project_workflow_module_config",
+        resource_id=item.id, resource_name=f"{module_id}@project_{project_id}", user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "module_id": module_id, "default_backend": item.default_backend},
+    )
+    db.commit()
+    return svc.module_config_to_response(item)
+
+
+@project_router.delete("/agent-backend-configs/{module_id}")
+def delete_project_module_config(
+    project_id: int,
+    module_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除项目级某模块配置（恢复继承系统级默认）
+
+    删除后该模块在本项目内恢复使用系统级默认配置。
+    """
+    from app.models.workflow import AgentBackendConfig
+    item = db.query(AgentBackendConfig).filter(
+        AgentBackendConfig.module_id == module_id,
+        AgentBackendConfig.project_id == project_id,
+    ).first()
+    if not item:
+        raise HTTPException(404, "项目级模块配置不存在")
+    db.delete(item)
+    log_audit(
+        db, action="delete", resource_type="project_workflow_module_config",
+        resource_id=item.id, resource_name=f"{module_id}@project_{project_id}", user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "module_id": module_id},
+    )
+    db.commit()
+    return {"message": "已删除，恢复继承系统级默认"}
