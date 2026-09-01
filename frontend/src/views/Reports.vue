@@ -102,6 +102,9 @@
             :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
           />
         </a-form-item>
+        <a-form-item v-if="showReportBackend" label="执行方式">
+          <a-radio-group v-model:value="reportBackend" :options="AI_BACKEND_OPTIONS" />
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -156,6 +159,11 @@ import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import { getLLMConfigs } from '@/api/llm'
 import { marked } from 'marked'
+import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
+import { AI_BACKEND_OPTIONS } from '@/constants/enums'
+
+const { showBackendOption: showReportBackend, defaultBackend: reportDefaultBackend, fetch: fetchReportBackend } = useWorkflowBackend()
+const reportBackend = ref('local')
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -267,7 +275,11 @@ async function handleGenerate() {
   }
   generating.value = true
   try {
-    await generateReport(projectId, { ...generateForm.value, version_id: generateForm.value.version_id! })
+    await generateReport(projectId, {
+      ...generateForm.value,
+      version_id: generateForm.value.version_id!,
+      backend: showReportBackend.value ? reportBackend.value : undefined,
+    })
     message.success('报告生成成功')
     generateVisible.value = false
     loadReports()
@@ -322,6 +334,10 @@ onMounted(() => {
     getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
     promptsApi.list('report_generation').then(data => { reportPrompts.value = data }).catch(() => {})
     getLLMConfigs().then(data => { llmConfigs.value = data })
+    // 查询"测试报告生成"模块的执行后端有效配置
+    fetchReportBackend('report.generate', projectId).then(() => {
+      reportBackend.value = reportDefaultBackend.value || 'local'
+    })
   }
 })
 </script>

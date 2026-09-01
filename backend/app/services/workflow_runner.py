@@ -42,103 +42,158 @@ def _project_name(db: Session, project_id: Optional[int]) -> str:
     return p.name if p else ""
 
 
-def _build_input(db: Session, task: AgentTask, module_id: str) -> Dict[str, Any]:
-    """按模块构造统一 input 契约（AITS 业务信息载体）"""
+def _build_base_input(db: Session, task: AgentTask) -> Dict[str, Any]:
+    """构造所有模块共用的 base input"""
     params = task.input_params or {}
     project_id = task.project_id
     project_name = _project_name(db, project_id)
-    base = {
+    return {
         "project_id": project_id,
         "project_name": project_name,
         "llm_config_id": task.llm_config_id,
     }
 
-    if module_id == "requirement.generate":
-        base.update({
-            "task_type": "requirement_generate",
-            "description": params.get("description", ""),
-            "version_id": params.get("version_id"),
-            "prompt_id": params.get("prompt_id"),
-        })
-        return base
 
-    if module_id == "requirement.split_features":
-        req_id = params.get("requirement_id")
-        title, content = "", ""
-        if req_id:
-            r = db.query(TestRequirement).filter(TestRequirement.id == req_id).first()
-            if r:
-                title, content = r.title or "", r.content or ""
-        base.update({
-            "task_type": "feature_split",
-            "requirement_id": req_id,
-            "requirement_title": title or params.get("requirement_title", ""),
-            "requirement_content": content or params.get("requirement_content", ""),
-        })
-        return base
+def _build_requirement_input(db: Session, task: AgentTask, module_id: str) -> Dict[str, Any]:
+    """需求生成模块 input 构造"""
+    params = task.input_params or {}
+    base = _build_base_input(db, task)
+    base.update({
+        "task_type": "requirement_generate",
+        "description": params.get("description", ""),
+        "version_id": params.get("version_id"),
+        "prompt_id": params.get("prompt_id"),
+    })
+    return base
 
-    if module_id == "case.generate":
-        req_id = params.get("requirement_id")
-        title, content = "", ""
-        feature_ids = params.get("feature_ids") or []
-        if req_id:
-            r = db.query(TestRequirement).filter(TestRequirement.id == req_id).first()
-            if r:
-                title, content = r.title or "", r.content or ""
-        features = []
-        if feature_ids and req_id:
-            feats = db.query(RequirementFeature).filter(
-                RequirementFeature.id.in_(feature_ids),
-                RequirementFeature.requirement_id == req_id,
-                RequirementFeature.is_deleted == False,  # noqa: E712
-            ).all()
-            for f in feats:
-                try:
-                    methods = json.loads(f.design_methods) if f.design_methods else []
-                except (json.JSONDecodeError, TypeError):
-                    methods = []
-                features.append({
-                    "id": f.id, "module_name": f.module_name, "name": f.name,
-                    "description": f.description, "priority": f.priority,
-                    "design_methods": methods, "preconditions": f.preconditions,
-                })
-        # 已有用例标题（避免重复）
-        existing_titles = params.get("existing_case_titles") or []
-        if req_id and not existing_titles:
-            from app.models.test_case import TestCase
-            existing_titles = [
-                t[0] for t in db.query(TestCase.title).filter(
-                    TestCase.project_id == project_id,
-                    TestCase.req_id == req_id,
-                    TestCase.is_deleted == False,  # noqa: E712
-                ).limit(50).all()
-            ]
-        base.update({
-            "task_type": "case_generate",
-            "requirement_id": req_id,
-            "requirement_title": title or params.get("requirement_title", ""),
-            "requirement_content": content or params.get("content", ""),
-            "features": features,
-            "existing_case_titles": existing_titles,
-            "count": params.get("count", 10),
-            "prompt_id": params.get("prompt_id"),
-        })
-        return base
 
-    if module_id == "case.review":
-        base.update({
-            "task_type": "case_review",
-            "requirement_id": params.get("requirement_id"),
-            "cases": params.get("cases", []),
-            "requirements": params.get("requirements", []),
-            "groups": params.get("groups", []),
-            "prompt_id": params.get("prompt_id"),
-        })
-        return base
+def _build_split_features_input(db: Session, task: AgentTask, module_id: str) -> Dict[str, Any]:
+    """功能点拆分模块 input 构造"""
+    params = task.input_params or {}
+    req_id = params.get("requirement_id")
+    title, content = "", ""
+    if req_id:
+        r = db.query(TestRequirement).filter(TestRequirement.id == req_id).first()
+        if r:
+            title, content = r.title or "", r.content or ""
+    base = _build_base_input(db, task)
+    base.update({
+        "task_type": "feature_split",
+        "requirement_id": req_id,
+        "requirement_title": title or params.get("requirement_title", ""),
+        "requirement_content": content or params.get("requirement_content", ""),
+    })
+    return base
 
-    # 兜底
+
+def _build_case_generate_input(db: Session, task: AgentTask, module_id: str) -> Dict[str, Any]:
+    """用例生成模块 input 构造"""
+    params = task.input_params or {}
+    project_id = task.project_id
+    req_id = params.get("requirement_id")
+    title, content = "", ""
+    feature_ids = params.get("feature_ids") or []
+    if req_id:
+        r = db.query(TestRequirement).filter(TestRequirement.id == req_id).first()
+        if r:
+            title, content = r.title or "", r.content or ""
+    features = []
+    if feature_ids and req_id:
+        feats = db.query(RequirementFeature).filter(
+            RequirementFeature.id.in_(feature_ids),
+            RequirementFeature.requirement_id == req_id,
+            RequirementFeature.is_deleted == False,  # noqa: E712
+        ).all()
+        for f in feats:
+            try:
+                methods = json.loads(f.design_methods) if f.design_methods else []
+            except (json.JSONDecodeError, TypeError):
+                methods = []
+            features.append({
+                "id": f.id, "module_name": f.module_name, "name": f.name,
+                "description": f.description, "priority": f.priority,
+                "design_methods": methods, "preconditions": f.preconditions,
+            })
+    # 已有用例标题（避免重复）
+    existing_titles = params.get("existing_case_titles") or []
+    if req_id and not existing_titles:
+        from app.models.test_case import TestCase
+        existing_titles = [
+            t[0] for t in db.query(TestCase.title).filter(
+                TestCase.project_id == project_id,
+                TestCase.req_id == req_id,
+                TestCase.is_deleted == False,  # noqa: E712
+            ).limit(50).all()
+        ]
+    base = _build_base_input(db, task)
+    base.update({
+        "task_type": "case_generate",
+        "requirement_id": req_id,
+        "requirement_title": title or params.get("requirement_title", ""),
+        "requirement_content": content or params.get("content", ""),
+        "features": features,
+        "existing_case_titles": existing_titles,
+        "count": params.get("count", 10),
+        "prompt_id": params.get("prompt_id"),
+    })
+    return base
+
+
+def _build_case_review_input(db: Session, task: AgentTask, module_id: str) -> Dict[str, Any]:
+    """用例评审模块 input 构造"""
+    params = task.input_params or {}
+    base = _build_base_input(db, task)
+    base.update({
+        "task_type": "case_review",
+        "requirement_id": params.get("requirement_id"),
+        "cases": params.get("cases", []),
+        "requirements": params.get("requirements", []),
+        "groups": params.get("groups", []),
+        "prompt_id": params.get("prompt_id"),
+    })
+    return base
+
+
+def _build_report_generate_input(db: Session, task: AgentTask, module_id: str) -> Dict[str, Any]:
+    """测试报告生成模块 input 构造"""
+    params = task.input_params or {}
+    base = _build_base_input(db, task)
+    base.update({
+        "task_type": "report_generate",
+        "report_type": params.get("report_type", "full"),
+        "version_id": params.get("version_id"),
+        "version_name": params.get("version_name", ""),
+        "title": params.get("title", ""),
+        "prompt_id": params.get("prompt_id"),
+    })
+    return base
+
+
+# 内部字段黑名单（兜底分支过滤）
+_INTERNAL_FIELDS = {
+    "page_backend", "celery_task_id", "executor", "report_id",
+    "existing_case_titles", "content_length",
+}
+
+
+def _build_input(db: Session, task: AgentTask, module_id: str) -> Dict[str, Any]:
+    """按模块构造统一 input 契约（AITS 业务信息载体）
+
+    优先从模块注册表获取 build_input 函数；未注册的模块走兜底逻辑（过滤内部字段）。
+    """
+    from app.services.workflow_modules import ensure_registered
+    ensure_registered()
+    from app.services.workflow_registry import WorkflowModuleRegistry
+
+    build_fn = WorkflowModuleRegistry.get_build_input_fn(module_id)
+    if build_fn:
+        return build_fn(db, task, module_id)
+
+    # 兜底：过滤内部字段，只暴露业务相关字段
+    params = task.input_params or {}
+    base = _build_base_input(db, task)
     base["task_type"] = module_id
-    base.update(params)
+    base.update({k: v for k, v in params.items() if k not in _INTERNAL_FIELDS})
     return base
 
 

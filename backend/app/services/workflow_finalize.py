@@ -19,6 +19,7 @@ from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
 from app.models.requirement import TestRequirement, RequirementFeature
 from app.models.test_case import TestCase
+from app.models.report import TestReport
 from app.services.content_extractor import ContentExtractor
 from app.services.ai_creation_service import AICreationService
 from app.services.notification_service import notify_event, notify_ai_task_failed
@@ -358,10 +359,113 @@ def finalize_review(db: Session, task: AgentTask, raw_content: str) -> None:
         raise
 
 
-# module_id → finalize 函数路由表
+def finalize_report(db: Session, task: AgentTask, raw_content: str) -> None:
+    """测试报告生成写库闭环
+
+    从 task.input_params 获取 report_id，将外部 agent 返回的 content 写入报告，
+    复用 AICreationService.update_report 更新统计数据。
+    """
+    params = task.input_params or {}
+    report_id = params.get("report_id")
+    module_id = "report.generate"
+
+    try:
+        if not report_id:
+            raise ValueError("input_params.report_id 缺失")
+        report = db.query(TestReport).filter(TestReport.id == report_id).first()
+        if not report:
+            raise ValueError(f"报告不存在: {report_id}")
+
+        # 内容清洗（与本地 report_tasks 一致）
+        import re
+        content = re.sub(r'["\u201c\u201d]{5,}', '', raw_content)
+        content = re.sub(r'[()]{5,}', '', content)
+        content = re.sub(r',{3,}', '，', content)
+        content = re.sub(r'\n{4,}', '\n\n\n', content)
+        if len(content) > 8000:
+            content = content[:8000] + '\n\n...（内容已截断）'
+
+        # 提取报告内容
+        report_content = ContentExtractor.extract_report(content)
+
+        # 收集统计数据（复用 ReportGeneratorAgent 的统计逻辑）
+        from app.agents.report_generator import ReportGeneratorAgent
+        version_id = params.get("version_id")
+        agent = ReportGeneratorAgent(db, project_id=task.project_id)
+        stats = agent._collect_stats(task.project_id, version_id=version_id)
+
+        AICreationService.update_report(
+            db,
+            report,
+            content=report_content,
+            summary=stats,
+            stats={
+                "total_cases": stats.get("total_cases", 0),
+                "passed_cases": stats.get("passed_cases", 0),
+                "failed_cases": stats.get("failed_cases", 0),
+                "pass_rate": stats.get("pass_rate", 0.0),
+                "total_defects": stats.get("total_defects", 0),
+                "open_defects": stats.get("open_defects", 0),
+                "total_runs": stats.get("total_runs", 0),
+                "avg_duration": stats.get("avg_duration", 0.0),
+            },
+        )
+
+        task.status = "success"
+        task.output_result = {
+            "report_id": report.id,
+            "total_cases": report.total_cases,
+            "pass_rate": report.pass_rate,
+        }
+        task.completed_at = china_now_naive()
+        db.commit()
+
+        try:
+            version_name = "-"
+            if version_id:
+                from app.models.project_version import ProjectVersion
+                ver = db.query(ProjectVersion).filter(ProjectVersion.id == version_id).first()
+                if ver:
+                    version_name = ver.name
+            notify_event(
+                task.project_id,
+                "ai.report.generated",
+                {
+                    "report_id": report.id,
+                    "report_name": params.get("title", "测试报告"),
+                    "version_name": version_name,
+                    "pass_rate": report.pass_rate or 0,
+                    "defect_count": report.total_defects or 0,
+                },
+                triggered_by=task.created_by,
+            )
+        except Exception as ne:
+            logger.warning(f"[finalize_report] 通知失败: {ne}")
+    except Exception as e:
+        logger.exception(f"[finalize_report] 失败: task_id={task.id}, error={e}")
+        _finalize_failed(db, task, str(e), module_id)
+        raise
+
+
+# module_id → finalize 函数路由表（向后兼容，新代码请使用 get_finalize_fn）
 FINALIZE_MAP = {
     "requirement.generate": finalize_requirement,
     "requirement.split_features": finalize_split_features,
     "case.generate": finalize_cases,
     "case.review": finalize_review,
+    "report.generate": finalize_report,
 }
+
+
+def get_finalize_fn(module_id: str):
+    """从模块注册表获取 finalize 函数（优先注册表，兜底 FINALIZE_MAP）"""
+    try:
+        from app.services.workflow_modules import ensure_registered
+        from app.services.workflow_registry import WorkflowModuleRegistry
+        ensure_registered()
+        fn = WorkflowModuleRegistry.get_finalize_fn(module_id)
+        if fn:
+            return fn
+    except Exception:
+        pass
+    return FINALIZE_MAP.get(module_id)

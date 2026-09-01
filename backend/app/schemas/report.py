@@ -22,6 +22,7 @@ class ReportGenerateRequest(BaseModel):
     llm_config_id: Optional[int] = None
     prompt_id: Optional[int] = None
     version_id: int = Field(..., description="所属版本ID（必填）")
+    backend: Optional[str] = Field(default=None, description="执行方式：local/workflow，不填则使用模块配置")
 
 
 class ReportUpdate(BaseModel):

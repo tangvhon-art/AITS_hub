@@ -116,13 +116,14 @@ def generate_report(
     agent_task = AgentTask(
         project_id=project_id,
         agent_type="report_generator",
-        status="running",
+        status="pending",
         input_params={
             "report_type": req.report_type,
             "version_id": req.version_id,
             "version_name": version.name,
             "title": report_title,
             "prompt_id": req.prompt_id,
+            "page_backend": req.backend,
         },
         llm_config_id=req.llm_config_id,
         created_by=current_user.id,
@@ -141,6 +142,13 @@ def generate_report(
     db.commit()
     db.refresh(report)
     db.refresh(agent_task)
+
+    # 将 report_id 写入 AgentTask.input_params（workflow 回调时需要）
+    try:
+        agent_task.input_params["report_id"] = report.id
+        db.commit()
+    except Exception:
+        pass
 
     # 异步生成：优先 Celery，降级 BackgroundTasks
     use_celery = False

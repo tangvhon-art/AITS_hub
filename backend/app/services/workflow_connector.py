@@ -71,14 +71,20 @@ def invoke(
     uuid: str,
     input_payload: Dict[str, Any],
     callback_url: str,
+    max_retries: int = 2,
 ) -> Dict[str, Any]:
     """同步发起调用并等待受理响应（不等待 agent 执行完成）
+
+    对瞬时网络错误和 5xx 服务端错误进行指数退避重试（默认2次），
+    4xx 客户端错误不重试（通常是配置问题，重试无意义）。
 
     Returns:
         {"task_id": "...", "status": "accepted", "raw": {...}}
     Raises:
         WorkflowInvokeError: 调用失败或受理未返回 task_id
     """
+    import time
+
     url = connector.base_url.rstrip("/") + (connector.run_path or "/v1/workflows/run")
     headers = _build_headers(connector)
     payload = _build_payload(connector, uuid, input_payload, callback_url)
@@ -89,24 +95,47 @@ def invoke(
         f"uuid={uuid}, platform_type={connector.platform_type}"
     )
 
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.post(url, json=payload, headers=headers)
-    except httpx.HTTPError as e:
-        raise WorkflowInvokeError(f"调用外部平台网络失败: {e}")
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.post(url, json=payload, headers=headers)
+        except httpx.HTTPError as e:
+            last_error = f"调用外部平台网络失败: {e}"
+            if attempt < max_retries:
+                wait = 2 ** attempt
+                logger.warning(f"[workflow] 第{attempt + 1}次调用网络失败，{wait}s后重试: {e}")
+                time.sleep(wait)
+                continue
+            raise WorkflowInvokeError(last_error)
 
-    if resp.status_code >= 400:
-        raise WorkflowInvokeError(
-            f"外部平台受理 HTTP {resp.status_code}: {resp.text[:500]}"
-        )
+        # 5xx 服务端错误重试；4xx 客户端错误不重试
+        if resp.status_code >= 500 and attempt < max_retries:
+            wait = 2 ** attempt
+            logger.warning(
+                f"[workflow] 第{attempt + 1}次调用返回 HTTP {resp.status_code}，"
+                f"{wait}s后重试: {resp.text[:200]}"
+            )
+            time.sleep(wait)
+            continue
 
-    try:
-        resp_json = resp.json()
-    except Exception:
-        raise WorkflowInvokeError(f"外部平台受理响应非 JSON: {resp.text[:300]}")
+        if resp.status_code >= 400:
+            raise WorkflowInvokeError(
+                f"外部平台受理 HTTP {resp.status_code}: {resp.text[:500]}"
+            )
 
-    parsed = _parse_accept_response(resp_json)
-    if not parsed["task_id"]:
-        raise WorkflowInvokeError(f"外部平台未返回 task_id: {resp_json}")
-    parsed["raw"] = resp_json
-    return parsed
+        try:
+            resp_json = resp.json()
+        except Exception:
+            raise WorkflowInvokeError(f"外部平台受理响应非 JSON: {resp.text[:300]}")
+
+        parsed = _parse_accept_response(resp_json)
+        if not parsed["task_id"]:
+            raise WorkflowInvokeError(f"外部平台未返回 task_id: {resp_json}")
+        parsed["raw"] = resp_json
+        if attempt > 0:
+            logger.info(f"[workflow] 第{attempt + 1}次重试成功: uuid={uuid}")
+        return parsed
+
+    # 理论上不会走到这里（循环内要么 return 要么 raise），兜底 raise
+    raise WorkflowInvokeError(last_error or "调用外部平台失败")

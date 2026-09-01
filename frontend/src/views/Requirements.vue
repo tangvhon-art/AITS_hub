@@ -174,6 +174,41 @@
       @success="onCaseGenerateSuccess"
     />
 
+    <!-- 重新拆分功能点弹窗 -->
+    <a-modal
+      v-model:open="showResplitModal"
+      title="重新拆分功能点"
+      @ok="doResplit"
+      :confirm-loading="resplitting"
+      width="520px"
+    >
+      <div v-if="resplittingReq" style="margin-bottom: 16px; padding: 8px 12px; background: #f5f7fa; border-radius: 6px;">
+        <span style="color: #606266;">需求：</span>
+        <span style="font-weight: 500;">{{ resplittingReq.title }}</span>
+      </div>
+      <a-form layout="vertical">
+        <a-form-item label="Prompt 模板">
+          <a-select
+            v-model:value="resplitForm.prompt_id"
+            placeholder="使用默认 Prompt"
+            allow-clear
+            :options="splitPrompts.map(p => ({ label: p.name, value: p.id }))"
+          />
+        </a-form-item>
+        <a-form-item label="模型配置">
+          <a-select
+            v-model:value="resplitForm.llm_config_id"
+            placeholder="使用默认模型"
+            allow-clear
+            :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
+          />
+        </a-form-item>
+        <a-form-item v-if="showSplitBackend" label="执行方式">
+          <a-radio-group v-model:value="splitBackend" :options="AI_BACKEND_OPTIONS" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
     <!-- AI生成需求对话框 -->
     <a-modal
       v-model:open="showAiGenerateModal"
@@ -238,6 +273,14 @@ import { AI_BACKEND_OPTIONS } from '@/constants/enums'
 const { showBackendOption: showReqBackend, defaultBackend: reqDefaultBackend, fetch: fetchReqBackend } = useWorkflowBackend()
 const reqBackend = ref('local')
 
+// 功能点拆分模块（requirement.split_features）的执行后端配置
+const {
+  showBackendOption: showSplitBackend,
+  defaultBackend: splitDefaultBackend,
+  fetch: fetchSplitBackend,
+} = useWorkflowBackend()
+const splitBackend = ref('local')
+
 const route = useRoute()
 const projectId = Number(route.params.id)
 
@@ -270,11 +313,15 @@ function handleTableChange(pag: any) {
 }
 const showGenerateModal = ref(false)
 const showAiGenerateModal = ref(false)
+const showResplitModal = ref(false)
 const aiGenerating = ref(false)
+const resplitting = ref(false)
 const uploadFile = ref<File | null>(null)
 const generatingReq = ref<any>(null)
+const resplittingReq = ref<any>(null)
 const llmConfigs = ref<any[]>([])
 const requirementPrompts = ref<Prompt[]>([])
+const splitPrompts = ref<Prompt[]>([])
 const versions = ref<ProjectVersion[]>([])
 const filterVersionId = ref<number | undefined>(undefined)
 const filterTitle = ref('')
@@ -285,6 +332,11 @@ const editingId = ref<number | null>(null)
 const aiGenForm = reactive({
   description: '',
   version_id: undefined as number | undefined,
+  prompt_id: undefined as number | undefined,
+  llm_config_id: undefined as number | undefined
+})
+
+const resplitForm = reactive({
   prompt_id: undefined as number | undefined,
   llm_config_id: undefined as number | undefined
 })
@@ -487,14 +539,30 @@ function onCaseGenerateSuccess() {
   fetchRequirements()
 }
 
-async function resplitFeatures(row: any) {
+function resplitFeatures(row: any) {
+  resplittingReq.value = row
+  resplitForm.prompt_id = undefined
+  resplitForm.llm_config_id = undefined
+  splitBackend.value = splitDefaultBackend.value || 'local'
+  showResplitModal.value = true
+}
+
+async function doResplit() {
+  if (!resplittingReq.value) return
+  resplitting.value = true
   try {
-    await splitFeaturesApi(projectId, row.id)
+    await splitFeaturesApi(projectId, resplittingReq.value.id, {
+      llm_config_id: resplitForm.llm_config_id || undefined,
+      backend: showSplitBackend.value ? splitBackend.value : undefined,
+    })
     message.success('功能点拆分任务已提交')
-    row.feature_split_status = 'splitting'
+    resplittingReq.value.feature_split_status = 'splitting'
+    showResplitModal.value = false
     setTimeout(() => fetchRequirements(), 5000)
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '拆分失败')
+  } finally {
+    resplitting.value = false
   }
 }
 
@@ -532,9 +600,14 @@ onMounted(() => {
   getLLMConfigs().then(data => { llmConfigs.value = data })
   getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
   promptsApi.list('requirement_generation').then(data => { requirementPrompts.value = data }).catch(() => {})
+  promptsApi.list('feature_split').then(data => { splitPrompts.value = data }).catch(() => {})
   // 查询"需求生成"模块的执行后端有效配置，决定是否展示"执行方式"单选
   fetchReqBackend('requirement.generate', projectId).then(() => {
     reqBackend.value = reqDefaultBackend.value || 'local'
+  })
+  // 查询"功能点拆分"模块的执行后端有效配置
+  fetchSplitBackend('requirement.split_features', projectId).then(() => {
+    splitBackend.value = splitDefaultBackend.value || 'local'
   })
 })
 </script>

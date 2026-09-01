@@ -9,6 +9,9 @@
 """
 import json
 import logging
+import time
+from collections import defaultdict
+from typing import Dict
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
@@ -27,6 +30,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/workflow", tags=["外部工作流回调"])
 
+# ── 简单内存级速率限制（基于客户端 IP，防止恶意请求打满）──
+# 每个 IP 每分钟最多 60 次请求，超过则返回 429
+_RATE_LIMIT_WINDOW = 60  # 秒
+_RATE_LIMIT_MAX = 60     # 窗口内最大请求数
+_rate_limit_store: Dict[str, list] = defaultdict(list)
+
+
+def _check_rate_limit(client_ip: str) -> bool:
+    """检查客户端 IP 是否超过速率限制，返回 True 表示允许，False 表示超限"""
+    now = time.time()
+    # 清理过期记录
+    _rate_limit_store[client_ip] = [
+        t for t in _rate_limit_store[client_ip]
+        if now - t < _RATE_LIMIT_WINDOW
+    ]
+    if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX:
+        return False
+    _rate_limit_store[client_ip].append(now)
+    return True
+
 
 @router.post("/webhook")
 async def receive_webhook(request: Request, response: Response, db: Session = Depends(get_db)):
@@ -43,6 +66,13 @@ async def receive_webhook(request: Request, response: Response, db: Session = De
     }
     ```
     """
+    # 0. 速率限制（基于客户端 IP，每分钟最多 60 次）
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(client_ip):
+        logger.warning(f"[webhook] 速率限制触发: client_ip={client_ip}")
+        response.status_code = status.HTTP_429_TOO_MANY_REQUESTS
+        return {"error": "rate limit exceeded"}
+
     # 1. 获取原始 body 字节（用于签名校验）
     body = await request.body()
 
@@ -52,13 +82,14 @@ async def receive_webhook(request: Request, response: Response, db: Session = De
         response.status_code = status.HTTP_403_FORBIDDEN
         return {"error": "webhook disabled"}
 
-    # 3. 签名校验（HMAC-SHA256）
+    # 3. 签名校验（HMAC-SHA256，支持可选时间戳防重放）
     signature = request.headers.get("X-Aits-Signature", "")
+    timestamp = request.headers.get("X-Aits-Timestamp", "")
     secret = get_webhook_secret(db)
-    if not verify_signature(secret, body, signature):
-        logger.warning(f"[webhook] 签名校验失败: signature={signature[:20] if signature else '(empty)'}")
+    if not verify_signature(secret, body, signature, timestamp):
+        logger.warning(f"[webhook] 签名校验失败: signature={signature[:20] if signature else '(empty)'}, timestamp={timestamp or '(none)'}")
         response.status_code = status.HTTP_401_UNAUTHORIZED
-        return {"error": "invalid signature"}
+        return {"error": "invalid signature or timestamp expired"}
 
     # 4. 解析 body JSON
     try:
@@ -108,6 +139,18 @@ async def receive_webhook(request: Request, response: Response, db: Session = De
     if external_task_id and not task.external_task_id:
         task.external_task_id = external_task_id
         db.commit()
+
+    # 7.5 success 回调但 content 为空：提前降级 local，避免 finalize 失败后再降级
+    if cb_status == "success" and not (content or "").strip():
+        logger.warning(f"[webhook] success 回调 content 为空，直接降级 local: uuid={uuid}")
+        log_call(
+            db, agent_task_id=task.id, module_id=module_id, uuid=uuid,
+            phase="callback", status="failed",
+            error_msg="外部返回 content 为空，自动降级 local",
+        )
+        from app.tasks.workflow_tasks import _fallback_to_local
+        _fallback_to_local(db, task, "外部返回 content 为空")
+        return {"message": "empty content, fallback to local", "task_id": task.id}
 
     # 8. 记录 callback 日志
     log_call(

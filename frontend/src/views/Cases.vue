@@ -237,6 +237,9 @@
             </a-form-item>
           </a-col>
         </a-row>
+        <a-form-item v-if="showCaseBackend" label="执行方式">
+          <a-radio-group v-model:value="caseBackend" :options="AI_BACKEND_OPTIONS" />
+        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -252,6 +255,11 @@ import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/i
 import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements, getFeatures, splitFeatures, batchUpdateStatus, type FeatureModuleGroup } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
 import { promptsApi, type Prompt } from '@/api/prompts'
+import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
+import { AI_BACKEND_OPTIONS } from '@/constants/enums'
+
+const { showBackendOption: showCaseBackend, defaultBackend: caseDefaultBackend, fetch: fetchCaseBackend } = useWorkflowBackend()
+const caseBackend = ref('local')
 
 const route = useRoute()
 const router = useRouter()
@@ -589,7 +597,8 @@ async function doGenerate() {
     const params: any = {
       requirement_id: selectedReqId.value,
       llm_config_id: selectedLLMConfig.value || undefined,
-      prompt_id: selectedPromptId.value || undefined
+      prompt_id: selectedPromptId.value || undefined,
+      backend: showCaseBackend.value ? caseBackend.value : undefined
     }
     if (selectedFeatureIds.value.length > 0) {
       params.feature_ids = selectedFeatureIds.value
@@ -624,6 +633,10 @@ onMounted(() => {
   getRequirements(projectId).then(data => { requirements.value = data })
   getLLMConfigs().then(data => { llmConfigs.value = data })
   promptsApi.list('case_generation').then(data => { prompts.value = data }).catch(() => {})
+  // 查询"用例生成"模块的执行后端有效配置
+  fetchCaseBackend('case.generate', projectId).then(() => {
+    caseBackend.value = caseDefaultBackend.value || 'local'
+  })
 })
 </script>
 

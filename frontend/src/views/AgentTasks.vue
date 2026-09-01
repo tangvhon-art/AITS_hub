@@ -105,9 +105,19 @@
           <a-descriptions-item label="状态">
             <a-tag :color="statusColor(currentTask.status)">{{ statusText(currentTask.status) }}</a-tag>
           </a-descriptions-item>
+          <a-descriptions-item label="执行方式">
+            <a-tag :color="backendColor(currentTask.backend)">{{ backendText(currentTask.backend) }}</a-tag>
+          </a-descriptions-item>
           <a-descriptions-item label="项目ID">{{ currentTask.project_id || '-' }}</a-descriptions-item>
           <a-descriptions-item label="创建时间">{{ $formatDateTime(currentTask.created_at) }}</a-descriptions-item>
           <a-descriptions-item label="完成时间">{{ currentTask.completed_at || '-' }}</a-descriptions-item>
+          <a-descriptions-item v-if="currentTask.backend === 'workflow'" label="外部任务ID">
+            <span v-if="currentTask.external_task_id">{{ currentTask.external_task_id }}</span>
+            <span v-else style="color: #999">等待受理</span>
+          </a-descriptions-item>
+          <a-descriptions-item v-if="currentTask.backend === 'workflow' && currentTask.uuid" label="回调UUID">
+            <span class="uuid-cell" :title="currentTask.uuid">{{ currentTask.uuid }}</span>
+          </a-descriptions-item>
         </a-descriptions>
 
         <a-divider>输入参数</a-divider>

@@ -162,3 +162,60 @@ def cleanup_celery_beat_logs(clean_unit: str = None, clean_value: int = None):
         "clean_value": clean_value,
         "elapsed_ms": elapsed_ms,
     }
+
+
+@celery_app.task(name="app.tasks.cleanup_tasks.cleanup_workflow_call_logs")
+def cleanup_workflow_call_logs(clean_unit: str = None, clean_value: int = None):
+    """
+    Celery 定时任务：清理外部工作流调用日志（workflow_call_log）
+
+    kwargs 动态参数（前端任务调度页面可视化配置）：
+    - clean_unit：时间单位，可选 hour / day / month
+    - clean_value：正整数
+    示例：{"clean_unit": "day", "clean_value": 30} 清理30天前日志
+    无参数时默认清理 30 天前日志。
+
+    调用日志包含 invoke/accept/callback/complete/fail 等阶段，
+    长期运行会导致表膨胀，建议定期清理。
+    """
+    start = time.time()
+
+    # 无参兜底：默认清理 30 天前日志
+    if clean_unit is None and clean_value is None:
+        clean_unit, clean_value = "day", 30
+        logger.info("未传入清理参数，使用默认策略：清理 30 天前的工作流调用日志")
+
+    # 参数合法性校验
+    if clean_unit not in _VALID_CLEAN_UNITS:
+        raise ValueError(
+            f"clean_unit 非法: {clean_unit!r}，仅支持 {'/'.join(_VALID_CLEAN_UNITS)}"
+        )
+    if not isinstance(clean_value, int) or isinstance(clean_value, bool) or clean_value <= 0:
+        raise ValueError(f"clean_value 必须为正整数，当前值: {clean_value!r}")
+
+    from app.database import SessionLocal
+    from app.models.workflow import WorkflowCallLog
+
+    cutoff = _calc_cutoff(clean_unit, clean_value)
+    db = SessionLocal()
+    try:
+        # 物理删除截止时间之前的日志（调用日志无软删需求）
+        deleted = db.query(WorkflowCallLog).filter(
+            WorkflowCallLog.created_at < cutoff,
+        ).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+    elapsed_ms = int((time.time() - start) * 1000)
+    logger.info(
+        f"工作流调用日志清理完成：删除 {deleted} 条（创建时间早于 {cutoff:%Y-%m-%d %H:%M:%S}，"
+        f"即 {clean_value} {clean_unit} 前），耗时 {elapsed_ms}ms"
+    )
+    return {
+        "deleted": deleted,
+        "cutoff": cutoff.strftime("%Y-%m-%d %H:%M:%S"),
+        "clean_unit": clean_unit,
+        "clean_value": clean_value,
+        "elapsed_ms": elapsed_ms,
+    }

@@ -14,8 +14,13 @@ from app.models.agent_task import AgentTask
 from app.agents.report_generator import ReportGeneratorAgent, REPORT_PROMPT
 from app.core.timezone import china_now_naive
 from app.services.notification_service import notify_event, notify_ai_task_failed
+from app.services.workflow_connector import WorkflowInvokeError
+from app.services.workflow_runner import run as workflow_run
+from app.services.agent_backend_dispatcher import resolve_backend
 
 logger = logging.getLogger(__name__)
+
+REPORT_MODULE_ID = "report.generate"
 
 
 @celery_app.task(bind=True, name="generate_test_report", max_retries=0, queue="ai")
@@ -38,6 +43,38 @@ def generate_test_report_task(
             return {"status": "failed", "error": "报告记录不存在"}
 
         logger.info(f"[report] 开始生成测试报告: report_id={report_id}, title={title}")
+
+        # ── 执行后端分发：页面选择优先 → 模块配置 → local ──
+        page_choice = None
+        if agent_task_id:
+            at_record = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+            if at_record:
+                page_choice = (at_record.input_params or {}).get("page_backend")
+        backend = resolve_backend(db, REPORT_MODULE_ID, project_id, page_choice=page_choice)
+        if agent_task_id:
+            at_record = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+            if at_record:
+                at_record.backend = backend
+                db.commit()
+
+        if backend == "workflow" and agent_task_id:
+            try:
+                at_record = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+                if at_record:
+                    workflow_run(db, at_record, REPORT_MODULE_ID)
+                    # 受理成功：任务挂起，等待 Webhook 回调（不执行本地 LLM）
+                    logger.info(f"[report] workflow 受理成功，等待回调: report_id={report_id}")
+                    return {"status": "pending_workflow", "report_id": report_id}
+            except WorkflowInvokeError as e:
+                logger.warning(f"[report] workflow 调用失败，降级 local: {e}")
+                if agent_task_id:
+                    at_record = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
+                    if at_record:
+                        at_record.backend = "local"
+                        at_record.status = "pending"
+                        at_record.error_message = f"workflow 降级: {e}"[:500]
+                        db.commit()
+                # fall through 到 local 逻辑
 
         # 获取自定义 Prompt
         system_prompt = ""

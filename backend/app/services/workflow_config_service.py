@@ -26,7 +26,8 @@ from app.agents.llm_factory import encrypt_api_key, decrypt_api_key
 
 logger = logging.getLogger(__name__)
 
-# 四大核心模块清单（module_id → 对应 agent_type）
+# 五大核心模块清单（module_id → 对应 agent_type）
+# 新模块请优先在 workflow_registry 中注册，此处保留向后兼容
 MODULE_IDS = [
     "requirement.generate",
     "requirement.split_features",

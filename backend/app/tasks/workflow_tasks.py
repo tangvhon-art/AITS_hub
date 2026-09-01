@@ -31,10 +31,12 @@ def _fallback_to_local(db, task: AgentTask, error: str) -> None:
     """降级到 local 重跑：标记 backend=local 后重新派发对应 local Celery 任务
 
     v0.7 确认 #6：外部平台调用失败 / 回调处理失败 / 超时未回调 时自动降级。
+    优先从模块注册表获取降级配置，未注册的模块走 if-elif 兜底。
     """
     from app.tasks.requirement_tasks import generate_requirement_task
     from app.tasks.case_tasks import generate_cases_task, split_features_task
     from app.tasks.review_tasks import review_cases_task
+    from app.tasks.report_tasks import generate_test_report_task
 
     module_id = AGENT_TYPE_TO_MODULE.get(task.agent_type)
     logger.warning(
@@ -55,6 +57,34 @@ def _fallback_to_local(db, task: AgentTask, error: str) -> None:
     task.error_message = f"workflow 降级: {error}"[:500]
     db.commit()
 
+    # 优先从模块注册表获取降级配置
+    try:
+        from app.services.workflow_modules import ensure_registered
+        from app.services.workflow_registry import WorkflowModuleRegistry
+        ensure_registered()
+        fallback_info = WorkflowModuleRegistry.get_fallback(module_id)
+        if fallback_info:
+            fallback_task_fn, args_builder = fallback_info
+            args = args_builder(task) if args_builder else (task.id,)
+            if args:
+                # split_features 等特殊模块需要延迟导入 task 函数
+                if module_id == "requirement.split_features":
+                    dispatch_task(split_features_task, *args)
+                elif module_id == "report.generate":
+                    dispatch_task(generate_test_report_task, *args)
+                elif module_id == "requirement.generate":
+                    dispatch_task(generate_requirement_task, *args)
+                elif module_id == "case.generate":
+                    dispatch_task(generate_cases_task, *args)
+                elif module_id == "case.review":
+                    dispatch_task(review_cases_task, *args)
+                else:
+                    dispatch_task(fallback_task_fn, *args)
+                return
+    except Exception as e:
+        logger.warning(f"[workflow_fallback] 注册表降级失败，走 if-elif 兜底: {e}")
+
+    # if-elif 兜底（向后兼容）
     if module_id == "requirement.generate":
         dispatch_task(generate_requirement_task, task.id)
     elif module_id == "case.generate":
@@ -62,10 +92,21 @@ def _fallback_to_local(db, task: AgentTask, error: str) -> None:
     elif module_id == "case.review":
         dispatch_task(review_cases_task, task.id)
     elif module_id == "requirement.split_features":
-        # split_features local 入口基于 requirement_id（无 task_id）
         req_id = (task.input_params or {}).get("requirement_id")
         if req_id:
             dispatch_task(split_features_task, req_id, task.llm_config_id)
+    elif module_id == "report.generate":
+        params = task.input_params or {}
+        report_id = params.get("report_id")
+        if report_id:
+            dispatch_task(
+                generate_test_report_task,
+                report_id, task.project_id,
+                params.get("report_type", "full"),
+                params.get("version_id"),
+                params.get("title", "测试报告"),
+                task.llm_config_id, task.id,
+            )
     else:
         logger.error(f"[workflow_fallback] 未支持的 module_id: {module_id}")
 
