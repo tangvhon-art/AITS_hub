@@ -55,7 +55,6 @@
           v-model:open="connectorModalVisible"
           :title="connectorEditing ? '编辑平台连接' : '新建平台连接'"
           width="520"
-          :footer="null"
         >
           <a-form layout="vertical">
             <a-form-item label="连接名称" required>
@@ -106,7 +105,7 @@
             </a-row>
           </a-form>
 
-          <template #extra>
+          <template #footer>
             <div class="drawer-footer">
               <a-button @click="connectorModalVisible = false">取消</a-button>
               <a-button type="primary" :loading="connectorSaving" @click="saveConnector">保存</a-button>
@@ -125,7 +124,7 @@
                 checked-children="启用"
                 un-checked-children="关闭"
               />
-              <span class="hint">关闭后所有模块强制使用本地执行</span>
+              <span class="hint">关闭后所有模块强制使用默认agent执行</span>
             </a-form-item>
             <a-form-item label="Webhook 接收地址（固定端点）">
               <a-input v-model:value="webhookForm.webhook_url" placeholder="/api/workflow/webhook" />
@@ -210,8 +209,6 @@
           v-model:open="moduleModalVisible"
           :title="moduleEditing ? '编辑模块后端配置' : '配置模块后端'"
           width="480"
-          @ok="saveModuleConfig"
-          :confirm-loading="moduleSaving"
         >
           <a-form layout="vertical">
             <a-form-item label="模块" required>
@@ -248,6 +245,13 @@
               <span class="hint">开启后业务页面提交时可选择 local/workflow</span>
             </a-form-item>
           </a-form>
+
+          <template #footer>
+            <div class="drawer-footer">
+              <a-button @click="moduleModalVisible = false">取消</a-button>
+              <a-button type="primary" :loading="moduleSaving" @click="saveModuleConfig">保存</a-button>
+            </div>
+          </template>
         </a-drawer>
       </a-tab-pane>
     </a-tabs>
@@ -572,4 +576,5 @@ onMounted(() => {
 .tab-toolbar { margin-bottom: 16px; }
 .mono { font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace; font-size: 12px; }
 .hint { color: #8c8c8c; font-size: 12px; margin-left: 8px; }
+.drawer-footer { display: flex; justify-content: flex-end; gap: 12px; }
 </style>
