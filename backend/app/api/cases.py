@@ -15,6 +15,7 @@ from app.models.agent_task import AgentTask
 from app.schemas.test_case import TestCaseCreate, TestCaseUpdate, TestCaseResponse, TestCaseBatchCreate
 from app.schemas.requirement import (
     CaseGenerateRequest,
+    FeatureSplitRequest,
     RequirementFeatureCreate, RequirementFeatureUpdate, RequirementFeatureResponse,
 )
 
@@ -286,6 +287,7 @@ def generate_cases(
             "requirement_title": req_title,
             "prompt_id": gen_request.prompt_id,
             "feature_ids": gen_request.feature_ids or [],
+            "page_backend": gen_request.backend,
         },
         llm_config_id=gen_request.llm_config_id,
         created_by=current_user.id,
@@ -399,10 +401,11 @@ def trigger_split_features(
     project_id: int,
     req_id: int,
     request: Request,
+    data: FeatureSplitRequest = Body(default_factory=FeatureSplitRequest),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """手动触发功能点拆分（异步）"""
+    """手动触发功能点拆分（异步，支持页面选择执行后端）"""
     get_project(project_id, db, current_user)
     req = db.query(TestRequirement).filter(
         TestRequirement.id == req_id,
@@ -423,13 +426,13 @@ def trigger_split_features(
         user=current_user,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
-        detail={"requirement_id": req_id},
+        detail={"requirement_id": req_id, "page_backend": data.backend},
     )
 
-    # 异步拆分（Celery 优先，失败降级后台线程）
+    # 异步拆分（Celery 优先，失败降级后台线程）；page_backend 透传给任务
     from app.core.tasks import dispatch_task
     from app.tasks.case_tasks import split_features_task
-    dispatch_task(split_features_task, req_id)
+    dispatch_task(split_features_task, req_id, data.backend, data.llm_config_id)
 
     return {"message": "功能点拆分任务已提交", "status": "splitting"}
 

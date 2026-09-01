@@ -16,13 +16,19 @@ from app.agents.feature_splitter import FeatureSplitterAgent
 from app.services.content_extractor import ContentExtractor
 from app.services.ai_creation_service import AICreationService
 from app.services.notification_service import notify_event, notify_ai_task_failed
+from app.services.workflow_connector import WorkflowInvokeError
+from app.services.workflow_runner import run as workflow_run
+from app.services.agent_backend_dispatcher import resolve_backend
 
 logger = logging.getLogger(__name__)
 
+SPLIT_MODULE_ID = "requirement.split_features"
+CASE_MODULE_ID = "case.generate"
+
 
 @celery_app.task(bind=True, name="split_requirement_features", max_retries=1, queue="ai")
-def split_features_task(self, requirement_id: int, llm_config_id=None):
-    """异步拆分需求功能点"""
+def split_features_task(self, requirement_id: int, page_backend=None, llm_config_id=None):
+    """异步拆分需求功能点（page_backend 为页面选择的执行后端，优先级高于系统默认）"""
     db = SessionLocal()
     try:
         req = db.query(TestRequirement).filter(
@@ -32,6 +38,41 @@ def split_features_task(self, requirement_id: int, llm_config_id=None):
         if not req:
             logger.error(f"需求不存在: {requirement_id}")
             return
+
+        # ── 执行后端分发：页面选择优先 → 模块配置 → local ──
+        backend = resolve_backend(db, SPLIT_MODULE_ID, req.project_id, page_choice=page_backend)
+        if backend == "workflow":
+            try:
+                task = AgentTask(
+                    project_id=req.project_id,
+                    agent_type="feature_splitter",
+                    status="pending",
+                    backend="workflow",
+                    llm_config_id=llm_config_id,
+                    input_params={
+                        "requirement_id": requirement_id,
+                        "requirement_title": req.title or "",
+                        "requirement_content": req.content or "",
+                    },
+                    created_by=None,
+                )
+                db.add(task)
+                db.commit()
+                db.refresh(task)
+
+                # workflow 入口由独立 Celery 任务承接（避免阻塞当前 task）
+                from app.tasks.workflow_tasks import split_features_workflow_task
+                from app.core.tasks import dispatch_task
+                dispatch_task(split_features_workflow_task, task.id)
+                logger.info(
+                    f"功能点拆分走 workflow 后端: req={requirement_id}, task={task.id}"
+                )
+                return
+            except Exception as e:
+                logger.warning(
+                    f"功能点拆分 workflow 派发失败，降级 local: req={requirement_id}, error={e}"
+                )
+                # fall through 到 local 逻辑
 
         req.feature_split_status = "splitting"
         db.commit()
@@ -125,6 +166,25 @@ def generate_cases_task(self, task_id: int):
         if not task:
             logger.error(f"AgentTask not found: {task_id}")
             raise ValueError(f"AgentTask not found: {task_id}")
+
+        # ── 执行后端分发：页面选择优先 → 模块配置 → local ──
+        page_choice = (task.input_params or {}).get("page_backend")
+        backend = resolve_backend(db, CASE_MODULE_ID, task.project_id, page_choice=page_choice)
+        task.backend = backend
+        db.commit()
+
+        if backend == "workflow":
+            try:
+                workflow_run(db, task, CASE_MODULE_ID)
+                # 受理成功：任务挂起，等待 Webhook 回调（不执行本地 LLM）
+                return
+            except WorkflowInvokeError as e:
+                logger.warning(f"用例生成 workflow 调用失败，降级 local: {e}")
+                task.backend = "local"
+                task.status = "pending"
+                task.error_message = f"workflow 降级: {e}"[:500]
+                db.commit()
+                # fall through 到 local 逻辑
 
         task.status = "running"
         db.commit()

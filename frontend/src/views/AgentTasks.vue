@@ -26,6 +26,9 @@
           <a-select-option value="failed">失败</a-select-option>
           <a-select-option value="pending">等待中</a-select-option>
         </a-select>
+        <a-select v-model:value="filterBackend" placeholder="执行后端" allow-clear style="width: 140px">
+          <a-select-option v-for="opt in AI_BACKEND_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
+        </a-select>
         <a-button type="primary" @click="loadTasks">查询</a-button>
         <a-button @click="handleReset">重置</a-button>
         <a-button @click="loadTasks">
@@ -75,12 +78,19 @@
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'backend'">
+            <a-tag :color="backendColor(record.backend)">{{ backendText(record.backend) }}</a-tag>
+            <div v-if="record.backend === 'workflow' && record.uuid" class="uuid-cell" :title="record.uuid">
+              uuid: {{ record.uuid.slice(0, 8) }}…
+            </div>
+          </template>
           <template v-else-if="column.key === 'token_usage'">
             <span v-if="record.token_usage?.total_tokens">{{ record.token_usage.total_tokens }}</span>
             <span v-else>-</span>
           </template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" size="small" @click="viewTask(record)">详情</a-button>
+            <a-button v-if="record.backend === 'workflow'" type="link" size="small" @click="viewCallLogs(record)">调用日志</a-button>
           </template>
         </template>
       </a-table>
@@ -117,6 +127,36 @@
         <a-alert v-if="currentTask.error_message" :message="currentTask.error_message" type="error" show-icon />
       </div>
     </a-modal>
+
+    <!-- workflow 调用日志弹窗 -->
+    <a-modal v-model:open="callLogVisible" title="工作流调用日志" :footer="null" width="1000px">
+      <a-spin :spinning="callLogLoading">
+        <a-table
+          :columns="callLogColumns"
+          :data-source="callLogs"
+          :pagination="false"
+          row-key="id"
+          size="small"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'phase'">
+              <a-tag :color="phaseColor(record.phase)">{{ phaseText(record.phase) }}</a-tag>
+            </template>
+            <template v-else-if="column.key === 'status'">
+              <a-tag :color="callStatusColor(record.status)">{{ callStatusText(record.status) }}</a-tag>
+            </template>
+            <template v-else-if="column.key === 'fallback_used'">
+              <a-tag v-if="record.fallback_used" color="volcano">是</a-tag>
+              <span v-else style="color: #999">否</span>
+            </template>
+            <template v-else-if="column.key === 'cost_ms'">
+              <span v-if="record.cost_ms != null">{{ record.cost_ms }}</span>
+              <span v-else style="color: #999">-</span>
+            </template>
+          </template>
+        </a-table>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -128,6 +168,8 @@ import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import { getAgentTasks, getTokenUsage, type AgentTask, type TokenUsageStats } from '@/api/agentTasks'
+import { listCallLogs, type WorkflowCallLog } from '@/api/workflow'
+import { AI_BACKEND_COLOR, AI_BACKEND_TEXT, AI_BACKEND_OPTIONS, WORKFLOW_PHASE_TEXT, WORKFLOW_PHASE_COLOR, WORKFLOW_CALL_STATUS_TEXT, WORKFLOW_CALL_STATUS_COLOR } from '@/constants/enums'
 
 const route = useRoute()
 const { loadFromUrl, syncToUrl } = useUrlSearch()
@@ -144,23 +186,40 @@ const pagination = ref({ current: 1, pageSize: 20, total: 0 })
 
 const filterAgentType = ref<string>()
 const filterStatus = ref<string>()
+const filterBackend = ref<string>()
 
 const detailVisible = ref(false)
 const currentTask = ref<AgentTask | null>(null)
+
+// ── workflow 调用日志详情 ──
+const callLogVisible = ref(false)
+const callLogLoading = ref(false)
+const callLogs = ref<WorkflowCallLog[]>([])
+const callLogColumns = [
+  { title: '阶段', key: 'phase', dataIndex: 'phase', width: 90 },
+  { title: '状态', key: 'status', dataIndex: 'status', width: 90 },
+  { title: 'uuid', key: 'uuid', dataIndex: 'uuid', width: 160, ellipsis: true },
+  { title: '外部任务ID', key: 'external_task_id', dataIndex: 'external_task_id', width: 140, ellipsis: true },
+  { title: '耗时(ms)', key: 'cost_ms', dataIndex: 'cost_ms', width: 100 },
+  { title: '降级', key: 'fallback_used', dataIndex: 'fallback_used', width: 80 },
+  { title: '错误', key: 'error_msg', dataIndex: 'error_msg', ellipsis: true },
+  { title: '时间', key: 'created_at', dataIndex: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
+]
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
   { title: 'Agent类型', dataIndex: 'agent_type', key: 'agent_type', width: 120 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+  { title: '执行后端', dataIndex: 'backend', key: 'backend', width: 130 },
   { title: '项目ID', dataIndex: 'project_id', key: 'project_id', width: 80 },
   { title: 'Token消耗', dataIndex: 'token_usage', key: 'token_usage', width: 100 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
   { title: '完成时间', dataIndex: 'completed_at', key: 'completed_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 80, fixed: 'right' as const },
+  { title: '操作', key: 'action', width: 140, fixed: 'right' as const },
 ]
 
 async function loadTasks() {
-  syncToUrl({ agent_type: filterAgentType.value, status: filterStatus.value })
+  syncToUrl({ agent_type: filterAgentType.value, status: filterStatus.value, backend: filterBackend.value })
   loading.value = true
   try {
     const params: any = {
@@ -170,6 +229,7 @@ async function loadTasks() {
     if (projectId.value) params.project_id = projectId.value
     if (filterAgentType.value) params.agent_type = filterAgentType.value
     if (filterStatus.value) params.status = filterStatus.value
+    if (filterBackend.value) params.backend = filterBackend.value
 
     const res = await getAgentTasks(params)
     tasks.value = res.items
@@ -198,12 +258,50 @@ function handleTableChange(pag: any) {
 function handleReset() {
   filterAgentType.value = undefined
   filterStatus.value = undefined
+  filterBackend.value = undefined
   loadTasks()
 }
 
 function viewTask(record: AgentTask) {
   currentTask.value = record
   detailVisible.value = true
+}
+
+function backendColor(b?: string | null) {
+  if (!b) return 'default'
+  return AI_BACKEND_COLOR[b] || 'default'
+}
+
+function backendText(b?: string | null) {
+  if (!b) return '本地'
+  return AI_BACKEND_TEXT[b] || b
+}
+
+async function viewCallLogs(record: AgentTask) {
+  callLogVisible.value = true
+  callLogLoading.value = true
+  callLogs.value = []
+  try {
+    const res = await listCallLogs({ agent_task_id: record.id, page_size: 100 })
+    callLogs.value = res.items || []
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '加载调用日志失败')
+  } finally {
+    callLogLoading.value = false
+  }
+}
+
+function phaseColor(p: string) {
+  return WORKFLOW_PHASE_COLOR[p] || 'default'
+}
+function phaseText(p: string) {
+  return WORKFLOW_PHASE_TEXT[p] || p
+}
+function callStatusColor(s: string) {
+  return WORKFLOW_CALL_STATUS_COLOR[s] || 'default'
+}
+function callStatusText(s: string) {
+  return WORKFLOW_CALL_STATUS_TEXT[s] || s
 }
 
 function agentTypeText(t: string) {
@@ -237,9 +335,10 @@ function statusText(s: string) {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ agent_type: undefined, status: undefined })
+  const params = loadFromUrl({ agent_type: undefined, status: undefined, backend: undefined })
   filterAgentType.value = params.agent_type
   filterStatus.value = params.status
+  filterBackend.value = params.backend
   if (projectId.value) loadTasks()
 })
 
@@ -255,4 +354,10 @@ watch(projectId, (v) => {
 .stats-row { margin-bottom: 16px; }
 .task-detail { max-height: 600px; overflow-y: auto; }
 .json-block { background: #f5f5f5; padding: 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; max-height: 300px; overflow-y: auto; }
+.uuid-cell {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+  font-family: monospace;
+}
 </style>

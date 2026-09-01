@@ -344,6 +344,7 @@ def generate_requirement(
             "description": gen_request.description,
             "prompt_id": gen_request.prompt_id,
             "version_id": gen_request.version_id,
+            "page_backend": gen_request.backend,
         },
         llm_config_id=gen_request.llm_config_id,
         created_by=current_user.id,

@@ -40,7 +40,7 @@ export function deleteCase(projectId: number, caseId: number) {
   return request.delete(`/projects/${projectId}/cases/${caseId}`)
 }
 
-export function generateCases(projectId: number, data: { requirement_id?: number; content?: string; count?: number; feature_ids?: number[]; version_id?: number; llm_config_id?: number; prompt_id?: number }) {
+export function generateCases(projectId: number, data: { requirement_id?: number; content?: string; count?: number; feature_ids?: number[]; version_id?: number; llm_config_id?: number; prompt_id?: number; backend?: string }) {
   return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/cases/generate`, data)
 }
 
@@ -75,9 +75,10 @@ export function getFeatures(projectId: number, reqId: number) {
   )
 }
 
-export function splitFeatures(projectId: number, reqId: number) {
+export function splitFeatures(projectId: number, reqId: number, data?: { backend?: string; llm_config_id?: number }) {
   return request.post<{ message: string; status: string }>(
     `/projects/${projectId}/cases/requirements/${reqId}/split-features`,
+    data || {},
   )
 }
 
@@ -114,7 +115,7 @@ export function deleteRequirement(projectId: number, reqId: number) {
   return request.delete(`/projects/${projectId}/requirements/${reqId}`)
 }
 
-export function generateRequirement(projectId: number, data: { description: string; llm_config_id?: number; prompt_id?: number; version_id?: number }) {
+export function generateRequirement(projectId: number, data: { description: string; llm_config_id?: number; prompt_id?: number; version_id?: number; backend?: string }) {
   return request.post<{ task_id: number; status: string; message: string }>(`/projects/${projectId}/requirements/generate`, data)
 }
 

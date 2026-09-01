@@ -16,3 +16,4 @@ from app.tasks.report_tasks import *  # noqa: F401,F403
 from app.tasks.review_tasks import *  # noqa: F401,F403
 from app.tasks.execution_tasks import *  # noqa: F401,F403
 from app.tasks.cleanup_tasks import *  # noqa: F401,F403
+from app.tasks.workflow_tasks import *  # noqa: F401,F403

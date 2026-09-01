@@ -44,6 +44,7 @@ class CaseGenerateRequest(BaseModel):
     version_id: Optional[int] = None
     llm_config_id: Optional[int] = None
     prompt_id: Optional[int] = None
+    backend: Optional[str] = Field(default=None, description="页面选择的执行后端 local/workflow，不传则跟随系统配置")
 
 
 class RequirementGenerateRequest(BaseModel):
@@ -51,6 +52,13 @@ class RequirementGenerateRequest(BaseModel):
     llm_config_id: Optional[int] = None
     prompt_id: Optional[int] = None
     version_id: Optional[int] = None
+    backend: Optional[str] = Field(default=None, description="页面选择的执行后端 local/workflow，不传则跟随系统配置")
+
+
+class FeatureSplitRequest(BaseModel):
+    """功能点拆分请求（支持页面选择执行后端）"""
+    backend: Optional[str] = Field(default=None, description="页面选择的执行后端 local/workflow，不传则跟随系统配置")
+    llm_config_id: Optional[int] = None
 
 
 # ── 功能点 ──────────────────────────────────────────────

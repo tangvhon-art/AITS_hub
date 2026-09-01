@@ -20,6 +20,10 @@ class AgentTaskResponse(BaseModel):
     created_by: Optional[int] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
+    # ── 外部工作流接入扩展字段 ──
+    backend: Optional[str] = "local"
+    uuid: Optional[str] = None
+    external_task_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -51,6 +55,7 @@ class ReviewRequest(BaseModel):
     modules: List[str] = Field(default=[], description="模块筛选列表（多选）")
     llm_config_id: Optional[int] = None
     prompt_id: Optional[int] = Field(default=None, description="自定义 Prompt ID")
+    backend: Optional[str] = Field(default=None, description="页面选择的执行后端 local/workflow，不传则跟随系统配置")
 
 
 class ReviewOptimizeRequest(BaseModel):

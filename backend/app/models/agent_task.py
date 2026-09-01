@@ -21,3 +21,7 @@ class AgentTask(SoftDeleteMixin, Base):
     created_by = Column(Integer, ForeignKey("users.id"), comment="创建人ID")
     created_at = Column(DateTime, default=china_now_naive, index=True, comment="创建时间")
     completed_at = Column(DateTime, nullable=True, comment="完成时间")
+    # ── 外部工作流接入扩展字段 ──
+    backend = Column(String(20), default="local", index=True, comment="执行后端：local/workflow（含页面选择）")
+    uuid = Column(String(64), nullable=True, index=True, comment="AITS回调定位ID（传给外部，回调原样带回）")
+    external_task_id = Column(String(128), nullable=True, comment="外部平台受理的任务ID")

@@ -211,6 +211,9 @@
             :options="llmConfigs.map(cfg => ({ label: cfg.name, value: cfg.id }))"
           />
         </a-form-item>
+        <a-form-item v-if="showReqBackend" label="执行方式">
+          <a-radio-group v-model:value="reqBackend" :options="AI_BACKEND_OPTIONS" />
+        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -229,6 +232,11 @@ import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import { marked } from 'marked'
 import FeatureSelectModal from '@/components/FeatureSelectModal.vue'
+import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
+import { AI_BACKEND_OPTIONS } from '@/constants/enums'
+
+const { showBackendOption: showReqBackend, defaultBackend: reqDefaultBackend, fetch: fetchReqBackend } = useWorkflowBackend()
+const reqBackend = ref('local')
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -501,7 +509,8 @@ async function doAiGenerate() {
       description: aiGenForm.description,
       llm_config_id: aiGenForm.llm_config_id || undefined,
       prompt_id: aiGenForm.prompt_id || undefined,
-      version_id: aiGenForm.version_id || undefined
+      version_id: aiGenForm.version_id || undefined,
+      backend: showReqBackend.value ? reqBackend.value : undefined,
     })
     message.success(`需求生成任务已提交（任务ID: ${result.task_id}），可在Agent任务中查看进度`)
     showAiGenerateModal.value = false
@@ -509,6 +518,7 @@ async function doAiGenerate() {
     aiGenForm.version_id = undefined
     aiGenForm.prompt_id = undefined
     aiGenForm.llm_config_id = undefined
+    reqBackend.value = reqDefaultBackend.value || 'local'
     setTimeout(() => fetchRequirements(), 3000)
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '提交失败，请重试')
@@ -522,6 +532,10 @@ onMounted(() => {
   getLLMConfigs().then(data => { llmConfigs.value = data })
   getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
   promptsApi.list('requirement_generation').then(data => { requirementPrompts.value = data }).catch(() => {})
+  // 查询"需求生成"模块的执行后端有效配置，决定是否展示"执行方式"单选
+  fetchReqBackend('requirement.generate', projectId).then(() => {
+    reqBackend.value = reqDefaultBackend.value || 'local'
+  })
 })
 </script>
 

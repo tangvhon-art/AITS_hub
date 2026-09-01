@@ -45,6 +45,9 @@ from app.api.skills import router as skills_router
 from app.api.ui_healing import router as ui_healing_router
 from app.api.crontab import router as crontab_router
 from app.api.celery_beat import router as celery_beat_router
+from app.api.workflow import router as workflow_router
+from app.api.workflow import public_router as workflow_public_router
+from app.api.workflow_webhook import router as workflow_webhook_router
 
 __all__ = [
     "auth_router",
@@ -94,4 +97,7 @@ __all__ = [
     "ui_healing_router",
     "crontab_router",
     "celery_beat_router",
+    "workflow_router",
+    "workflow_public_router",
+    "workflow_webhook_router",
 ]

@@ -172,6 +172,94 @@ export const VERSION_STATUS_TEXT: Record<string, string> = {
   archived: '已归档',
 }
 
+// ─── AI 执行后端（local/workflow） ───
+export const AI_BACKEND_COLOR: Record<string, string> = {
+  local: 'default',
+  workflow: 'purple',
+}
+
+export const AI_BACKEND_TEXT: Record<string, string> = {
+  local: '本地',
+  workflow: '外部工作流',
+}
+
+export const AI_BACKEND_OPTIONS = [
+  { label: '本地执行', value: 'local' },
+  { label: '外部工作流', value: 'workflow' },
+]
+
+// ─── 工作流调用阶段（phase） ───
+export const WORKFLOW_PHASE_TEXT: Record<string, string> = {
+  invoke: '调用',
+  accept: '受理',
+  callback: '回调',
+  complete: '完成',
+  timeout: '超时',
+  fallback: '降级',
+}
+
+export const WORKFLOW_PHASE_COLOR: Record<string, string> = {
+  invoke: 'blue',
+  accept: 'processing',
+  callback: 'cyan',
+  complete: 'green',
+  timeout: 'orange',
+  fallback: 'volcano',
+}
+
+// ─── 工作流调用状态 ───
+export const WORKFLOW_CALL_STATUS_TEXT: Record<string, string> = {
+  success: '成功',
+  failed: '失败',
+  pending: '进行中',
+}
+
+export const WORKFLOW_CALL_STATUS_COLOR: Record<string, string> = {
+  success: 'green',
+  failed: 'red',
+  pending: 'processing',
+}
+
+// ─── 工作流平台类型 ───
+export const WORKFLOW_PLATFORM_TEXT: Record<string, string> = {
+  openai_compat: 'OpenAI 兼容',
+  coze: 'Coze',
+  dify: 'Dify',
+  n8n: 'n8n',
+  custom: '自定义',
+}
+
+export const WORKFLOW_PLATFORM_COLOR: Record<string, string> = {
+  openai_compat: 'blue',
+  coze: 'purple',
+  dify: 'green',
+  n8n: 'orange',
+  custom: 'default',
+}
+
+export const WORKFLOW_PLATFORM_OPTIONS = [
+  { label: 'OpenAI 兼容协议', value: 'openai_compat' },
+  { label: 'Coze', value: 'coze' },
+  { label: 'Dify', value: 'dify' },
+  { label: 'n8n', value: 'n8n' },
+  { label: '自定义', value: 'custom' },
+]
+
+// ─── 工作流接入模块 ID ───
+export const WORKFLOW_MODULE_TEXT: Record<string, string> = {
+  'requirement.generate': '需求生成',
+  'requirement.split_features': '功能点拆分',
+  'case.generate': '用例生成',
+  'case.review': '用例评审',
+}
+
+export const WORKFLOW_MODULE_OPTIONS = [
+  { label: '需求生成', value: 'requirement.generate' },
+  { label: '功能点拆分', value: 'requirement.split_features' },
+  { label: '用例生成', value: 'case.generate' },
+  { label: '用例评审', value: 'case.review' },
+]
+
 // ─── 辅助函数 ───
 export function colorOf(map: Record<string, string>, key: string): string {
   return map[key] || 'default'

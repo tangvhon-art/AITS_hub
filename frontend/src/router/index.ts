@@ -237,6 +237,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '模型配置', icon: 'SettingOutlined' }
       },
       {
+        path: 'settings/workflow',
+        name: 'WorkflowConfig',
+        component: () => import('@/views/WorkflowConfig.vue'),
+        meta: { title: '外部工作流接入', icon: 'ApiOutlined', requireAdmin: true }
+      },
+      {
         path: 'task-monitor',
         name: 'TaskMonitor',
         component: () => import('@/views/TaskMonitor.vue'),

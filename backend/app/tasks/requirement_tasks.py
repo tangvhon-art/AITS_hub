@@ -13,8 +13,13 @@ from app.agents.requirement_generator import RequirementGeneratorAgent
 from app.services.content_extractor import ContentExtractor
 from app.services.ai_creation_service import AICreationService
 from app.services.notification_service import notify_event, notify_ai_task_failed
+from app.services.workflow_connector import WorkflowInvokeError
+from app.services.workflow_runner import run as workflow_run
+from app.services.agent_backend_dispatcher import resolve_backend
 
 logger = logging.getLogger(__name__)
+
+MODULE_ID = "requirement.generate"
 
 
 @celery_app.task(bind=True, name="generate_requirement", max_retries=2, queue="ai")
@@ -26,6 +31,25 @@ def generate_requirement_task(self, task_id: int):
         if not task:
             logger.error(f"AgentTask not found: {task_id}")
             return
+
+        # ── 执行后端分发：页面选择优先 → 模块配置 → local ──
+        page_choice = (task.input_params or {}).get("page_backend")
+        backend = resolve_backend(db, MODULE_ID, task.project_id, page_choice=page_choice)
+        task.backend = backend
+        db.commit()
+
+        if backend == "workflow":
+            try:
+                workflow_run(db, task, MODULE_ID)
+                # 受理成功：任务挂起，等待 Webhook 回调（不执行本地 LLM）
+                return
+            except WorkflowInvokeError as e:
+                logger.warning(f"需求生成 workflow 调用失败，降级 local: {e}")
+                task.backend = "local"
+                task.status = "pending"
+                task.error_message = f"workflow 降级: {e}"[:500]
+                db.commit()
+                # fall through 到 local 逻辑
 
         task.status = "running"
         db.commit()

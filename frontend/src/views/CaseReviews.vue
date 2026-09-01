@@ -133,6 +133,10 @@
           style="margin-bottom: 16px"
         />
 
+        <a-form-item v-if="showReviewBackend" label="执行方式">
+          <a-radio-group v-model:value="reviewBackend" :options="AI_BACKEND_OPTIONS" />
+        </a-form-item>
+
         <div class="modal-actions">
           <a-button @click="handleCloseReviewModal">取消</a-button>
           <a-button
@@ -462,6 +466,16 @@ import { getCases, getRequirements, type TestCase } from '@/api/cases'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import { getLLMConfigs } from '@/api/llm'
 import { getAgentTask } from '@/api/agentTasks'
+import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
+import { AI_BACKEND_OPTIONS } from '@/constants/enums'
+
+// 用例评审模块（case.review）的执行后端配置
+const {
+  showBackendOption: showReviewBackend,
+  defaultBackend: reviewDefaultBackend,
+  fetch: fetchReviewBackend,
+} = useWorkflowBackend()
+const reviewBackend = ref('local')
 
 const route = useRoute()
 const router = useRouter()
@@ -602,6 +616,7 @@ async function handleReview() {
       modules: reviewForm.value.modules,
       llm_config_id: reviewForm.value.llm_config_id || undefined,
       prompt_id: reviewForm.value.prompt_id || undefined,
+      backend: showReviewBackend.value ? reviewBackend.value : undefined,
     })
     message.success('评审任务已提交，正在异步处理中')
     handleCloseReviewModal()
@@ -637,6 +652,7 @@ function stopReviewPolling() {
 function handleCloseReviewModal() {
   showReviewModal.value = false
   reviewForm.value = { requirement_ids: [], modules: [], prompt_id: null, llm_config_id: null }
+  reviewBackend.value = reviewDefaultBackend.value || 'local'
 }
 
 // ===== 评审详情 =====
@@ -820,6 +836,10 @@ onMounted(() => {
   loadModuleOptions()
   promptsApi.list('case_review').then(data => { reviewPrompts.value = data }).catch(() => {})
   getLLMConfigs().then(data => { llmConfigs.value = data }).catch(() => {})
+  // 查询"用例评审"模块的执行后端有效配置，决定是否展示"执行方式"单选
+  fetchReviewBackend('case.review', projectId).then(() => {
+    reviewBackend.value = reviewDefaultBackend.value || 'local'
+  })
 })
 
 onUnmounted(() => {

@@ -14,6 +14,10 @@ export interface AgentTask {
   created_by: number | null
   created_at: string
   completed_at: string | null
+  // ── 外部工作流接入扩展字段 ──
+  backend?: string | null
+  uuid?: string | null
+  external_task_id?: string | null
 }
 
 export interface AgentTaskListResponse {
@@ -42,6 +46,7 @@ export function getAgentTasks(params?: {
   project_id?: number
   agent_type?: string
   status?: string
+  backend?: string
   page?: number
   page_size?: number
 }) {

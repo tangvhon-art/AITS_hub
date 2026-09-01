@@ -55,6 +55,9 @@ from app.api import (
     ui_healing_router,
     crontab_router,
     celery_beat_router,
+    workflow_router,
+    workflow_public_router,
+    workflow_webhook_router,
 )
 
 logging.basicConfig(
@@ -93,6 +96,10 @@ def _auto_migrate(engine):
         ("automation_scripts", "last_healed_at", "DATETIME"),
         ("env_variable_overrides", "value_type", "VARCHAR(20) DEFAULT 'static'"),
         ("env_variable_overrides", "script", "TEXT"),
+        # ── 外部工作流接入：agent_tasks 扩展字段 ──
+        ("agent_tasks", "backend", "VARCHAR(20) DEFAULT 'local'"),
+        ("agent_tasks", "uuid", "VARCHAR(64)"),
+        ("agent_tasks", "external_task_id", "VARCHAR(128)"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:
@@ -150,6 +157,8 @@ async def lifespan(app: FastAPI):
         MCPConnector, Skill,
         ChatSession, ChatMessage,
         UIPageVisit, UIPageProfile, UIElementFingerprint, UIHealingRecord,
+        WorkflowPlatformConnector, WorkflowWebhookConfig,
+        AgentBackendConfig, WorkflowCallLog, WorkflowInputMapping,
     )
     Base.metadata.create_all(bind=engine)
     _auto_migrate(engine)
@@ -303,6 +312,9 @@ app.include_router(skills_router)
 app.include_router(ui_healing_router)
 app.include_router(crontab_router)
 app.include_router(celery_beat_router)
+app.include_router(workflow_router)
+app.include_router(workflow_public_router)
+app.include_router(workflow_webhook_router)
 
 # 静态文件服务（截图等上传文件）
 import os as _os

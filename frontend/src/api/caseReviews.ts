@@ -39,6 +39,7 @@ export function reviewCases(
     modules?: string[]
     llm_config_id?: number
     prompt_id?: number
+    backend?: string
   },
 ) {
   return request.post<{ task_id: number; status: string; message: string; case_count?: number }>(`/projects/${projectId}/cases/review`, data)

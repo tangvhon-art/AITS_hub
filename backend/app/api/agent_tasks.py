@@ -38,12 +38,13 @@ def list_agent_tasks(
     project_id: Optional[int] = Body(None),
     agent_type: Optional[str] = Body(None),
     status: Optional[str] = Body(None),
+    backend: Optional[str] = Body(None),
     page: int = Body(1),
     page_size: int = Body(20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取 Agent 任务列表"""
+    """获取 Agent 任务列表（支持按 backend 筛选）"""
     query = db.query(AgentTask)
 
     if project_id:
@@ -57,6 +58,8 @@ def list_agent_tasks(
         query = query.filter(AgentTask.agent_type == agent_type)
     if status:
         query = query.filter(AgentTask.status == status)
+    if backend:
+        query = query.filter(AgentTask.backend == backend)
 
     total = query.count()
     tasks = query.order_by(AgentTask.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
@@ -259,6 +262,7 @@ def review_cases(
             # 单需求/单模块时写入单数字段，供评审优化任务直接关联补充用例
             "requirement_id": requirement_ids[0] if len(requirement_ids or []) == 1 else None,
             "module": modules[0] if len(modules or []) == 1 else None,
+            "page_backend": req.backend,
         },
         created_by=current_user.id,
         llm_config_id=req.llm_config_id,

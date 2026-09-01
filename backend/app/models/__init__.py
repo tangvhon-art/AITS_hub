@@ -43,6 +43,13 @@ from app.models.mcp_connector import MCPConnector
 from app.models.skill import Skill
 from app.models.chat_history import ChatSession, ChatMessage
 from app.models.ui_healing import UIPageVisit, UIPageProfile, UIElementFingerprint, UIHealingRecord
+from app.models.workflow import (
+    WorkflowPlatformConnector,
+    WorkflowWebhookConfig,
+    AgentBackendConfig,
+    WorkflowCallLog,
+    WorkflowInputMapping,
+)
 
 __all__ = [
     "User",
@@ -101,4 +108,9 @@ __all__ = [
     "UIHealingRecord",
     "SysCrontab",
     "CeleryTaskLog",
+    "WorkflowPlatformConnector",
+    "WorkflowWebhookConfig",
+    "AgentBackendConfig",
+    "WorkflowCallLog",
+    "WorkflowInputMapping",
 ]

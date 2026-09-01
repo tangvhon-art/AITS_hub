@@ -17,6 +17,10 @@
       <!-- 未拆分 / 拆分失败 -->
       <div v-if="splitStatus === 'pending' || splitStatus === 'failed'" class="split-prompt">
         <a-empty :description="splitStatus === 'failed' ? '功能点拆分失败，请重新拆分' : '该需求尚未拆分功能点'">
+          <div v-if="showSplitBackend" class="split-backend-row">
+            <span class="backend-label">执行方式：</span>
+            <a-radio-group v-model:value="splitBackend" :options="AI_BACKEND_OPTIONS" />
+          </div>
           <a-button type="primary" :loading="splitting" @click="handleSplit">
             {{ splitting ? '拆分中...' : '立即拆分功能点' }}
           </a-button>
@@ -96,6 +100,9 @@
               :options="llmConfigs.map(c => ({ label: c.name, value: c.id }))"
             />
           </a-form-item>
+          <a-form-item v-if="showCaseBackend" label="执行方式">
+            <a-radio-group v-model:value="caseBackend" :options="AI_BACKEND_OPTIONS" />
+          </a-form-item>
         </a-form>
       </div>
     </a-spin>
@@ -108,6 +115,8 @@ import { message } from 'ant-design-vue'
 import { getFeatures, splitFeatures, generateCases, generateCasesStatus, type FeatureModuleGroup } from '@/api/cases'
 import { getLLMConfigs } from '@/api/llm'
 import { promptsApi, type Prompt } from '@/api/prompts'
+import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
+import { AI_BACKEND_OPTIONS } from '@/constants/enums'
 
 const props = defineProps<{
   open: boolean
@@ -119,6 +128,22 @@ const emit = defineEmits<{
   (e: 'update:open', val: boolean): void
   (e: 'success'): void
 }>()
+
+// 功能点拆分模块（requirement.split_features）的执行后端配置
+const {
+  showBackendOption: showSplitBackend,
+  defaultBackend: splitDefaultBackend,
+  fetch: fetchSplitBackend,
+} = useWorkflowBackend()
+const splitBackend = ref('local')
+
+// 用例生成模块（case.generate）的执行后端配置
+const {
+  showBackendOption: showCaseBackend,
+  defaultBackend: caseDefaultBackend,
+  fetch: fetchCaseBackend,
+} = useWorkflowBackend()
+const caseBackend = ref('local')
 
 const loading = ref(false)
 const splitting = ref(false)
@@ -182,7 +207,9 @@ async function loadFeatures() {
 async function handleSplit() {
   splitting.value = true
   try {
-    await splitFeatures(props.projectId, props.requirement.id)
+    await splitFeatures(props.projectId, props.requirement.id, {
+      backend: showSplitBackend.value ? splitBackend.value : undefined,
+    })
     message.success('功能点拆分任务已提交')
     splitStatus.value = 'splitting'
     // 轮询拆分状态
@@ -253,6 +280,7 @@ async function handleSubmit() {
       feature_ids: selectedIds.value,
       prompt_id: promptId.value,
       llm_config_id: llmConfigId.value,
+      backend: showCaseBackend.value ? caseBackend.value : undefined,
     })
     message.success('用例生成任务已提交，正在后台生成...')
     emit('update:open', false)
@@ -298,6 +326,13 @@ watch(() => props.open, (val) => {
     llmConfigId.value = undefined
     loadFeatures()
     loadPromptsAndConfigs()
+    // 查询"功能点拆分"和"用例生成"模块的执行后端配置
+    fetchSplitBackend('requirement.split_features', props.projectId).then(() => {
+      splitBackend.value = splitDefaultBackend.value || 'local'
+    })
+    fetchCaseBackend('case.generate', props.projectId).then(() => {
+      caseBackend.value = caseDefaultBackend.value || 'local'
+    })
   }
 })
 </script>
@@ -349,5 +384,16 @@ watch(() => props.open, (val) => {
 .form-footer {
   border-top: 1px solid #f0f0f0;
   padding-top: 12px;
+}
+.split-backend-row {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.split-backend-row .backend-label {
+  color: #606266;
+  font-size: 13px;
 }
 </style>

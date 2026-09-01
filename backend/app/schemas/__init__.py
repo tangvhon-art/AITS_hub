@@ -1,7 +1,8 @@
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.schemas.requirement import (
-    RequirementCreate, RequirementUpdate, RequirementResponse, CaseGenerateRequest
+    RequirementCreate, RequirementUpdate, RequirementResponse, CaseGenerateRequest,
+    RequirementGenerateRequest, FeatureSplitRequest,
 )
 from app.schemas.test_case import (
     TestCaseCreate, TestCaseUpdate, TestCaseResponse, TestCaseBatchCreate
@@ -16,6 +17,7 @@ __all__ = [
     "UserCreate", "UserLogin", "UserResponse", "Token",
     "ProjectCreate", "ProjectUpdate", "ProjectResponse",
     "RequirementCreate", "RequirementUpdate", "RequirementResponse", "CaseGenerateRequest",
+    "RequirementGenerateRequest", "FeatureSplitRequest",
     "TestCaseCreate", "TestCaseUpdate", "TestCaseResponse", "TestCaseBatchCreate",
     "ExecutionRequest", "TestRunResponse",
     "AgentTaskResponse",

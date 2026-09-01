@@ -34,6 +34,7 @@ celery_app = Celery(
         "app.tasks.execution_tasks",
         "app.tasks.ui_healing_tasks",
         "app.tasks.cleanup_tasks",
+        "app.tasks.workflow_tasks",
     ],
 )
 
