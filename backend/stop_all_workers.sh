@@ -10,7 +10,7 @@ echo "========================================="
 echo ""
 
 # 停止 PID 文件中的进程
-for pid_file in logs/flower.pid logs/worker-default.pid logs/worker-execution.pid logs/worker-ai.pid logs/beat.pid; do
+for pid_file in logs/flower.pid logs/worker-default.pid logs/worker-execution.pid logs/worker-eval.pid logs/worker-ai.pid logs/beat.pid; do
     if [ -f "$pid_file" ]; then
         PID=$(cat "$pid_file")
         if kill -0 "$PID" 2>/dev/null; then

@@ -8,7 +8,7 @@ source venv/bin/activate
 
 echo "========================================="
 echo "  AITS 全部 Worker 启动"
-echo "  队列: ai / execution / default"
+echo "  队列: ai / execution / eval / default"
 echo "  包含: Beat 定时任务 + Flower 监控"
 echo "========================================="
 echo ""
@@ -21,7 +21,7 @@ if ! redis-cli ping > /dev/null 2>&1; then
 fi
 
 # 启动 Beat（只有一个实例）
-echo "[1/5] 启动 Celery Beat..."
+echo "[1/6] 启动 Celery Beat..."
 celery -A app.celery_app.celery_app beat \
     --loglevel=info \
     > logs/beat.log 2>&1 &
@@ -29,7 +29,7 @@ BEAT_PID=$!
 echo "  Beat PID: $BEAT_PID"
 
 # 启动 AI Worker
-echo "[2/5] 启动 AI Worker (队列: ai, 并发: 2)..."
+echo "[2/6] 启动 AI Worker (队列: ai, 并发: 2)..."
 celery -A app.celery_app.celery_app worker \
     --loglevel=info \
     --concurrency=2 \
@@ -41,7 +41,7 @@ AI_PID=$!
 echo "  AI Worker PID: $AI_PID"
 
 # 启动 Execution Worker
-echo "[3/5] 启动 Execution Worker (队列: execution, 并发: 4)..."
+echo "[3/6] 启动 Execution Worker (队列: execution, 并发: 4)..."
 celery -A app.celery_app.celery_app worker \
     --loglevel=info \
     --concurrency=4 \
@@ -52,8 +52,20 @@ celery -A app.celery_app.celery_app worker \
 EXEC_PID=$!
 echo "  Execution Worker PID: $EXEC_PID"
 
+# 启动 Eval（AI 测评）Worker
+echo "[4/6] 启动 AI 测评 Worker (队列: eval, 并发: 2)..."
+celery -A app.celery_app.celery_app worker \
+    --loglevel=info \
+    --concurrency=2 \
+    --hostname=eval-worker@%h \
+    -Q eval \
+    --max-tasks-per-child=100 \
+    > logs/worker-eval.log 2>&1 &
+EVAL_PID=$!
+echo "  AI 测评 Worker PID: $EVAL_PID"
+
 # 启动 Default Worker
-echo "[4/5] 启动 Default Worker (队列: default, 并发: 2)..."
+echo "[5/6] 启动 Default Worker (队列: default, 并发: 2)..."
 celery -A app.celery_app.celery_app worker \
     --loglevel=info \
     --concurrency=2 \
@@ -66,7 +78,7 @@ echo "  Default Worker PID: $DEFAULT_PID"
 
 # 启动 Flower
 sleep 2
-echo "[5/5] 启动 Flower 监控面板..."
+echo "[6/6] 启动 Flower 监控面板..."
 env FLOWER_UNAUTHENTICATED_API=true \
     celery -A app.celery_app.celery_app flower \
     --port=5555 \
@@ -81,6 +93,7 @@ mkdir -p logs
 echo "$BEAT_PID" > logs/beat.pid
 echo "$AI_PID" > logs/worker-ai.pid
 echo "$EXEC_PID" > logs/worker-execution.pid
+echo "$EVAL_PID" > logs/worker-eval.pid
 echo "$DEFAULT_PID" > logs/worker-default.pid
 echo "$FLOWER_PID" > logs/flower.pid
 
@@ -93,6 +106,7 @@ echo "  日志文件:"
 echo "    logs/beat.log"
 echo "    logs/worker-ai.log"
 echo "    logs/worker-execution.log"
+echo "    logs/worker-eval.log"
 echo "    logs/worker-default.log"
 echo "    logs/flower.log"
 echo ""

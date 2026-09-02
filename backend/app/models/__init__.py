@@ -50,6 +50,17 @@ from app.models.workflow import (
     WorkflowCallLog,
     WorkflowInputMapping,
 )
+from app.models.eval import (
+    EvalTarget,
+    EvalDataset,
+    EvalCase,
+    EvalTask,
+    EvalRun,
+    EvalResult,
+    EvalReport,
+    EvalIssue,
+    EvalBaseline,
+)
 
 __all__ = [
     "User",

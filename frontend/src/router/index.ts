@@ -283,6 +283,25 @@ const routes: RouteRecordRaw[] = [
         name: 'Skills',
         component: () => import('@/views/Skills.vue'),
         meta: { title: 'Skill 管理', icon: 'ThunderboltOutlined' }
+      },
+      {
+        path: 'eval',
+        name: 'EvalLayout',
+        component: () => import('@/views/eval/EvalLayout.vue'),
+        meta: { title: 'AI 模型测评', icon: 'ExperimentOutlined' },
+        children: [
+          { path: '', name: 'EvalIndex', redirect: '/eval/dashboard' },
+          { path: 'dashboard', name: 'EvalDashboard', component: () => import('@/views/eval/EvalDashboard.vue'), meta: { title: '测评总览', activeMenu: 'dashboard' } },
+          { path: 'targets', name: 'EvalTargets', component: () => import('@/views/eval/EvalTargets.vue'), meta: { title: '被测对象', activeMenu: 'targets' } },
+          { path: 'datasets', name: 'EvalDatasets', component: () => import('@/views/eval/EvalDatasets.vue'), meta: { title: '数据集与用例', activeMenu: 'datasets' } },
+          { path: 'tasks', name: 'EvalTasks', component: () => import('@/views/eval/EvalTasks.vue'), meta: { title: '测评任务', activeMenu: 'tasks' } },
+          { path: 'tasks/:taskId', name: 'EvalTaskDetail', component: () => import('@/views/eval/EvalTaskDetail.vue'), meta: { title: '测评详情', activeMenu: 'tasks', hideInMenu: true } },
+          { path: 'manual', name: 'EvalManual', component: () => import('@/views/eval/EvalManual.vue'), meta: { title: '人工校准', activeMenu: 'manual' } },
+          { path: 'redteam', name: 'EvalRedteam', component: () => import('@/views/eval/EvalRedteam.vue'), meta: { title: '对抗红队', activeMenu: 'redteam' } },
+          { path: 'reports', name: 'EvalReports', component: () => import('@/views/eval/EvalReports.vue'), meta: { title: '测评报告', activeMenu: 'reports' } },
+          { path: 'issues', name: 'EvalIssues', component: () => import('@/views/eval/EvalIssues.vue'), meta: { title: '问题台账', activeMenu: 'issues' } },
+          { path: 'compare', name: 'EvalCompare', component: () => import('@/views/eval/EvalCompare.vue'), meta: { title: '版本对比', activeMenu: 'compare' } },
+        ]
       }
     ]
   }

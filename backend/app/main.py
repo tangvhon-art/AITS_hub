@@ -59,6 +59,8 @@ from app.api import (
     workflow_public_router,
     workflow_project_router,
     workflow_webhook_router,
+    eval_router,
+    eval_sse_router,
 )
 
 logging.basicConfig(
@@ -104,6 +106,12 @@ def _auto_migrate(engine):
         # ── 模块后端配置软删：agent_backend_configs 补软删字段 ──
         ("agent_backend_configs", "is_deleted", "BOOLEAN DEFAULT 0"),
         ("agent_backend_configs", "deleted_at", "DATETIME"),
+        # ── AI 测评：eval_targets 外部工作流接入字段（服务地址/调用路径/鉴权方式）──
+        ("eval_targets", "service_url", "VARCHAR(500)"),
+        ("eval_targets", "call_path", "VARCHAR(200)"),
+        ("eval_targets", "auth_type", "VARCHAR(30) DEFAULT 'none'"),
+        ("eval_targets", "auth_token", "TEXT"),
+        ("eval_targets", "auth_header", "VARCHAR(100) DEFAULT 'Authorization'"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:
@@ -113,6 +121,30 @@ def _auto_migrate(engine):
             if column not in existing_cols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
                 logger.info(f"自动迁移：{table}.{column} 已添加")
+
+
+def _drop_eval_project_columns(engine):
+    """AI 测评系统级化：移除 eval_* 表中 project_id 列（先删外键约束再删列）"""
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    tables = ["eval_targets", "eval_datasets", "eval_cases", "eval_tasks",
+              "eval_reports", "eval_issues", "eval_baselines"]
+    with engine.begin() as conn:
+        for t in tables:
+            if t not in inspector.get_table_names():
+                continue
+            cols = [c["name"] for c in inspector.get_columns(t)]
+            if "project_id" not in cols:
+                continue
+            fks = conn.execute(text(
+                "SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t "
+                "AND COLUMN_NAME = 'project_id' AND REFERENCED_TABLE_NAME IS NOT NULL"
+            ), {"t": t}).fetchall()
+            for (fk,) in fks:
+                conn.execute(text(f"ALTER TABLE `{t}` DROP FOREIGN KEY `{fk}`"))
+            conn.execute(text(f"ALTER TABLE `{t}` DROP COLUMN project_id"))
+            logger.info(f"系统级迁移：{t}.project_id 已移除（AI 测评不归属项目）")
 
 
 def _migrate_project_members(engine):
@@ -166,6 +198,7 @@ async def lifespan(app: FastAPI):
     )
     Base.metadata.create_all(bind=engine)
     _auto_migrate(engine)
+    _drop_eval_project_columns(engine)
     _migrate_project_members(engine)
     logger.info("数据库表初始化完成")
 
@@ -317,6 +350,8 @@ app.include_router(ui_healing_router)
 app.include_router(crontab_router)
 app.include_router(celery_beat_router)
 app.include_router(workflow_router)
+app.include_router(eval_router)
+app.include_router(eval_sse_router)
 app.include_router(workflow_public_router)
 app.include_router(workflow_project_router)
 app.include_router(workflow_webhook_router)

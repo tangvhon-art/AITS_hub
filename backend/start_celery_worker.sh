@@ -3,6 +3,7 @@
 # 生产环境建议使用按队列分离的 worker:
 #   ./start_worker_ai.sh         - AI 生成类任务
 #   ./start_worker_execution.sh  - 执行类任务
+#   ./start_worker_eval.sh       - AI 测评类任务
 #   ./start_worker_default.sh    - 后台轻量任务
 #   ./start_all_workers.sh       - 一键启动全部
 #
@@ -31,6 +32,6 @@ exec celery -A app.celery_app.celery_app worker \
     --loglevel=info \
     --concurrency=$CONCURRENCY \
     --hostname=aits-worker@%h \
-    -Q celery,ai,execution,default \
+    -Q celery,ai,execution,eval,default \
     --max-tasks-per-child=100 \
     --time-limit=600

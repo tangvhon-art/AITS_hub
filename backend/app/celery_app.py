@@ -35,6 +35,7 @@ celery_app = Celery(
         "app.tasks.ui_healing_tasks",
         "app.tasks.cleanup_tasks",
         "app.tasks.workflow_tasks",
+        "app.tasks.eval_tasks",
     ],
 )
 
@@ -45,11 +46,12 @@ from kombu import Queue
 
 # Celery 配置
 celery_app.conf.update(
-    # 任务队列划分：ai(AI生成类) / execution(执行类) / default(后台轻量)
+    # 任务队列划分：ai(AI生成类) / execution(执行类) / eval(AI测评类) / default(后台轻量)
     task_queues=(
         Queue("default", routing_key="task.#"),
         Queue("ai", routing_key="ai.#"),
         Queue("execution", routing_key="execution.#"),
+        Queue("eval", routing_key="eval.#"),
     ),
     task_default_queue="default",
     task_default_routing_key="task.default",

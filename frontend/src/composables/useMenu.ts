@@ -133,6 +133,18 @@ function extractMenuItems(routes: RouteRecordRaw[]): MenuItem[] {
       continue
     }
 
+    // AI 模型测评主入口（EvalLayout）只作为一个全局父菜单
+    if (route.children && route.children.length > 0 && route.path.includes('eval')) {
+      items.push({
+        key: '/' + route.path,
+        title: 'AI 模型测评',
+        icon: meta.icon as string || 'ExperimentOutlined',
+        projectScoped: false,
+        requireAdmin: meta.requireAdmin as boolean | undefined,
+      })
+      continue
+    }
+
     items.push({
       key: '/' + route.path,
       title: meta.title as string,

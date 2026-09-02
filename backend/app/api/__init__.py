@@ -47,6 +47,9 @@ from app.api.crontab import router as crontab_router
 from app.api.celery_beat import router as celery_beat_router
 from app.api.workflow import router as workflow_router
 from app.api.workflow import public_router as workflow_public_router
+from app.api.eval import router as eval_router
+from app.api.eval import sse_router as eval_sse_router
+from app.api.workflow import public_router as workflow_public_router
 from app.api.workflow import project_router as workflow_project_router
 from app.api.workflow_webhook import router as workflow_webhook_router
 
@@ -102,4 +105,6 @@ __all__ = [
     "workflow_public_router",
     "workflow_project_router",
     "workflow_webhook_router",
+    "eval_router",
+    "eval_sse_router",
 ]

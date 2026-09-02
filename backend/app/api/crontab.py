@@ -27,7 +27,7 @@ router = APIRouter(
     dependencies=[Depends(require_admin)],
 )
 
-ALLOWED_QUEUES = ("default", "ai", "execution")
+ALLOWED_QUEUES = ("default", "ai", "execution", "eval")
 ALLOWED_SCHEDULE_TYPES = ("interval", "cron")
 
 
