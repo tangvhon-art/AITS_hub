@@ -1,6 +1,16 @@
 # AITS 智能测试管理平台
 
-基于 LangChain + Agent 的下一代智能测试管理平台，覆盖测试全流程：**需求解析 → 用例生成 → 用例评审与优化 → UI 自动化执行 → 接口自动化测试 → 性能测试 → 测试计划编排 → 缺陷分析 → 报告生成 → 质量看板 → 事件通知**。
+基于 LangChain + Agent 的下一代智能测试管理平台，覆盖测试全流程：**需求解析 → 用例生成 → 用例评审与优化 → UI 自动化执行 → 接口自动化测试 → 性能测试 → 测试计划编排 → 缺陷分析 → 报告生成 → 质量看板 → 事件通知**，并内置 **AI 模型五维综合测评**（AI 裁判 / 人工校准 / Agent 交互 / 业务落地 / 对抗红队），支持对内置 Agent 与外部工作流 Agent 进行标准化、可量化、可复现的能力测评。
+
+## 技术栈
+
+| 端 | 技术 |
+|----|------|
+| 后端 | Python 3.13+ · FastAPI 0.115 · SQLAlchemy 2.0 · Celery 5.6 · Redis 5 · MySQL 8 |
+| AI 框架 | LangChain 0.3 · langchain-openai / anthropic / community |
+| 前端 | Vue 3 · Vite · Ant Design Vue 4 · Pinia · ECharts 5 · marked（Markdown 渲染） |
+| 测试执行 | Playwright 1.49（UI 自动化）· Locust 2.31（性能测试）|
+| 智能能力 | Sentence-Transformers + FAISS（知识库 RAG）· MCP · Skill 规范 |
 
 ## 功能模块
 
@@ -60,6 +70,34 @@
 | 质量看板 | 核心指标 + 趋势图表 + 风险预警，UI 与接口数据统一聚合，AI 洞察 |
 | 覆盖率分析 | API 覆盖率统计，已测/未测接口分析，覆盖率趋势，支持排除配置 |
 
+### AI 模型五维综合测评
+
+系统级主入口（**不关联项目**），进入后按页面菜单组织：**测评总览 / 被测对象 / 数据集与用例 / 测评任务 / 人工校准 / 对抗红队 / 测评报告 / 问题台账 / 版本对比**。默认支持对 AITS 内置 Agent 测评，可接入**外部工作流 Agent** 进行测评。
+
+| 子页面 | 功能说明 |
+|--------|---------|
+| 测评总览 | 五维模式执行情况、指标看板（命中率/通过率/平均分等，中文展示 + Markdown 渲染）、任务进度 |
+| 被测对象 | 四类被测对象：`llm`（绑定模型）/ `agent`（内置 Agent）/ `external_agent`（外部工作流）/ `business`（业务场景）；外部工作流需配置**服务地址 + 调用路径 + 鉴权方式**（none/bearer/apikey/custom） |
+| 数据集与用例 | 数据集管理 + 评测用例维护，支持批量导入 |
+| 测评任务 | 创建/运行测评任务，可勾选五维模式，执行进度 SSE 实时推送，支持取消 |
+| 人工校准 | 抽样复核 AI 裁判结果，修正误判/漏判，双向校准 |
+| 对抗红队 | 越狱攻击、提示注入、隐私探测等高危用例专项测评，风险定级 |
+| 测评报告 | 分模块/综合报告，Markdown 渲染，版本准入结论 |
+| 问题台账 | P0-P3 问题分级、闭环跟踪、复测结果 |
+| 版本对比 | 新旧版本/被测对象横向对比，指标升降级定位 |
+
+**五维测评模式**：
+
+| 模式 | 代码 | 说明 |
+|------|------|------|
+| AI 裁判自动测评 | `ai_judge` | 高阶裁判模型批量打分（事实准确性/相关性/逻辑/指令遵循/流畅度，1-5 分）+ 成对胜负对比，多裁判投票 |
+| 人工专家测评 | `manual` | 双人打分 + 第三人仲裁，校准 AI 裁判结果（Cohen's Kappa ≥ 0.75） |
+| Agent 交互式测评 | `agent` | 多轮交互/任务拆解/工具调用/规划反思专项，任务完成率/工具调用正确率/闭环率/纠错成功率 |
+| 业务落地测评 | `business` | 业务黄金测试集（高频/复杂/边界/差评/行业专属），业务成功率/NPS/幻觉率等 |
+| 对抗红队测评 | `redteam` | 越狱/提示注入/偏见诱导/隐私探测，攻击拦截率/有害内容拒绝率/风险定级（高危零容忍） |
+
+> 详见 [docs/AI模型五维综合测评-需求文档.html](docs/AI模型五维综合测评-需求文档.html) 与 [docs/AI模型五维综合测评-概要设计.html](docs/AI模型五维综合测评-概要设计.html)。
+
 ### 知识库与智能助手
 
 | 模块 | 功能说明 |
@@ -75,9 +113,10 @@
 |------|---------|
 | 模型配置 | 多 LLM 接入（DeepSeek/Claude/vLLM/Ollama），能力检测（Function Calling/MCP/Skill），自动降级，按 Agent 类型路由 |
 | Prompt 管理 | System Prompt 模板库，按场景分类，支持设为默认模板 |
-| agent配置 | 外部工作流平台接入配置（平台连接 + Webhook + 模块后端），支持系统级/项目级配置，异步调用 + 固定 Webhook 回调 + uuid 路由 |
+| Agent 配置 | 外部工作流平台接入配置（平台连接 + Webhook + 模块后端），支持系统级/项目级配置，**配置项支持软删除**（不物理删除，可恢复）；异步调用 + 固定 Webhook 回调 + uuid 路由 |
 | 事件通知 | 飞书/钉钉机器人通知，18 种事件触发，19 种卡片模板，HMAC-SHA256 验签，异步发送+重试 |
-| 任务监控 | Celery + Flower 监控面板，Worker 节点状态、任务执行记录、成功/失败统计 |
+| 任务监控 | Celery + Flower 监控面板；Worker 节点统计（**活跃任务/排队中/已处理/负载/进程 PID**，基于 DB + Redis 权威统计，不依赖失效的事件流）；任务状态筛选；**手动取消**（pending/running → canceled，取消防护防止被 worker 收尾覆盖）；**孤儿任务回收**（超过 30 分钟仍 running 自动标记 failed，worker 启动兜底 + Beat 每 5 分钟周期回收） |
+| 任务调度 | 系统定时任务管理（sys_crontab 驱动动态 Beat），支持 interval/cron 两种调度 |
 | 数据池 | 测试数据管理，数据工厂生成，支持环境变量覆盖 |
 | 审计日志 | 操作审计追踪 |
 | 数据导入导出 | Excel 导入/导出用例，XMind 导图导出 |
@@ -87,7 +126,7 @@
 
 ## 外部 Agent 接入
 
-AITS 支持将 AI 生成类任务（需求生成、功能点拆分、用例生成、用例评审、测试报告生成）委派给**外部工作流平台的 Agent** 执行，通过**异步调用 + 固定 Webhook 回调 + uuid 路由**的方式实现与本地 LLM 执行完全一致的写库闭环。
+AITS 支持将 AI 生成类任务（需求生成、功能点拆分、用例生成、用例评审、测试报告生成）委派给**外部工作流平台的 Agent** 执行，通过**异步调用 + 固定 Webhook 回调 + uuid 路由**的方式实现与本地 LLM 执行完全一致的写库闭环。AI 模型测评模块同样支持将**外部工作流 Agent 作为被测对象**进行测评。
 
 ### 接入架构
 
@@ -115,7 +154,7 @@ AgentTask 完成 · 事件通知 · 审计日志
 
 ### 配置方式
 
-在 **系统管理 → agent配置** 页面进行配置：
+在 **系统管理 → Agent 配置** 页面进行配置：
 
 1. **平台连接**：配置外部工作流平台的连接信息（Base URL、鉴权方式、凭证等）
 2. **Webhook 配置**：启用固定 Webhook 端点，配置回调超时和签名密钥
@@ -476,7 +515,7 @@ signature = HMAC-SHA256(payload_body, secret)
 ```
 
 - `payload_body`：请求体的原始 JSON 字符串
-- `secret`：在 AITS **agent配置 → Webhook 配置** 中生成的签名密钥
+- `secret`：在 AITS **Agent 配置 → Webhook 配置** 中生成的签名密钥
 
 **请求头：**
 ```
@@ -495,6 +534,41 @@ AITS 收到回调后会验证签名，签名不匹配的请求将被拒绝。
 
 ---
 
+## AI 模型五维综合测评
+
+### 定位
+
+AI 测评是**系统级功能，不归属任何项目**，从侧边栏「AI 模型测评」主入口进入后按页面菜单组织。它解决单一测评方式结果失真、学术跑分与业务落地脱节、能力测评与安全测评割裂的行业痛点，为模型/Agent 版本迭代、上线准入、性能优化与风险管控提供**标准化、可量化、可复现**的依据。
+
+### 被测对象
+
+| 类型 | 代码 | 配置内容 |
+|------|------|---------|
+| LLM 模型 | `llm` | 绑定已有模型配置（llm_config） |
+| 内置 Agent | `agent` | 绑定 AITS 内置 Agent 类型 |
+| 外部工作流 Agent | `external_agent` | **服务地址（Base URL）+ 调用路径 + 鉴权方式**（`none` / `bearer` / `apikey` / `custom`）+ 鉴权凭证（加密存储）与 Header 名 |
+| 业务场景 | `business` | 业务场景标识与预期输出约束 |
+
+> **外部工作流被测对象**：被测对象类型选择「外部工作流」时，填入的是外部 Agent 的调用服务地址、调用路径与鉴权方式，AITS 作为测评方直接发起调用并收集输出，无需走 Webhook 回调链路。
+
+### 测评任务与执行
+
+1. 在「被测对象」维护被测对象（内部 Agent 默认即可，外部工作流按需接入）；
+2. 在「数据集与用例」维护评测用例（按 eval_type 组织，支持批量导入）；
+3. 在「测评任务」创建任务，勾选五维模式（`ai_judge` / `manual` / `agent` / `business` / `redteam`），绑定被测对象与数据集；
+4. 运行后由 **AI 测评 Worker（eval 队列）** 异步执行，SSE 实时推送进度；
+5. 完成后在「测评报告」「问题台账」「版本对比」查看结果，报告与模型输出均支持 **Markdown 渲染**，指标（如命中率、通过率、平均分等）以**中文**展示。
+
+### 准入结论
+
+| 结论 | 条件 |
+|------|------|
+| 准入通过 | 无 P0/P1 问题，核心指标达标，业务效果不降级，安全零高危风险 |
+| 条件通过 | 无 P0 问题，少量 P2 问题，核心指标达标，可上线并限期优化 |
+| 准入驳回 | 存在 P0/P1 问题、核心指标大幅降级、存在高危安全风险，禁止上线 |
+
+---
+
 ## 快速开始
 
 ### 前置要求
@@ -507,11 +581,11 @@ AITS 收到回调后会验证签名，签名不匹配的请求将被拒绝。
 ### 方式一：一键启动（推荐）
 
 ```bash
-# 启动全部服务（前端 + 后端 + 3个队列Worker + Beat + Flower）
+# 启动全部服务（前端 + 后端 + 4个队列Worker + Beat + Flower）
 ./start.sh
 ```
 
-`start.sh` 会按顺序启动：后端（自动建表/迁移）→ 3个队列Worker（AI/Execution/Default + 就绪检测）→ Beat定时调度器 → Flower 监控 → 前端。脚本自动检测并安装依赖（Python venv / Node.js node_modules / Playwright Chromium）。
+`start.sh` 会按顺序启动：后端（自动建表/迁移）→ 4 个队列 Worker（AI/Execution/Eval/Default + 就绪检测）→ Beat 定时调度器 → Flower 监控 → 前端。脚本自动检测并安装依赖（Python venv / Node.js node_modules / Playwright Chromium）。
 
 ### 方式二：单独启动
 
@@ -522,15 +596,21 @@ AITS 收到回调后会验证签名，签名不匹配的请求将被拒绝。
 # 仅启动前端
 ./start_frontend.sh --port 5173
 
-# 按队列单独启动 Worker
-cd backend
-./start_worker_ai.sh 2          # AI生成类任务（并发2）
-./start_worker_execution.sh 4    # 执行类任务（并发4）
-./start_worker_default.sh 2      # 后台轻量任务（并发2）
-
-# 一键启动全部 Worker + Beat + Flower
+# 一键启动全部 Worker + Beat + Flower（含 AI 测评 Worker）
 cd backend && ./start_all_workers.sh
+
+# 停止全部
+cd backend && ./stop_all_workers.sh
 ```
+
+`start_all_workers.sh` 启动的 4 个队列 Worker：
+
+| Worker | 队列 | 并发 | 职责 |
+|--------|------|------|------|
+| AI Worker | `ai` | 2 | AI 生成类任务（需求/用例/评审/报告生成等） |
+| Execution Worker | `execution` | 4 | 执行类任务（UI 自动化/接口执行/性能压测） |
+| AI 测评 Worker | `eval` | 2 | AI 模型五维综合测评任务 |
+| Default Worker | `default` | 2 | 后台轻量任务（通知/清理/孤儿回收等） |
 
 ### 方式三：手动启动
 
@@ -546,9 +626,12 @@ playwright install chromium
 cp .env.example .env   # 编辑数据库连接信息和 Redis 地址
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 3. Celery Worker（另一个终端）
+# 3. Celery Worker（按队列分终端启动）
 cd backend && source venv/bin/activate
-celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=4 --events --heartbeat-interval=5
+celery -A app.celery_app.celery_app worker -Q ai --loglevel=info --concurrency=2
+celery -A app.celery_app.celery_app worker -Q execution --loglevel=info --concurrency=4
+celery -A app.celery_app.celery_app worker -Q eval --loglevel=info --concurrency=2
+celery -A app.celery_app.celery_app worker -Q default --loglevel=info --concurrency=2
 
 # 4. Beat 定时调度（另一个终端）
 cd backend && source venv/bin/activate
@@ -571,6 +654,18 @@ npm run dev
 | 默认账号 | admin / admin123 |
 
 > **注意**：启动前请确保 MySQL 和 Redis 已运行。后端启动时会自动创建数据表和新增字段。
+
+---
+
+## 任务监控与任务治理
+
+任务监控页面（系统管理 → 任务监控）提供以下能力：
+
+- **统计卡片**：执行中/排队中/已完成/失败/已取消任务数，以 DB `agent_tasks` + Redis 队列积压为准，实时反映真实状态；
+- **Worker 节点**：在线 Worker 列表（基于 `celery control inspect` 主动探测，不依赖已失效的 Celery 事件流），展示队列、活跃任务、排队中、已处理、负载、进程 PID；
+- **状态筛选**：与 AgentTask 状态全集一致（执行中/排队中/已完成/失败/已取消）；
+- **手动取消**：对执行中/排队中的任务点击「取消」，任务置为 `canceled`；任务完成后不能被取消（返回明确提示）。已实现**取消防护**：任务被取消后，即使 Worker 仍在执行，其收尾逻辑也不会覆盖 canceled 状态；
+- **孤儿任务回收**：超过 30 分钟仍处于执行中的任务（如进程崩溃、Worker 宕机残留的僵尸任务）由 `recycle_orphan_tasks` 自动标记为 `failed`。触发方式：Worker 启动时兜底执行一次 + Beat 每 5 分钟周期调度（`sys_crontab` 中「孤儿任务回收」记录，可在任务调度页面查看）。
 
 ---
 
@@ -614,13 +709,55 @@ pm.environment.set("api_url", apiUrl);
 
 ---
 
+## 项目结构
+
+```
+AITS_hub/
+├── backend/                 # FastAPI 后端
+│   ├── app/
+│   │   ├── api/             # 路由层（含 eval.py AI测评、workflow.py、agent_tasks.py 任务监控等）
+│   │   ├── agents/          # 智能体（Supervisor / BDD 生成器等）
+│   │   ├── models/          # SQLAlchemy 模型（含 eval.py 测评模型、agent_task.py）
+│   │   ├── schemas/         # Pydantic 校验
+│   │   ├── services/        # 业务服务（eval_service / orphan_recycle / agent_task_status / workflow_* 等）
+│   │   ├── tasks/           # Celery 任务（eval_tasks / case_tasks / recycle_tasks 等）
+│   │   ├── mcp/             # MCP 连接器
+│   │   ├── celery_app.py    # Celery 实例（4 队列：ai/execution/eval/default）
+│   │   └── main.py          # 应用入口（自动建表/迁移）
+│   ├── start_all_workers.sh # 启动 Beat + 4 Worker + Flower
+│   ├── stop_all_workers.sh
+│   └── requirements.txt
+├── frontend/                # Vue 3 前端
+│   └── src/
+│       ├── views/eval/      # AI 模型测评页面（EvalLayout/Dashboard/Targets/Tasks/Reports...）
+│       ├── views/           # 其他业务页面（TaskMonitor.vue 任务监控等）
+│       ├── api/             # 接口封装
+│       └── router/          # 路由（/eval/* 测评路由）
+├── docs/                    # 需求/概设文档（含 AI 模型五维综合测评需求/概设 HTML）
+├── docker-compose.yml       # 容器编排（MySQL/Redis 等）
+├── start.sh                 # 一键启动脚本
+├── start_backend.sh / start_frontend.sh
+└── README.md
+```
+
+---
+
 ## 常见问题
 
 **Q: 后端新增字段后数据库报错 Unknown column？**
 重启后端服务，main.py 启动时会自动执行 ALTER TABLE 添加缺失字段。
 
 **Q: Celery 任务不执行？**
-确保 Redis 已启动且 Celery Worker 正在运行。修改任务代码后必须重启对应队列的 Worker。
+确保 Redis 已启动且对应队列的 Celery Worker 正在运行。修改任务代码后必须重启对应队列的 Worker（AI 生成类 → ai，执行类 → execution，测评类 → eval，后台任务 → default）。
+
+**Q: AI 测评任务一直排队不执行？**
+确认 AI 测评 Worker（eval 队列）已启动（`start_all_workers.sh` 或手动 `celery ... -Q eval`），并确认 Redis 连接正常。
+
+**Q: 任务监控中 Worker 节点/执行中数量显示为 0？**
+Worker 节点列表与统计基于后端实时探测（`celery control inspect` + DB/Redis 权威统计），不依赖 Celery 事件流。若显示异常，确认后端与 Worker 均已启动、Redis 正常。
+
+**Q: 如何清理卡死的"执行中"任务？**
+无需手动清理：孤儿任务回收机制会每 5 分钟自动把超过 30 分钟仍执行中的任务标记为失败；也可在任务监控页面手动点击「取消」。
 
 **Q: Playwright 浏览器安装失败？**
 ```bash
@@ -642,6 +779,9 @@ playwright install-deps chromium  # Linux
 
 **Q: 外部 Agent 返回的 content 解析失败？**
 确认 content 格式符合对应模块的要求（见上方"各模块 content 格式要求"）。需求生成支持 JSON/Markdown，功能点拆分必须为 JSON，用例生成支持 JSON/Markdown，用例评审支持 Markdown/JSON。
+
+**Q: AI 测评的外部工作流被测对象无法调用？**
+确认被测对象配置了正确的服务地址（Base URL）、调用路径与鉴权方式（none/bearer/apikey/custom），且目标服务对 AITS 可达。
 
 ---
 
