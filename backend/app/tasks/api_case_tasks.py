@@ -12,6 +12,7 @@ from app.models.agent_task import AgentTask
 from app.models.api_test import ApiDefinition
 from app.services.api_case_generator import ApiCaseGenerator
 from app.services.notification_service import notify_event, notify_ai_task_failed
+from app.services.agent_task_status import mark_running, finalize_agent_task
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,12 @@ def generate_api_cases_task(self, task_id: int):
         task.status = "running"
         db.commit()
 
+        # 取消防护：任务已被用户取消则中止执行
+        if not mark_running(db, task):
+            db.commit()
+            logger.info(f"接口用例生成任务已被取消，中止执行: task_id={task_id}")
+            return
+
         input_params = task.input_params or {}
         api_id = input_params.get("api_id")
         strategy = input_params.get("strategy", "comprehensive")
@@ -58,9 +65,7 @@ def generate_api_cases_task(self, task_id: int):
 
         api_def = db.query(ApiDefinition).filter(ApiDefinition.id == api_id).first() if api_id else None
         if not api_def:
-            task.status = "failed"
-            task.error_message = "接口定义不存在"
-            task.completed_at = china_now_naive()
+            finalize_agent_task(db, task, "failed", "接口定义不存在")
             db.commit()
             return
 
@@ -111,11 +116,10 @@ def generate_api_cases_task(self, task_id: int):
         # 提取接口用例（多策略提取，不做降级；创建由"保存"端点处理）
         cases = ContentExtractor.extract_api_cases(gen_result["raw_content"])
 
-        task.status = "success"
+        finalize_agent_task(db, task, "success")
         task.output_result = {"cases": cases, "count": len(cases)}
         task.token_usage = gen_result.get("token_usage", {})
         task.llm_config_id = gen_result.get("llm_config_id")
-        task.completed_at = china_now_naive()
         db.commit()
 
         logger.info(f"AI生成用例任务完成: task_id={task_id}, count={len(cases)}")
@@ -145,9 +149,7 @@ def generate_api_cases_task(self, task_id: int):
         try:
             task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
             if task:
-                task.status = "failed"
-                task.error_message = str(e)[:500]
-                task.completed_at = china_now_naive()
+                finalize_agent_task(db, task, "failed", str(e))
                 db.commit()
                 notify_ai_task_failed(
                     task.project_id,

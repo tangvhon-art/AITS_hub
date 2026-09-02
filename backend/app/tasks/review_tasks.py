@@ -13,6 +13,7 @@ from app.services.notification_service import notify_event, notify_ai_task_faile
 from app.services.workflow_connector import WorkflowInvokeError
 from app.services.workflow_runner import run as workflow_run
 from app.services.agent_backend_dispatcher import resolve_backend
+from app.services.agent_task_status import mark_running, finalize_agent_task
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,12 @@ def review_cases_task(self, task_id: int):
 
         task.status = "running"
         db.commit()
+
+        # 取消防护：任务已被用户取消则中止执行
+        if not mark_running(db, task):
+            db.commit()
+            logger.info(f"用例评审任务已被取消，中止执行: task_id={task_id}")
+            return
 
         input_params = task.input_params or {}
         cases = input_params.get("cases", [])
@@ -180,11 +187,10 @@ def review_cases_task(self, task_id: int):
             f"missing={len(result.get('missing_scenarios', []))}"
         )
 
-        task.status = "success"
+        finalize_agent_task(db, task, "success")
         task.output_result = result
         task.token_usage = token_usage
         task.llm_config_id = used_config_id
-        task.completed_at = china_now_naive()
         db.commit()
 
         logger.info(f"用例评审任务完成: task_id={task_id}, score={result.get('score')}")
@@ -213,9 +219,7 @@ def review_cases_task(self, task_id: int):
         try:
             task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
             if task:
-                task.status = "failed"
-                task.error_message = str(e)[:500]
-                task.completed_at = china_now_naive()
+                finalize_agent_task(db, task, "failed", str(e))
                 db.commit()
                 notify_ai_task_failed(
                     task.project_id,
@@ -367,6 +371,12 @@ def optimize_cases_from_review_task(
 
         opt_task.status = "running"
         db.commit()
+
+        # 取消防护：任务已被用户取消则中止执行
+        if not mark_running(db, opt_task):
+            db.commit()
+            logger.info(f"用例优化任务已被取消，中止执行: task_id={optimize_task_id}")
+            return
 
         # 加载评审任务
         review_task = db.query(AgentTask).filter(AgentTask.id == review_task_id).first()
@@ -621,7 +631,7 @@ def optimize_cases_from_review_task(
         review_output["optimized_at"] = china_now_naive().isoformat()
         review_task.output_result = review_output
 
-        opt_task.status = "success"
+        finalize_agent_task(db, opt_task, "success")
         opt_task.output_result = {
             "review_task_id": review_task_id,
             "optimize_mode": optimize_mode,
@@ -633,7 +643,6 @@ def optimize_cases_from_review_task(
             "updated_case_ids": updated_case_ids,
             "created_case_ids": [c.id for c in created_cases],
         }
-        opt_task.completed_at = china_now_naive()
         db.commit()
 
         logger.info(
@@ -666,9 +675,7 @@ def optimize_cases_from_review_task(
         try:
             opt_task = db.query(AgentTask).filter(AgentTask.id == optimize_task_id).first()
             if opt_task:
-                opt_task.status = "failed"
-                opt_task.error_message = str(e)[:500]
-                opt_task.completed_at = china_now_naive()
+                finalize_agent_task(db, opt_task, "failed", str(e))
                 db.commit()
                 notify_ai_task_failed(
                     opt_task.project_id,

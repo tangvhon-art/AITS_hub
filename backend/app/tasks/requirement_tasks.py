@@ -13,6 +13,7 @@ from app.agents.requirement_generator import RequirementGeneratorAgent
 from app.services.content_extractor import ContentExtractor
 from app.services.ai_creation_service import AICreationService
 from app.services.notification_service import notify_event, notify_ai_task_failed
+from app.services.agent_task_status import mark_running, finalize_agent_task
 from app.services.workflow_connector import WorkflowInvokeError
 from app.services.workflow_runner import run as workflow_run
 from app.services.agent_backend_dispatcher import resolve_backend
@@ -54,6 +55,12 @@ def generate_requirement_task(self, task_id: int):
         task.status = "running"
         db.commit()
 
+        # 取消防护：任务已被用户取消则中止执行
+        if not mark_running(db, task):
+            db.commit()
+            logger.info(f"需求生成任务已被取消，中止执行: task_id={task_id}")
+            return
+
         input_params = task.input_params or {}
         project_id = task.project_id
         description = input_params.get("description", "")
@@ -94,14 +101,13 @@ def generate_requirement_task(self, task_id: int):
             created_by=task.created_by,
         )
 
-        task.status = "success"
+        finalize_agent_task(db, task, "success")
         task.output_result = {
             "requirement_id": requirement.id,
             "title": requirement.title,
         }
         task.llm_config_id = result.get("llm_config_id")
         task.token_usage = result.get("token_usage", {})
-        task.completed_at = china_now_naive()
         db.commit()
 
         logger.info(f"需求生成任务完成: task_id={task_id}, requirement_id={requirement.id}")
@@ -137,9 +143,7 @@ def generate_requirement_task(self, task_id: int):
         try:
             task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
             if task:
-                task.status = "failed"
-                task.error_message = str(e)[:500]
-                task.completed_at = china_now_naive()
+                finalize_agent_task(db, task, "failed", str(e))
                 db.commit()
                 # 发送AI任务失败通知
                 notify_ai_task_failed(

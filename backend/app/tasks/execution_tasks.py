@@ -10,6 +10,7 @@ import asyncio
 
 from app.celery_app import celery_app
 from app.core.timezone import china_now_naive
+from app.services.agent_task_status import finalize_agent_task
 from app.database import SessionLocal
 
 
@@ -191,7 +192,11 @@ def _finalize_run(db, run_id, agent_task_id, status, result, error,
 
         task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
         if task:
-            task.status = "success" if status == "passed" else "failed"
+            finalize_agent_task(
+                db, task,
+                "success" if status == "passed" else "failed",
+                error if status == "failed" else None,
+            )
             task.output_result = {
                 "status": status,
                 "result": result,
@@ -199,8 +204,6 @@ def _finalize_run(db, run_id, agent_task_id, status, result, error,
                 "steps": len(agent.get_execution_log()),
                 "script_id": script_id,
             }
-            task.error_message = error if status == "failed" else None
-            task.completed_at = china_now_naive()
 
         db.commit()
     except Exception:
@@ -222,9 +225,7 @@ def _handle_failure(db, run_id, agent_task_id, error_message, duration):
 
         task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
         if task:
-            task.status = "failed"
-            task.error_message = error_message
-            task.completed_at = china_now_naive()
+            finalize_agent_task(db, task, "failed", error_message)
 
         db.commit()
     except Exception:

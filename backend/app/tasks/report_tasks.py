@@ -17,6 +17,7 @@ from app.services.notification_service import notify_event, notify_ai_task_faile
 from app.services.workflow_connector import WorkflowInvokeError
 from app.services.workflow_runner import run as workflow_run
 from app.services.agent_backend_dispatcher import resolve_backend
+from app.services.agent_task_status import finalize_agent_task
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,7 @@ def generate_test_report_task(
         if agent_task_id:
             agent_task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
             if agent_task:
-                agent_task.status = "success"
+                finalize_agent_task(db, agent_task, "success")
                 agent_task.output_result = {
                     "report_id": report.id,
                     "total_cases": report.total_cases,
@@ -167,7 +168,6 @@ def generate_test_report_task(
                 }
                 agent_task.token_usage = token_usage
                 agent_task.llm_config_id = used_config_id
-                agent_task.completed_at = china_now_naive()
 
         db.commit()
         logger.info(f"[report] 测试报告生成成功: report_id={report_id}, pass_rate={report.pass_rate}%")
@@ -221,9 +221,7 @@ def generate_test_report_task(
             if agent_task_id:
                 agent_task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
                 if agent_task:
-                    agent_task.status = "failed"
-                    agent_task.error_message = str(e)
-                    agent_task.completed_at = china_now_naive()
+                    finalize_agent_task(db, agent_task, "failed", str(e))
                     notify_ai_task_failed(
                         project_id,
                         task_type="测试报告生成",

@@ -57,6 +57,26 @@ export function getAgentTask(taskId: number) {
   return request.get<AgentTask>(`/agent-tasks/${taskId}`)
 }
 
+export function cancelAgentTask(taskId: number) {
+  return request.post<{ message: string; task_id: number }>(`/agent-tasks/${taskId}/cancel`)
+}
+
+export interface AgentTaskMonitor {
+  running: number
+  pending: number
+  success: number
+  failed: number
+  canceled: number
+  queues: Record<string, number>
+  queue_stats: Record<string, { queued: number; active: number; processed: number }>
+  workers: Record<string, { queue: string[]; pid?: number | null; concurrency?: number | null }>
+  recent: AgentTask[]
+}
+
+export function getAgentTaskMonitor() {
+  return request.get<AgentTaskMonitor>('/agent-tasks/monitor')
+}
+
 export function runSupervisor(projectId: number, data: {
   requirement_content: string
   requirement_title?: string

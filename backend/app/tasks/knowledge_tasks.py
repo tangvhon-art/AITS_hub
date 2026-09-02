@@ -12,6 +12,7 @@ from app.models.agent_task import AgentTask
 from app.services.knowledge_base import knowledge_base_service
 from app.core.timezone import china_now_naive
 from app.services.notification_service import notify_event, notify_ai_task_failed
+from app.services.agent_task_status import finalize_agent_task
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +68,10 @@ class KnowledgeDocTask(BaseTask):
             agent_task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
             if agent_task:
                 if result.get("success"):
-                    agent_task.status = "success"
+                    finalize_agent_task(db, agent_task, "success")
                     agent_task.output_result = {"chunk_count": result.get("chunk_count", 0)}
                 else:
-                    agent_task.status = "failed"
-                    agent_task.error_message = result.get("error", "")
-                agent_task.completed_at = china_now_naive()
+                    finalize_agent_task(db, agent_task, "failed", result.get("error", ""))
 
         db.commit()
 
@@ -143,9 +142,7 @@ class KnowledgeDocTask(BaseTask):
             if agent_task_id:
                 agent_task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
                 if agent_task:
-                    agent_task.status = "failed"
-                    agent_task.error_message = str(error)
-                    agent_task.completed_at = china_now_naive()
+                    finalize_agent_task(db, agent_task, "failed", str(error))
                     notify_ai_task_failed(
                         project_id,
                         task_type="知识库文档处理",

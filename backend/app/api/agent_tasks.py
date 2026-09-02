@@ -3,6 +3,7 @@ Agent 任务监控 API + Supervisor 流水线 API
 """
 import json
 import logging
+import time
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import Optional, List, Dict, Any
@@ -10,6 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
+
+# Worker 在线探测缓存（inspect 广播拥塞防护）
+_workers_probe_cache = None
+_workers_probe_at = 0.0
 
 from app.database import get_db
 from app.core.deps import get_current_user, get_project
@@ -71,6 +76,110 @@ def list_agent_tasks(
         items=[AgentTaskResponse.model_validate(t) for t in tasks],
     )
 
+@router.get("/monitor")
+def agent_task_monitor(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    任务监控汇总：Agent 任务状态统计 + Redis 队列积压 + 最近任务列表 + 各队列(Worker)负载统计。
+    （任务状态以 DB agent_tasks 为准，不依赖 Celery 事件流/Flower，保证“执行中”等状态准确可读）
+    """
+    from sqlalchemy import func
+    # 状态分布
+    rows = db.query(AgentTask.status, func.count()).group_by(AgentTask.status).all()
+    status_counts = {s: c for s, c in rows}
+    # 队列积压（Redis LLEN）
+    queues = {}
+    try:
+        import redis as redis_lib
+        from app.config import settings
+        rc = redis_lib.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        for q in ("default", "ai", "execution", "eval"):
+            try:
+                queues[q] = rc.llen(q)
+            except Exception:
+                queues[q] = 0
+    except Exception:
+        queues = {"default": 0, "ai": 0, "execution": 0, "eval": 0}
+    # 最近任务（含执行中/排队中的最新一批，供监控列表展示）
+    recent = db.query(AgentTask).order_by(AgentTask.created_at.desc()).limit(50).all()
+    # ---- 按队列(Worker)聚合负载统计 ----
+    # agent_type -> 队列映射（与 celery_app.py 任务队列划分对齐）
+    AGENT_TYPE_QUEUE = {
+        # ai 队列（AI 生成类）
+        "case_generator": "ai", "case_reviewer": "ai", "case_optimizer": "ai",
+        "requirement_generator": "ai", "api_case_generator": "ai", "api_doc_generator": "ai",
+        "knowledge_processor": "ai", "report_generator": "ai", "script_generator": "ai",
+        "script_fixer": "ai", "defect_analyzer": "ai", "bdd_generator": "ai",
+        # execution 队列（执行类）
+        "ui_execution": "execution", "performance_test": "execution",
+        "script_execution": "execution", "test_plan_execution": "execution",
+        # default 队列（后台轻量）
+        "supervisor": "default", "notification": "default",
+    }
+    # 按 agent_type/status 聚合 AgentTask
+    at_rows = db.query(AgentTask.agent_type, AgentTask.status, func.count()).group_by(AgentTask.agent_type, AgentTask.status).all()
+    queue_active = {q: 0 for q in queues}
+    queue_processed = {q: 0 for q in queues}
+    for atype, st, cnt in at_rows:
+        q = AGENT_TYPE_QUEUE.get(atype, "default")
+        queue_processed[q] += cnt
+        if st == "running":
+            queue_active[q] += cnt
+    # eval 队列：AI 测评任务记录在 eval_tasks 表
+    try:
+        from app.models.eval import EvalTask
+        et_rows = db.query(EvalTask.status, func.count()).group_by(EvalTask.status).all()
+        eval_total = sum(c for _, c in et_rows)
+        eval_running = sum(c for st, c in et_rows if st == "running")
+        queue_processed["eval"] += eval_total
+        queue_active["eval"] += eval_running
+    except Exception:
+        pass
+    queue_stats = {
+        q: {"queued": queues[q], "active": queue_active[q], "processed": queue_processed[q]}
+        for q in queues
+    }
+    # ---- Worker 在线探测（用 control inspect，不依赖失效的 Celery 事件流）----
+    # inspect 是控制广播，并发/高频调用会拥塞导致请求挂起，故加 TTL 缓存串行化
+    global _workers_probe_cache, _workers_probe_at
+    now = time.time()
+    if _workers_probe_cache is not None and now - _workers_probe_at < 8:
+        workers = _workers_probe_cache
+    else:
+        workers = {}
+        try:
+            from app.celery_app import celery_app
+            insp = celery_app.control.inspect(timeout=2)
+            pings = insp.ping() or {}
+            stats = insp.stats() or {}
+            active_queues = insp.active_queues() or {}
+            for name in pings:
+                st = stats.get(name) or {}
+                aq = active_queues.get(name) or []
+                workers[name] = {
+                    "queue": [q.get("name") for q in aq if q.get("name")],
+                    "pid": st.get("pid"),
+                    "concurrency": (st.get("pool") or {}).get("max-concurrency"),
+                }
+        except Exception as e:
+            logger.warning(f"Worker 在线探测失败: {e}")
+            workers = {}
+        _workers_probe_cache = workers
+        _workers_probe_at = now
+    return {
+        "running": status_counts.get("running", 0),
+        "pending": status_counts.get("pending", 0),
+        "success": status_counts.get("success", 0),
+        "failed": status_counts.get("failed", 0),
+        "canceled": status_counts.get("canceled", 0),
+        "queues": queues,
+        "queue_stats": queue_stats,
+        "workers": workers,
+        "recent": [AgentTaskResponse.model_validate(t) for t in recent],
+    }
+
 @router.get("/{task_id}", response_model=AgentTaskResponse)
 def get_agent_task(
     task_id: int,
@@ -88,6 +197,34 @@ def get_agent_task(
         raise HTTPException(status_code=403, detail="无权限访问")
 
     return AgentTaskResponse.model_validate(task)
+
+
+@router.post("/{task_id}/cancel")
+def cancel_agent_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """手动取消 Agent 任务（pending/running → canceled）"""
+    task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if task.project_id:
+        get_project(task.project_id, db, current_user)
+    elif not current_user.is_admin and task.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="无权限访问")
+
+    if task.status in ("success", "failed", "canceled"):
+        raise HTTPException(status_code=400, detail=f"任务已结束（当前状态: {task.status}），无需取消")
+
+    task.status = "canceled"
+    task.completed_at = china_now_naive()
+    base = task.error_message or ""
+    suffix = "用户手动取消"
+    task.error_message = (f"{base} | {suffix}") if base else suffix
+    db.commit()
+    return {"message": "任务已取消", "task_id": task.id}
 
 # ========== Supervisor 流水线 ==========
 

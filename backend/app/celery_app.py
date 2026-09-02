@@ -86,6 +86,9 @@ celery_app.conf.update(
     # 启用事件发送，Flower 依赖事件流检测 worker 和任务状态
     worker_send_task_events=True,
     task_send_sent_event=True,
+    # 任务开始执行时自动更新状态为 STARTED 并发送 STARTED 事件
+    # （否则 Flower/TaskMonitor 中任务 state 停留在 PENDING/RECEIVED，无法正确统计“执行中”）
+    task_track_started=True,
     # 定时任务：改用数据库驱动的自定义 Scheduler，任务清单存于 sys_crontab 表，
     # 新增/修改/删除/启停无需重启 beat（原固定 beat_schedule 已迁移入库，
     # 见 migrations/sys_crontab.sql）。⚠️ beat 必须单实例运行，否则会重复派发任务！
@@ -107,7 +110,7 @@ def debug_task(self):
 # ---------------------------------------------------------------------------
 import logging as _logging  # noqa: E402
 
-from celery.signals import task_prerun, task_postrun, task_failure  # noqa: E402
+from celery.signals import task_prerun, task_postrun, task_failure, worker_ready  # noqa: E402
 
 _task_log_logger = _logging.getLogger(__name__)
 
@@ -238,3 +241,18 @@ def _log_task_postrun(sender=None, task_id=None, state=None, **kw):
             db.close()
     except Exception as e:
         _task_log_logger.debug(f"任务日志写入失败(postrun): {e}")
+
+
+@worker_ready.connect
+def _recycle_orphan_on_worker_ready(sender=None, **kw):
+    """
+    Worker 启动时兜底回收孤儿任务（幂等）：
+    防止 worker 重启/中断后遗留的 running 任务污染“执行中”统计。
+    超时判定（created_at 超过阈值）不会误伤其它仍在正常运行的 worker 任务。
+    """
+    try:
+        from app.services.orphan_recycle import recycle_orphan_tasks
+        recycle_orphan_tasks()
+    except Exception as e:  # noqa: BLE001
+        logger = __import__("logging").getLogger(__name__)
+        logger.warning(f"worker_ready 孤儿任务回收失败: {e}")

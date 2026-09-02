@@ -2,7 +2,7 @@
   <div class="task-monitor-page">
     <!-- 顶部统计卡片 -->
     <a-row :gutter="16" class="stats-row">
-      <a-col :xs="12" :sm="12" :md="6">
+      <a-col :xs="12" :sm="12" :md="4">
         <a-card class="stat-card" :bordered="false">
           <a-statistic
             title="Worker 进程"
@@ -15,7 +15,7 @@
           </a-statistic>
         </a-card>
       </a-col>
-      <a-col :xs="12" :sm="12" :md="6">
+      <a-col :xs="12" :sm="12" :md="5">
         <a-card class="stat-card" :bordered="false">
           <a-statistic
             title="执行中"
@@ -28,7 +28,20 @@
           </a-statistic>
         </a-card>
       </a-col>
-      <a-col :xs="12" :sm="12" :md="6">
+      <a-col :xs="12" :sm="12" :md="5">
+        <a-card class="stat-card" :bordered="false">
+          <a-statistic
+            title="排队中"
+            :value="stats.queued"
+            :value-style="{ color: '#faad14' }"
+          >
+            <template #prefix>
+              <HourglassOutlined />
+            </template>
+          </a-statistic>
+        </a-card>
+      </a-col>
+      <a-col :xs="12" :sm="12" :md="5">
         <a-card class="stat-card" :bordered="false">
           <a-statistic
             title="已完成"
@@ -41,7 +54,7 @@
           </a-statistic>
         </a-card>
       </a-col>
-      <a-col :xs="12" :sm="12" :md="6">
+      <a-col :xs="12" :sm="12" :md="5">
         <a-card class="stat-card" :bordered="false">
           <a-statistic
             title="失败"
@@ -90,6 +103,9 @@
           <template v-else-if="column.key === 'active'">
             <a-tag color="blue">{{ record.active }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'queued'">
+            <a-tag :color="record.queued > 0 ? 'orange' : 'default'">{{ record.queued }}</a-tag>
+          </template>
           <template v-else-if="column.key === 'processed'">
             <a-tag color="purple">{{ record.processed }}</a-tag>
           </template>
@@ -124,12 +140,11 @@
               allow-clear
               size="small"
             >
-              <a-select-option value="STARTED">执行中</a-select-option>
-              <a-select-option value="SUCCESS">成功</a-select-option>
-              <a-select-option value="FAILURE">失败</a-select-option>
-              <a-select-option value="PENDING">等待中</a-select-option>
-              <a-select-option value="RETRY">重试中</a-select-option>
-              <a-select-option value="REVOKED">已取消</a-select-option>
+              <a-select-option value="running">执行中</a-select-option>
+              <a-select-option value="pending">排队中</a-select-option>
+              <a-select-option value="success">成功</a-select-option>
+              <a-select-option value="failed">失败</a-select-option>
+              <a-select-option value="canceled">已取消</a-select-option>
             </a-select>
             <a-button size="small" type="primary" @click="handleSearch" style="margin-left: 8px">查询</a-button>
             <a-button size="small" @click="handleReset">重置</a-button>
@@ -154,58 +169,57 @@
         :loading="loading"
         :pagination="{ pageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条` }"
         size="middle"
-        row-key="uuid"
-        @expand="onExpand"
+        row-key="id"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'state'">
-            <a-tag :color="getStatusColor(record.state)">
-              <a-badge :status="getBadgeStatus(record.state)" />
-              {{ getStatusText(record.state) }}
+            <a-tag :color="getStatusColor(record.status)">
+              <a-badge :status="getBadgeStatus(record.status)" />
+              {{ getStatusText(record.status) }}
             </a-tag>
           </template>
           <template v-else-if="column.key === 'name'">
-            <a-typography-text code copyable>{{ record.name }}</a-typography-text>
+            <a-tag color="blue">{{ agentTypeText(record.agent_type) }}</a-tag>
           </template>
-          <template v-else-if="column.key === 'runtime'">
-            <span v-if="record.runtime" class="runtime-text">
-              {{ formatDuration(record.runtime) }}
-            </span>
-            <span v-else-if="record.state === 'STARTED'" class="running-text">
-              <a-spin size="small" /> 执行中...
-            </span>
-            <span v-else>-</span>
+          <template v-else-if="column.key === 'backend'">
+            <a-tag :color="backendColor(record.backend)">{{ backendText(record.backend) }}</a-tag>
           </template>
-          <template v-else-if="column.key === 'received'">
-            {{ formatTime(record.received) }}
+          <template v-else-if="column.key === 'created_at'">
+            {{ formatTime(record.created_at) }}
+          </template>
+          <template v-else-if="column.key === 'completed_at'">
+            {{ record.completed_at ? formatTime(record.completed_at) : '-' }}
           </template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" size="small" @click="showTaskDetail(record)">
               详情
             </a-button>
+            <a-popconfirm
+              v-if="['running', 'pending'].includes(record.status)"
+              title="确定取消该任务吗？"
+              ok-text="取消任务"
+              cancel-text="再想想"
+              @confirm="handleCancel(record)"
+            >
+              <a-button type="link" danger size="small">取消</a-button>
+            </a-popconfirm>
           </template>
         </template>
         <template #expandedRowRender="{ record }">
           <a-descriptions size="small" :column="2" bordered>
-            <a-descriptions-item label="任务 UUID" :span="2">
-              <a-typography-text code copyable style="font-size: 12px">{{ record.uuid }}</a-typography-text>
+            <a-descriptions-item label="任务 ID">{{ record.id }}</a-descriptions-item>
+            <a-descriptions-item label="项目 ID">{{ record.project_id || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="执行后端">{{ backendText(record.backend) }}</a-descriptions-item>
+            <a-descriptions-item label="LLM 配置">{{ record.llm_config_id || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="输入参数" :span="2">
+              <pre class="detail-pre">{{ JSON.stringify(record.input_params, null, 2) }}</pre>
             </a-descriptions-item>
-            <a-descriptions-item label="Worker">{{ record.worker || '-' }}</a-descriptions-item>
-            <a-descriptions-item label="重试次数">{{ record.retries || 0 }}</a-descriptions-item>
-            <a-descriptions-item label="开始时间" v-if="record.started">
-              {{ formatTime(record.started) }}
+            <a-descriptions-item label="输出结果" :span="2" v-if="record.output_result && Object.keys(record.output_result).length">
+              <pre class="detail-pre">{{ JSON.stringify(record.output_result, null, 2) }}</pre>
             </a-descriptions-item>
-            <a-descriptions-item label="完成时间" v-if="record.succeeded || record.failed">
-              {{ formatTime(record.succeeded || record.failed) }}
-            </a-descriptions-item>
-            <a-descriptions-item label="参数" :span="2" v-if="record.args && record.args !== '()'">
-              <a-typography-paragraph style="margin: 0; font-size: 12px" :ellipsis="{ rows: 2, expandable: true }">
-                {{ record.args }}
-              </a-typography-paragraph>
-            </a-descriptions-item>
-            <a-descriptions-item label="异常信息" :span="2" v-if="record.exception">
+            <a-descriptions-item label="错误信息" :span="2" v-if="record.error_message">
               <a-alert
-                :message="record.exception"
+                :message="record.error_message"
                 type="error"
                 show-icon
                 style="font-size: 12px"
@@ -224,45 +238,37 @@
       width="560"
     >
       <a-descriptions v-if="selectedTask" :column="1" bordered size="small">
-        <a-descriptions-item label="任务名称">
-          <a-tag color="blue">{{ selectedTask.name }}</a-tag>
+        <a-descriptions-item label="任务 ID">
+          <a-tag color="blue">{{ selectedTask.id }}</a-tag>
+        </a-descriptions-item>
+        <a-descriptions-item label="Agent 类型">
+          <a-tag color="blue">{{ agentTypeText(selectedTask.agent_type) }}</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="状态">
-          <a-tag :color="getStatusColor(selectedTask.state)">
-            {{ getStatusText(selectedTask.state) }}
+          <a-tag :color="getStatusColor(selectedTask.status)">
+            {{ getStatusText(selectedTask.status) }}
           </a-tag>
         </a-descriptions-item>
-        <a-descriptions-item label="UUID">
-          <a-typography-text code copyable style="font-size: 12px">{{ selectedTask.uuid }}</a-typography-text>
+        <a-descriptions-item label="执行后端">{{ backendText(selectedTask.backend) }}</a-descriptions-item>
+        <a-descriptions-item label="项目 ID">{{ selectedTask.project_id || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="LLM 配置">{{ selectedTask.llm_config_id || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="创建时间">
+          {{ formatTime(selectedTask.created_at) }}
         </a-descriptions-item>
-        <a-descriptions-item label="Worker">{{ selectedTask.worker || '-' }}</a-descriptions-item>
-        <a-descriptions-item label="运行时长">
-          {{ selectedTask.runtime ? formatDuration(selectedTask.runtime) : '-' }}
+        <a-descriptions-item label="完成时间">
+          {{ selectedTask.completed_at ? formatTime(selectedTask.completed_at) : '-' }}
         </a-descriptions-item>
-        <a-descriptions-item label="接收时间">
-          {{ formatTime(selectedTask.received) }}
+        <a-descriptions-item label="输入参数">
+          <pre class="detail-pre">{{ JSON.stringify(selectedTask.input_params, null, 2) }}</pre>
         </a-descriptions-item>
-        <a-descriptions-item label="开始时间" v-if="selectedTask.started">
-          {{ formatTime(selectedTask.started) }}
+        <a-descriptions-item label="输出结果" v-if="selectedTask.output_result && Object.keys(selectedTask.output_result).length">
+          <pre class="detail-pre">{{ JSON.stringify(selectedTask.output_result, null, 2) }}</pre>
         </a-descriptions-item>
-        <a-descriptions-item label="完成时间" v-if="selectedTask.succeeded || selectedTask.failed">
-          {{ formatTime(selectedTask.succeeded || selectedTask.failed) }}
+        <a-descriptions-item label="Token 消耗" v-if="selectedTask.token_usage">
+          <pre class="detail-pre">{{ JSON.stringify(selectedTask.token_usage, null, 2) }}</pre>
         </a-descriptions-item>
-        <a-descriptions-item label="重试次数">{{ selectedTask.retries || 0 }}</a-descriptions-item>
-        <a-descriptions-item label="参数" v-if="selectedTask.args && selectedTask.args !== '()'">
-          <pre class="detail-pre">{{ selectedTask.args }}</pre>
-        </a-descriptions-item>
-        <a-descriptions-item label="关键字参数" v-if="selectedTask.kwargs && selectedTask.kwargs !== '{}'">
-          <pre class="detail-pre">{{ selectedTask.kwargs }}</pre>
-        </a-descriptions-item>
-        <a-descriptions-item label="返回结果" v-if="selectedTask.result">
-          <pre class="detail-pre">{{ selectedTask.result }}</pre>
-        </a-descriptions-item>
-        <a-descriptions-item label="异常信息" v-if="selectedTask.exception">
-          <a-alert :message="selectedTask.exception" type="error" show-icon />
-        </a-descriptions-item>
-        <a-descriptions-item label="Traceback" v-if="selectedTask.traceback">
-          <pre class="detail-pre traceback-pre">{{ selectedTask.traceback }}</pre>
+        <a-descriptions-item label="异常信息" v-if="selectedTask.error_message">
+          <a-alert :message="selectedTask.error_message" type="error" show-icon />
         </a-descriptions-item>
       </a-descriptions>
     </a-drawer>
@@ -280,10 +286,13 @@ import {
   CloseCircleOutlined,
   ClusterOutlined,
   UnorderedListOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  HourglassOutlined
 } from '@ant-design/icons-vue'
+import { getAgentTaskMonitor, cancelAgentTask, type AgentTaskMonitor, type AgentTask } from '@/api/agentTasks'
+import { AI_BACKEND_TEXT, AI_BACKEND_COLOR } from '@/constants/enums'
 
-// Flower API 基础路径（通过 Vite 代理）
+// Flower API 基础路径（通过 Vite 代理，仅用于 Worker 节点在线状态展示）
 const FLOWER_API = '/flower/api'
 
 const { loadFromUrl, syncToUrl } = useUrlSearch()
@@ -293,18 +302,34 @@ const flowerOnline = ref(false)
 const autoRefresh = ref(true)
 const statusFilter = ref<string | undefined>(undefined)
 const detailVisible = ref(false)
-const selectedTask = ref<any>(null)
+const selectedTask = ref<AgentTask | null>(null)
 
-const workers = ref<Record<string, any>>({})
-const tasks = ref<Record<string, any>>({})
+const monitor = ref<AgentTaskMonitor>({
+  running: 0, pending: 0, success: 0, failed: 0, canceled: 0,
+  queues: {}, queue_stats: {}, workers: {}, recent: [],
+})
 
 let refreshTimer: number | null = null
+
+// Agent 类型中文
+const AGENT_TYPE_TEXT: Record<string, string> = {
+  case_generator: '用例生成', case_reviewer: '用例评审', case_optimizer: '用例优化',
+  requirement_generator: '需求生成', api_case_generator: '接口用例生成', api_doc_generator: '接口文档生成',
+  ui_execution: 'UI执行', defect_analyzer: '缺陷分析', report_generator: '报告生成',
+  bdd_generator: 'BDD生成', script_generator: '脚本生成', script_fixer: '脚本修复',
+  knowledge_processor: '知识库处理', supervisor: 'Supervisor', notification: '通知',
+}
+const agentTypeText = (t: string) => AGENT_TYPE_TEXT[t] || t || '-'
+const backendText = (b?: string | null) => b ? (AI_BACKEND_TEXT as any)[b] || b : '本地'
+const backendColor = (b?: string | null) => b ? (AI_BACKEND_COLOR as any)[b] || 'default' : 'green'
 
 // Worker 表格列
 const workerColumns = [
   { title: 'Worker 名称', dataIndex: 'name', key: 'name', ellipsis: true },
+  { title: '队列', dataIndex: 'queue', key: 'queue', width: 90 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
-  { title: '活跃任务', dataIndex: 'active', key: 'active', width: 100 },
+  { title: '活跃任务', dataIndex: 'active', key: 'active', width: 110 },
+  { title: '排队中', dataIndex: 'queued', key: 'queued', width: 100 },
   { title: '已处理', dataIndex: 'processed', key: 'processed', width: 100 },
   { title: '负载', key: 'load', width: 140 },
   { title: '进程 PID', dataIndex: 'pid', key: 'pid', width: 100 }
@@ -312,68 +337,87 @@ const workerColumns = [
 
 // 任务表格列
 const taskColumns = [
-  { title: '任务名称', dataIndex: 'name', key: 'name', width: 220 },
-  { title: '状态', dataIndex: 'state', key: 'state', width: 110 },
-  { title: 'Worker', dataIndex: 'worker', key: 'worker', width: 220, ellipsis: true },
-  { title: '运行时长', dataIndex: 'runtime', key: 'runtime', width: 120 },
-  { title: '接收时间', dataIndex: 'received', key: 'received', width: 180 },
+  { title: '任务名称', dataIndex: 'agent_type', key: 'name', width: 160 },
+  { title: '状态', dataIndex: 'status', key: 'state', width: 100 },
+  { title: '执行后端', dataIndex: 'backend', key: 'backend', width: 110 },
+  { title: '项目', dataIndex: 'project_id', key: 'project', width: 70 },
+  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180 },
+  { title: '完成时间', dataIndex: 'completed_at', key: 'completed_at', width: 180 },
   { title: '操作', key: 'action', width: 80 }
 ]
 
-// Worker 列表
+// Worker -> 队列映射（与 celery_app.py 队列划分对齐）
+const WORKER_QUEUE: Record<string, string> = {
+  'ai-worker': 'ai',
+  'eval-worker': 'eval',
+  'execution-worker': 'execution',
+  'default-worker': 'default'
+}
+
+// Worker 列表（在线状态来自后端 control inspect 探测，活跃/排队/已处理来自后端按队列聚合的 DB+Redis 权威统计）
 const workerList = computed(() => {
-  return Object.entries(workers.value).map(([name, info]: [string, any]) => ({
-    name,
-    status: info.status || 'online',
-    active: (info.active || []).length,
-    processed: info.tasks_total || info.processed || 0,
-    concurrency: info.concurrency || info.pool?.max_concurrency || 4,
-    pid: info.pid || info.stats?.pid || '-'
-  }))
+  const qs = monitor.value.queue_stats || {}
+  const wd = monitor.value.workers || {}
+  return Object.entries(wd).map(([name, info]: [string, any]) => {
+    const queue = (info.queue && info.queue[0]) || WORKER_QUEUE[name.split('@')[0]] || 'default'
+    const q = qs[queue] || { queued: 0, active: 0, processed: 0 }
+    return {
+      name,
+      queue,
+      status: 'online',
+      active: q.active,
+      queued: q.queued,
+      processed: q.processed,
+      concurrency: info.concurrency || 1,
+      pid: info.pid || '-'
+    }
+  })
 })
 
-// 任务列表（按接收时间倒序）
-const taskList = computed(() => {
-  return Object.entries(tasks.value)
-    .map(([uuid, task]: [string, any]) => ({
-      uuid,
-      ...task
-    }))
-    .sort((a: any, b: any) => (b.received || 0) - (a.received || 0))
-})
-
-// 按状态筛选
+// 任务列表（AgentTask，按创建时间倒序，来自 DB 权威状态）
+const taskList = computed(() => monitor.value.recent || [])
 const filteredTasks = computed(() => {
   if (!statusFilter.value) return taskList.value
-  return taskList.value.filter((t: any) => t.state === statusFilter.value)
+  return taskList.value.filter((t: any) => t.status === statusFilter.value)
 })
 
 function handleSearch() {
   syncToUrl({ status: statusFilter.value })
 }
-
 function handleReset() {
   statusFilter.value = undefined
   syncToUrl({ status: statusFilter.value })
 }
 
-// 统计数据
+// 统计数据（执行中/排队中以 DB agent_tasks + Redis 队列积压为准，不依赖 Celery 事件流）
 const stats = computed(() => {
-  const taskArr = taskList.value
+  const queueTotal = Object.values(monitor.value.queues || {}).reduce((a, b) => a + b, 0)
   return {
     workers: workerList.value.length,
-    active: taskArr.filter((t: any) => t.state === 'STARTED').length,
-    succeeded: taskArr.filter((t: any) => t.state === 'SUCCESS').length,
-    failed: taskArr.filter((t: any) => t.state === 'FAILURE').length
+    active: monitor.value.running,
+    queued: monitor.value.pending + queueTotal,
+    succeeded: monitor.value.success,
+    failed: monitor.value.failed,
   }
 })
 
-// 获取 Workers
+// 获取 Agent 任务监控汇总（DB 权威状态）
+async function fetchMonitor() {
+  try {
+    monitor.value = await getAgentTaskMonitor()
+  } catch (e) {
+    // 忽略
+  }
+}
+
+// 获取 Workers（仅检查 Flower 是否在线；Worker 列表已改由后端 monitor.workers 提供）
 async function fetchWorkers() {
   try {
-    const resp = await fetch(`${FLOWER_API}/workers`, { method: 'GET' })
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 3000)
+    const resp = await fetch(`${FLOWER_API}/workers`, { method: 'GET', signal: ctrl.signal })
+    clearTimeout(timer)
     if (resp.ok) {
-      workers.value = await resp.json()
       flowerOnline.value = true
     } else {
       flowerOnline.value = false
@@ -383,65 +427,39 @@ async function fetchWorkers() {
   }
 }
 
-// 获取任务列表
-async function fetchTasks() {
-  try {
-    const resp = await fetch(`${FLOWER_API}/tasks?limit=100`, { method: 'GET' })
-    if (resp.ok) {
-      tasks.value = await resp.json()
-      flowerOnline.value = true
-    }
-  } catch (e) {
-    // 忽略错误
-  }
-}
-
 // 获取所有数据
 async function fetchAll() {
   loading.value = true
-  await Promise.all([fetchWorkers(), fetchTasks()])
+  await Promise.all([fetchMonitor(), fetchWorkers()])
   loading.value = false
 }
 
-// 展开行时获取任务详情
-async function onExpand(expanded: boolean, record: any) {
-  if (expanded && (!record.result || !record.exception)) {
-    try {
-      const resp = await fetch(`${FLOWER_API}/task/result/${record.uuid}`, { method: 'GET' })
-      if (resp.ok) {
-        const detail = await resp.json()
-        tasks.value[record.uuid] = { ...tasks.value[record.uuid], ...detail }
-      }
-    } catch (e) {
-      // 忽略
-    }
-  }
-}
-
 // 显示任务详情
-async function showTaskDetail(record: any) {
+function showTaskDetail(record: AgentTask) {
   selectedTask.value = record
   detailVisible.value = true
+}
+
+// 手动取消任务
+async function handleCancel(record: AgentTask) {
   try {
-    const resp = await fetch(`${FLOWER_API}/task/result/${record.uuid}`, { method: 'GET' })
-    if (resp.ok) {
-      const detail = await resp.json()
-      selectedTask.value = { ...record, ...detail }
-    }
-  } catch (e) {
-    // 忽略
+    await cancelAgentTask(record.id)
+    message.success(`任务 ${record.id} 已取消`)
+    await fetchAll()
+  } catch (e: any) {
+    message.error(e?.message || '取消任务失败')
   }
 }
 
 // 状态颜色
 function getStatusColor(state: string): string {
   const colorMap: Record<string, string> = {
-    STARTED: 'processing',
-    SUCCESS: 'success',
-    FAILURE: 'error',
-    PENDING: 'warning',
-    RETRY: 'warning',
-    REVOKED: 'default'
+    running: 'processing',
+    success: 'success',
+    failed: 'error',
+    pending: 'warning',
+    canceled: 'default',
+    ready: 'blue'
   }
   return colorMap[state] || 'default'
 }
@@ -449,12 +467,12 @@ function getStatusColor(state: string): string {
 // Badge 状态
 function getBadgeStatus(state: string): 'success' | 'processing' | 'error' | 'default' | 'warning' {
   const statusMap: Record<string, 'success' | 'processing' | 'error' | 'default' | 'warning'> = {
-    STARTED: 'processing',
-    SUCCESS: 'success',
-    FAILURE: 'error',
-    PENDING: 'warning',
-    RETRY: 'warning',
-    REVOKED: 'default'
+    running: 'processing',
+    success: 'success',
+    failed: 'error',
+    pending: 'warning',
+    canceled: 'default',
+    ready: 'default'
   }
   return statusMap[state] || 'default'
 }
@@ -462,29 +480,20 @@ function getBadgeStatus(state: string): 'success' | 'processing' | 'error' | 'de
 // 状态文本
 function getStatusText(state: string): string {
   const textMap: Record<string, string> = {
-    STARTED: '执行中',
-    SUCCESS: '成功',
-    FAILURE: '失败',
-    PENDING: '等待中',
-    RETRY: '重试中',
-    REVOKED: '已取消'
+    running: '执行中',
+    success: '成功',
+    failed: '失败',
+    pending: '排队中',
+    canceled: '已取消',
+    ready: '就绪'
   }
   return textMap[state] || state
 }
 
-// 格式化时长
-function formatDuration(seconds: number): string {
-  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`
-  if (seconds < 60) return `${seconds.toFixed(2)}s`
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.round(seconds % 60)
-  return `${mins}m ${secs}s`
-}
-
-// 格式化时间戳
-function formatTime(timestamp: number): string {
+// 格式化时间
+function formatTime(timestamp?: string | null): string {
   if (!timestamp) return '-'
-  const date = new Date(timestamp * 1000)
+  const date = new Date(timestamp)
   const pad = (n: number) => n.toString().padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
@@ -501,8 +510,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
+  if (refreshTimer !== null) {
+    window.clearInterval(refreshTimer)
   }
 })
 </script>
