@@ -524,9 +524,13 @@ def redteam_logs(risk_level: Optional[str] = None, page: int = Query(1),
 
 # ═══════════════════════════ 看板 ═══════════════════════════
 @router.get("/dashboard")
-def dashboard(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """测评总览看板聚合数据（五维雷达/趋势/指标）"""
-    tasks = db.query(EvalTask).order_by(EvalTask.id.desc()).limit(20).all()
+def dashboard(target_id: Optional[int] = Query(None, description="按被测对象筛选 eval_targets.id"),
+              db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """测评总览看板聚合数据（五维雷达/趋势/指标），可按被测对象筛选"""
+    q = db.query(EvalTask)
+    if target_id is not None:
+        q = q.filter(EvalTask.target_id == target_id)
+    tasks = q.order_by(EvalTask.id.desc()).limit(20).all()
     completed = [t for t in tasks if t.status == "completed"]
     # 最近一次完整任务作为雷达
     latest = completed[0] if completed else None

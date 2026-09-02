@@ -253,8 +253,8 @@ export const evalBaselineApi = {
 
 // ═══════════ 看板 ═══════════
 export const evalDashboardApi = {
-  get: () =>
-    request.get(`/eval/dashboard`),
+  get: (params?: { target_id?: number | undefined }) =>
+    request.get(`/eval/dashboard`, { params }),
 }
 
 // ═══════════ SSE 进度（全局） ═══════════

@@ -1,5 +1,21 @@
 <template>
   <div>
+    <a-card size="small" style="margin-bottom: 16px">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <span style="color: rgba(0,0,0,0.65)">被测对象</span>
+        <a-select
+          v-model:value="targetFilter"
+          style="width: 280px"
+          placeholder="全部被测对象"
+          allow-clear
+          :loading="targetsLoading"
+          @change="onTargetChange"
+        >
+          <a-select-option v-for="t in targetOptions" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
+        </a-select>
+      </div>
+    </a-card>
+
     <a-row :gutter="16">
       <a-col :span="6">
         <a-card size="small"><a-statistic title="测评任务总数" :value="data.total_tasks || 0" /></a-card>
@@ -51,13 +67,29 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { evalDashboardApi } from '@/api/eval'
+import { evalDashboardApi, evalTargetApi } from '@/api/eval'
 
 const data = ref<any>({})
 const radarRef = ref<HTMLDivElement>()
 const pieRef = ref<HTMLDivElement>()
 let radarChart: echarts.ECharts | null = null
 let pieChart: echarts.ECharts | null = null
+
+// 被测对象筛选
+const targetFilter = ref<number | undefined>(undefined)
+const targetOptions = ref<{ id: number; name: string; target_type: string }[]>([])
+const targetsLoading = ref(false)
+const loadTargets = async () => {
+  targetsLoading.value = true
+  try {
+    const resp: any = await evalTargetApi.list()
+    targetOptions.value = (Array.isArray(resp) ? resp : resp?.items || []).map((t: any) => ({
+      id: t.id, name: t.name || `被测对象 ${t.id}`, target_type: t.target_type,
+    }))
+  } catch (e) { /* 忽略 */ }
+  targetsLoading.value = false
+}
+const onTargetChange = () => { load() }
 
 const latestConclusion = computed(() => {
   const trend = data.value.trend || []
@@ -95,12 +127,13 @@ const renderCharts = () => {
 }
 
 const load = async () => {
-  data.value = await evalDashboardApi.get()
+  const params = targetFilter.value !== undefined ? { target_id: targetFilter.value } : undefined
+  data.value = await evalDashboardApi.get(params)
   await nextTick()
   renderCharts()
 }
 
-onMounted(() => { load(); window.addEventListener('resize', resize) })
+onMounted(() => { load(); loadTargets(); window.addEventListener('resize', resize) })
 onBeforeUnmount(() => { window.removeEventListener('resize', resize); radarChart?.dispose(); pieChart?.dispose() })
 const resize = () => { radarChart?.resize(); pieChart?.resize() }
 </script>
