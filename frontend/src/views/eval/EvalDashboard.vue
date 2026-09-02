@@ -11,7 +11,7 @@
         <a-card size="small"><a-statistic title="P0 高危问题" :value="data.p0_count || 0" :value-style="{ color: (data.p0_count || 0) > 0 ? '#cf1322' : '#3f8600' }" /></a-card>
       </a-col>
       <a-col :span="6">
-        <a-card size="small"><a-statistic title="最近结论" :value="latestConclusion || '-'" /></a-card>
+        <a-card size="small"><a-statistic title="最近结论" :value="conclusionText(latestConclusion) || '-'" /></a-card>
       </a-col>
     </a-row>
 

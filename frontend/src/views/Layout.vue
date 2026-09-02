@@ -136,7 +136,8 @@ import {
   AuditOutlined,
   BellOutlined,
   ControlOutlined,
-  TeamOutlined
+  TeamOutlined,
+  ExperimentOutlined
 } from '@ant-design/icons-vue'
 import HealingIcon from '@/components/icons/HealingIcon.vue'
 import PageKnowledgeIcon from '@/components/icons/PageKnowledgeIcon.vue'
@@ -149,6 +150,7 @@ const iconMap: Record<string, any> = {
   ImportOutlined, FileSearchOutlined, TagOutlined, MonitorOutlined,
   ApiOutlined, ThunderboltOutlined, DatabaseOutlined, SafetyCertificateOutlined,
   MessageOutlined, AuditOutlined, BellOutlined, ControlOutlined, TeamOutlined,
+  ExperimentOutlined,
   MedicineBoxOutlined: HealingIcon,
   ClusterOutlined: PageKnowledgeIcon,
 }
