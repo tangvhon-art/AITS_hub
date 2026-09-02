@@ -91,7 +91,7 @@ export function deleteFeature(projectId: number, featureId: number) {
 }
 
 // 需求相关
-export function getRequirements(projectId: number, params?: { version_id?: number }) {
+export function getRequirements(projectId: number, params?: { version_id?: number; page?: number; page_size?: number; keyword?: string }) {
   return request.post(`/projects/${projectId}/requirements/search`, params)
 }
 

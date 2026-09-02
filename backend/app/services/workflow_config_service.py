@@ -281,11 +281,11 @@ def update_module_config(db: Session, config_id: int, data: Dict[str, Any]) -> A
 
 
 def delete_module_config(db: Session, config_id: int) -> None:
-    """删除模块执行后端配置"""
+    """删除模块执行后端配置（软删，仅置 is_deleted 标记）"""
     item = db.query(AgentBackendConfig).filter(AgentBackendConfig.id == config_id).first()
     if not item:
         raise HTTPException(404, "模块执行后端配置不存在")
-    db.delete(item)
+    item.soft_delete()
     db.commit()
 
 

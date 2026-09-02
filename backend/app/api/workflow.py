@@ -516,6 +516,7 @@ def delete_project_module_config(
     """删除项目级某模块配置（恢复继承系统级默认）
 
     删除后该模块在本项目内恢复使用系统级默认配置。
+    软删：仅置 is_deleted 标记，不物理删除。
     """
     from app.models.workflow import AgentBackendConfig
     item = db.query(AgentBackendConfig).filter(
@@ -524,7 +525,7 @@ def delete_project_module_config(
     ).first()
     if not item:
         raise HTTPException(404, "项目级模块配置不存在")
-    db.delete(item)
+    item.soft_delete()
     log_audit(
         db, action="delete", resource_type="project_workflow_module_config",
         resource_id=item.id, resource_name=f"{module_id}@project_{project_id}", user=current_user,

@@ -69,18 +69,29 @@ CASE_COLUMNS = [
 def export_cases(
     project_id: int,
     request: Request,
+    requirement_ids: str = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """导出测试用例为 Excel"""
+    """导出测试用例为 Excel
+
+    Args:
+        requirement_ids: 逗号分隔的需求ID列表，如 "1,2,3"，不传则导出全部
+    """
     project = get_project(project_id, db, current_user)
     if not HAS_OPENPYXL:
         raise HTTPException(status_code=500, detail="openpyxl 未安装，请运行 pip install openpyxl")
 
-    cases = db.query(TestCase).filter(
+    query = db.query(TestCase).filter(
         TestCase.project_id == project_id,
         TestCase.is_deleted == False,
-    ).order_by(TestCase.module, TestCase.priority).all()
+    )
+    if requirement_ids:
+        req_id_list = [int(x.strip()) for x in requirement_ids.split(",") if x.strip().isdigit()]
+        if req_id_list:
+            query = query.filter(TestCase.req_id.in_(req_id_list))
+
+    cases = query.order_by(TestCase.module, TestCase.priority).all()
 
     log_audit(
         db, action="export", resource_type="case",
@@ -295,16 +306,27 @@ def _make_xmind_topic(title: str, children: list = None) -> dict:
 def export_cases_xmind(
     project_id: int,
     request: Request,
+    requirement_ids: str = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """导出测试用例为 XMind 文件，节点结构：所属模块 → 用例标题 → 前置条件 → 测试步骤 → 预期结果"""
+    """导出测试用例为 XMind 文件，节点结构：所属模块 → 用例标题 → 前置条件 → 测试步骤 → 预期结果
+
+    Args:
+        requirement_ids: 逗号分隔的需求ID列表，如 "1,2,3"，不传则导出全部
+    """
     project = get_project(project_id, db, current_user)
 
-    cases = db.query(TestCase).filter(
+    query = db.query(TestCase).filter(
         TestCase.project_id == project_id,
         TestCase.is_deleted == False,
-    ).order_by(TestCase.module, TestCase.priority).all()
+    )
+    if requirement_ids:
+        req_id_list = [int(x.strip()) for x in requirement_ids.split(",") if x.strip().isdigit()]
+        if req_id_list:
+            query = query.filter(TestCase.req_id.in_(req_id_list))
+
+    cases = query.order_by(TestCase.module, TestCase.priority).all()
 
     log_audit(
         db, action="export", resource_type="case",

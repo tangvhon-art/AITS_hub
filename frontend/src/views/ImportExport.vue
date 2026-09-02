@@ -8,8 +8,23 @@
       <a-col :span="12">
         <a-card title="用例导出">
           <p style="color: #666; margin-bottom: 16px">
-            将项目中的所有测试用例导出为 Excel 或 XMind 文件，包含用例标题、模块、优先级、步骤、预期结果等字段。
+            将项目中的测试用例导出为 Excel 或 XMind 文件，包含用例标题、模块、优先级、步骤、预期结果等字段。
           </p>
+          <a-form layout="vertical" style="margin-bottom: 16px">
+            <a-form-item label="筛选需求（多选，不选则导出全部）">
+              <a-select
+                v-model:value="selectedRequirementIds"
+                mode="multiple"
+                :options="requirementOptions"
+                :loading="requirementsLoading"
+                placeholder="选择需求"
+                allow-clear
+                show-search
+                :filter-option="filterRequirement"
+                style="width: 100%"
+              />
+            </a-form-item>
+          </a-form>
           <a-space>
             <a-button type="primary" @click="handleExport" :loading="exporting">
               <DownloadOutlined /> 导出 Excel
@@ -77,14 +92,42 @@ import {
   DownloadOutlined, UploadOutlined, FileTextOutlined
 } from '@ant-design/icons-vue'
 import { exportCases, exportCasesXmind, importCases, downloadTemplate } from '@/api/importExport'
+import { getRequirements } from '@/api/cases'
 import { useProjectStore } from '@/stores/project'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
 const projectStore = useProjectStore()
 
+// 需求筛选
+const selectedRequirementIds = ref<number[]>([])
+const requirementOptions = ref<{ label: string; value: number }[]>([])
+const requirementsLoading = ref(false)
+
+function filterRequirement(input: string, option: any) {
+  return (option.label || '').toLowerCase().includes(input.toLowerCase())
+}
+
+async function loadRequirements() {
+  requirementsLoading.value = true
+  try {
+    const res: any = await getRequirements(projectId)
+    // 后端直接返回数组
+    const items = Array.isArray(res) ? res : (res.items || res.data?.items || [])
+    requirementOptions.value = items.map((r: any) => ({
+      label: r.title,
+      value: r.id
+    }))
+  } catch (e) {
+    console.error('加载需求列表失败', e)
+  } finally {
+    requirementsLoading.value = false
+  }
+}
+
 onMounted(() => {
   projectStore.ensureProjects()
+  loadRequirements()
 })
 
 const exporting = ref(false)
@@ -106,7 +149,7 @@ function downloadBlob(blob: Blob, filename: string) {
 async function handleExport() {
   exporting.value = true
   try {
-    const blob = await exportCases(projectId) as any
+    const blob = await exportCases(projectId, selectedRequirementIds.value) as any
     downloadBlob(blob, `测试用例-${projectStore.getProjectName(projectId)}.xlsx`)
     message.success('导出成功')
   } catch (e: any) {
@@ -119,7 +162,7 @@ async function handleExport() {
 async function handleExportXmind() {
   exportingXmind.value = true
   try {
-    const blob = await exportCasesXmind(projectId) as any
+    const blob = await exportCasesXmind(projectId, selectedRequirementIds.value) as any
     downloadBlob(blob, `测试用例-${projectStore.getProjectName(projectId)}.xmind`)
     message.success('导出成功')
   } catch (e: any) {

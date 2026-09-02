@@ -200,6 +200,7 @@
             </template>
             <template v-else-if="column.key === 'action'">
               <a-button type="link" size="small" @click="openModuleModal(record)">编辑</a-button>
+              <a-button type="link" size="small" danger @click="deleteModuleConfigRow(record)">删除</a-button>
             </template>
           </template>
         </a-table>
@@ -275,6 +276,7 @@ import {
   listConnectors, createConnector, updateConnector, deleteConnector as deleteConnectorApi,
   getWebhookConfig, updateWebhookConfig,
   listModuleConfigs, upsertModuleConfig, updateModuleConfig as updateModuleConfigApi,
+  deleteModuleConfig as deleteModuleConfigApi, deleteProjectModuleConfig as deleteProjectModuleConfigApi,
   type WorkflowConnector, type WorkflowWebhookConfig,
   type AgentBackendConfig,
 } from '@/api/workflow'
@@ -532,7 +534,7 @@ const moduleColumns = [
   { title: '绑定连接', dataIndex: 'connector_id', key: 'connector_id' },
   { title: '外部 Agent 标识', dataIndex: 'external_agent_id', key: 'external_agent_id', ellipsis: true },
   { title: '页面切换', dataIndex: 'page_selectable', key: 'page_selectable', width: 90 },
-  { title: '操作', key: 'action', width: 80 },
+  { title: '操作', key: 'action', width: 120 },
 ]
 
 async function fetchModuleConfigs() {
@@ -543,6 +545,28 @@ async function fetchModuleConfigs() {
   } finally {
     modulesLoading.value = false
   }
+}
+
+function deleteModuleConfigRow(row: AgentBackendConfig) {
+  const scopeText = row.project_id ? `项目「${getProjectName(row.project_id)}」` : '系统级'
+  const moduleText = WORKFLOW_MODULE_TEXT[row.module_id] || row.module_id
+  const fallbackText = row.project_id ? '删除后该项目内将恢复继承系统级默认。' : '删除后该模块回落到本地执行默认。'
+  Modal.confirm({
+    title: '确认删除',
+    content: `确定要删除${scopeText}模块「${moduleText}」的后端配置吗？${fallbackText}`,
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      if (row.project_id) {
+        await deleteProjectModuleConfigApi(row.project_id, row.module_id)
+      } else {
+        await deleteModuleConfigApi(row.id)
+      }
+      message.success('删除成功')
+      fetchModuleConfigs()
+    },
+  })
 }
 
 function openModuleModal(row?: AgentBackendConfig) {

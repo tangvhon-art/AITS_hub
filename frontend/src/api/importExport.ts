@@ -1,14 +1,24 @@
 import request from './request'
 
-export function exportCases(projectId: number) {
+export function exportCases(projectId: number, requirementIds?: number[]) {
+  const params: Record<string, string> = {}
+  if (requirementIds && requirementIds.length > 0) {
+    params.requirement_ids = requirementIds.join(',')
+  }
   return request.get(`/projects/${projectId}/data/cases/export`, {
-    responseType: 'blob'
+    responseType: 'blob',
+    params
   })
 }
 
-export function exportCasesXmind(projectId: number) {
+export function exportCasesXmind(projectId: number, requirementIds?: number[]) {
+  const params: Record<string, string> = {}
+  if (requirementIds && requirementIds.length > 0) {
+    params.requirement_ids = requirementIds.join(',')
+  }
   return request.get(`/projects/${projectId}/data/cases/export-xmind`, {
-    responseType: 'blob'
+    responseType: 'blob',
+    params
   })
 }
 

@@ -101,6 +101,9 @@ def _auto_migrate(engine):
         ("agent_tasks", "backend", "VARCHAR(20) DEFAULT 'local'"),
         ("agent_tasks", "uuid", "VARCHAR(64)"),
         ("agent_tasks", "external_task_id", "VARCHAR(128)"),
+        # ── 模块后端配置软删：agent_backend_configs 补软删字段 ──
+        ("agent_backend_configs", "is_deleted", "BOOLEAN DEFAULT 0"),
+        ("agent_backend_configs", "deleted_at", "DATETIME"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:

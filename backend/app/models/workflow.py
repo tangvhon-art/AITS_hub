@@ -52,10 +52,11 @@ class WorkflowWebhookConfig(Base):
     updated_at = Column(DateTime, default=china_now_naive, onupdate=china_now_naive, comment="更新时间")
 
 
-class AgentBackendConfig(Base):
+class AgentBackendConfig(SoftDeleteMixin, Base):
     """AI 模块执行后端配置表
 
     v0.7 确认 #7：一期全局模块粒度，预留 project_id 扩展字段（NULL=全局）。
+    支持软删：is_deleted / deleted_at（SoftDeleteMixin），删除仅置标记不物理删除。
     """
     __tablename__ = "agent_backend_configs"
     __table_args__ = (
