@@ -121,6 +121,10 @@ export function updateModuleConfig(id: number, data: AgentBackendConfigUpdate) {
   return request.put<AgentBackendConfig>(`/workflow/module-configs/${id}`, data)
 }
 
+export function deleteModuleConfig(id: number) {
+  return request.delete<{ message: string }>(`/workflow/module-configs/${id}`)
+}
+
 // ── input 字段映射 ───────────────────────────────────────
 
 export interface WorkflowInputMapping {

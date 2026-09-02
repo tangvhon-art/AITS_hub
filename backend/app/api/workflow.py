@@ -203,6 +203,31 @@ def update_module_config(
     return svc.module_config_to_response(item)
 
 
+@router.delete("/module-configs/{config_id}")
+def delete_module_config(
+    config_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除模块执行后端配置"""
+    item = db.query(svc.AgentBackendConfig).filter(svc.AgentBackendConfig.id == config_id).first()
+    if not item:
+        raise HTTPException(404, "模块执行后端配置不存在")
+    module_id = item.module_id
+    project_id = item.project_id
+    svc.delete_module_config(db, config_id)
+    log_audit(
+        db, action="delete", resource_type="workflow_module_config",
+        resource_id=config_id, resource_name=module_id, user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"module_id": module_id, "project_id": project_id},
+    )
+    db.commit()
+    return {"message": "删除成功"}
+
+
 # ══════════════════════════════════════════════════════════
 # input 字段映射
 # ══════════════════════════════════════════════════════════

@@ -240,7 +240,7 @@ const routes: RouteRecordRaw[] = [
         path: 'settings/workflow',
         name: 'WorkflowConfig',
         component: () => import('@/views/WorkflowConfig.vue'),
-        meta: { title: 'agent配置', icon: 'ApiOutlined', requireAdmin: true }
+        meta: { title: 'Agent配置', icon: 'ApiOutlined', requireAdmin: true }
       },
       {
         path: 'task-monitor',

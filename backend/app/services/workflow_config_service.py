@@ -52,12 +52,19 @@ AGENT_TYPE_TO_MODULE = {v: k for k, v in MODULE_TO_AGENT_TYPE.items()}
 # ── 通用掩码 ──────────────────────────────────────────────
 
 def _mask(value: Optional[str], visible: int = 4) -> str:
-    """对敏感凭证做掩码：仅显示前 visible 位 + ***"""
+    """对敏感凭证做掩码：仅显示前 visible 位 + ***（用于平台连接 auth_token）"""
     if not value:
         return ""
     if len(value) <= visible:
         return "*" * len(value)
     return value[:visible] + "***" + value[-2:]
+
+
+def _mask_full(value: Optional[str]) -> str:
+    """全掩码：返回与明文相同长度的圆点，保持视觉长度一致（用于签名密钥）"""
+    if not value:
+        return ""
+    return "•" * len(value)
 
 
 # ══════════════════════════════════════════════════════════
@@ -193,7 +200,7 @@ def webhook_config_to_response(item: WorkflowWebhookConfig) -> Dict[str, Any]:
         "id": item.id,
         "webhook_url": item.webhook_url,
         "enabled": item.enabled,
-        "secret_masked": _mask(secret_plain) if secret_plain else "",
+        "secret_masked": _mask_full(secret_plain) if secret_plain else "",
         "secret_plain": secret_plain,
         "callback_timeout": item.callback_timeout,
         "updated_at": item.updated_at,
@@ -271,6 +278,15 @@ def update_module_config(db: Session, config_id: int, data: Dict[str, Any]) -> A
     db.commit()
     db.refresh(item)
     return item
+
+
+def delete_module_config(db: Session, config_id: int) -> None:
+    """删除模块执行后端配置"""
+    item = db.query(AgentBackendConfig).filter(AgentBackendConfig.id == config_id).first()
+    if not item:
+        raise HTTPException(404, "模块执行后端配置不存在")
+    db.delete(item)
+    db.commit()
 
 
 def module_config_to_response(item: AgentBackendConfig) -> Dict[str, Any]:

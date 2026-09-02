@@ -1,7 +1,7 @@
 <template>
   <div class="workflow-config-page">
     <div class="page-header">
-      <h2>agent配置</h2>
+      <h2>Agent配置</h2>
       <a-tag color="purple">系统级配置</a-tag>
     </div>
 
@@ -135,24 +135,20 @@
               <span class="hint">超过此时间未收到回调，自动降级本地执行</span>
             </a-form-item>
             <a-form-item label="签名密钥（HMAC-SHA256）">
-              <a-input-group compact>
-                <a-input
-                  :value="secretVisible ? (webhookConfig?.secret_plain || '(未生成)') : (webhookConfig?.secret_masked || '(未生成)')"
-                  style="width: calc(100% - 250px)"
-                  readonly
-                  class="mono"
-                />
+              <div class="secret-input-row">
+                <span class="secret-text mono" :title="secretVisible ? (webhookConfig?.secret_plain || '') : ''">
+                  {{ secretVisible ? (webhookConfig?.secret_plain || '(未生成)') : (webhookConfig?.secret_masked || '(未生成)') }}
+                </span>
                 <a-button @click="toggleSecretVisible" :title="secretVisible ? '隐藏密钥' : '显示密钥'">
                   <component :is="secretVisible ? EyeInvisibleOutlined : EyeOutlined" />
                 </a-button>
                 <a-button @click="copySecret" :disabled="!webhookConfig?.secret_plain" title="复制完整密钥">
                   <template #icon><CopyOutlined /></template>
-                  复制
                 </a-button>
-                <a-button type="primary" @click="regenerateSecret" style="width: 110px">
-                  重新生成
+                <a-button @click="regenerateSecret" title="重新生成密钥">
+                  <template #icon><ReloadOutlined /></template>
                 </a-button>
-              </a-input-group>
+              </div>
               <span class="hint">回调请求需在 X-Aits-Signature 头携带 HMAC-SHA256 签名</span>
             </a-form-item>
             <a-form-item>
@@ -274,7 +270,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, EyeOutlined, EyeInvisibleOutlined, CopyOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, EyeOutlined, EyeInvisibleOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import {
   listConnectors, createConnector, updateConnector, deleteConnector as deleteConnectorApi,
   getWebhookConfig, updateWebhookConfig,
@@ -615,4 +611,30 @@ onMounted(() => {
 .mono { font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace; font-size: 12px; }
 .hint { color: #8c8c8c; font-size: 12px; margin-left: 8px; }
 .drawer-footer { display: flex; justify-content: flex-end; gap: 12px; }
+.secret-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f5f5f5;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 4px 8px;
+  min-height: 32px;
+}
+.secret-text {
+  flex: 1;
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  color: rgba(0, 0, 0, 0.88);
+  line-height: 24px;
+}
+.secret-input-row .ant-btn {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+.secret-input-row .ant-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
 </style>
