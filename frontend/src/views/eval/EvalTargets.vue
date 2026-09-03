@@ -2,16 +2,22 @@
   <div>
     <a-card size="small">
       <div class="toolbar">
-        <a-select v-model:value="filterType" style="width: 160px" allow-clear placeholder="全部类型" @change="load">
+        <a-select v-model:value="filterType" style="width: 130px" allow-clear placeholder="全部类型">
           <a-select-option value="llm">大模型</a-select-option>
           <a-select-option value="agent">内置Agent</a-select-option>
           <a-select-option value="external_agent">外部工作流</a-select-option>
           <a-select-option value="business">业务入口</a-select-option>
         </a-select>
+        <a-select v-model:value="filterStatus" style="width: 130px" allow-clear placeholder="全部状态">
+          <a-select-option value="active">正常</a-select-option>
+          <a-select-option value="inactive">已停用</a-select-option>
+          <a-select-option value="deleted">已删除</a-select-option>
+        </a-select>
+        <a-input v-model:value="keyword" placeholder="搜索名称" style="width: 200px" allow-clear />
         <div style="flex: 1"></div>
         <a-button type="primary" @click="openModal()"><PlusOutlined /> 新增被测对象</a-button>
       </div>
-      <a-table :data-source="list" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
+      <a-table :data-source="filteredList" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
         <a-table-column title="ID" data-index="id" width="60" />
         <a-table-column title="名称" data-index="name" />
         <a-table-column title="类型" data-index="target_type" width="110">
@@ -27,12 +33,34 @@
           </template>
         </a-table-column>
         <a-table-column title="描述" data-index="description" ellipsis />
-        <a-table-column title="操作" width="140">
+        <a-table-column title="状态" width="100">
+          <template #default="{ record }">
+            <a-tag v-if="record.is_deleted" color="default">已停用</a-tag>
+            <a-tag v-else-if="record.status === 'inactive'" color="orange">已停用</a-tag>
+            <a-tag v-else color="green">正常</a-tag>
+          </template>
+        </a-table-column>
+        <a-table-column title="操作" width="170">
           <template #default="{ record }">
             <a-space>
               <a-button type="link" size="small" @click="openModal(record)">编辑</a-button>
-              <a-popconfirm title="确认停用该被测对象？" @confirm="remove(record)">
+              <a-popconfirm
+                v-if="!record.is_deleted && record.status === 'active'"
+                title="确认停用该被测对象？"
+                @confirm="toggleStatus(record, 'inactive')"
+              >
                 <a-button type="link" danger size="small">停用</a-button>
+              </a-popconfirm>
+              <a-button
+                v-else-if="!record.is_deleted && record.status === 'inactive'"
+                type="link" size="small" @click="toggleStatus(record, 'active')"
+              >启用</a-button>
+              <a-popconfirm
+                v-else-if="record.is_deleted"
+                title="确认恢复该被测对象？"
+                @confirm="restore(record)"
+              >
+                <a-button type="link" size="small">恢复</a-button>
               </a-popconfirm>
             </a-space>
           </template>
@@ -84,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { evalTargetApi, EVAL_TYPE_TEXT } from '@/api/eval'
@@ -93,6 +121,8 @@ import { getLLMConfigs } from '@/api/llm'
 const list = ref<any[]>([])
 const loading = ref(false)
 const filterType = ref<string>()
+const filterStatus = ref<string>()
+const keyword = ref('')
 const modalOpen = ref(false)
 const saving = ref(false)
 const llmConfigs = ref<any[]>([])
@@ -102,11 +132,25 @@ const typeText = (t: string) => (EVAL_TYPE_TEXT as any)[t] || t
 const typeColor = (t: string) => ({ llm: 'blue', agent: 'cyan', external_agent: 'purple', business: 'green' } as any)[t] || 'default'
 const authTypeText = (t?: string) => ({ none: '无鉴权', bearer: 'Bearer', apikey: 'API Key', custom: '自定义Header' } as any)[t || 'none'] || '无鉴权'
 
+// 查询条件：类型 / 状态 / 名称（前端本地过滤，列表已全量返回）
+const filteredList = computed(() => {
+  let l = list.value
+  if (filterType.value) l = l.filter(x => x.target_type === filterType.value)
+  if (filterStatus.value) {
+    if (filterStatus.value === 'active') l = l.filter(x => !x.is_deleted && x.status === 'active')
+    else if (filterStatus.value === 'inactive') l = l.filter(x => !x.is_deleted && x.status === 'inactive')
+    else if (filterStatus.value === 'deleted') l = l.filter(x => x.is_deleted)
+  }
+  const kw = keyword.value.trim().toLowerCase()
+  if (kw) l = l.filter(x => (x.name || '').toLowerCase().includes(kw))
+  return l
+})
+
 
 const load = async () => {
   loading.value = true
   try {
-    list.value = await evalTargetApi.list(filterType.value)
+    list.value = await evalTargetApi.list()
   } finally {
     loading.value = false
   }
@@ -137,9 +181,17 @@ const save = async () => {
   }
 }
 
-const remove = async (record: any) => {
-  await evalTargetApi.remove(record.id)
-  message.success('已停用')
+// 停用/启用切换（status 字段，记录仍展示在列表）
+const toggleStatus = async (record: any, status: string) => {
+  await evalTargetApi.update(record.id, { status })
+  message.success(status === 'inactive' ? '已停用' : '已启用')
+  load()
+}
+
+// 恢复已软删记录
+const restore = async (record: any) => {
+  await evalTargetApi.restore(record.id)
+  message.success('已恢复')
   load()
 }
 

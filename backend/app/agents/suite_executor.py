@@ -694,20 +694,40 @@ class SuiteExecutor:
                         pass
 
                 if use_shared_browser:
-                    suite_script = self._convert_script_to_suite_mode(current_content)
-                    local_vars = {}
+                    # navigation 容错 + 元素描述型 selector 兼容 + 步骤日志注入（与 script_runner 单脚本执行保持一致）
+                    from app.services.script_runner import (
+                        apply_selector_compat as _asc,
+                        _inject_step_logging as _isl,
+                        _SM_HELPERS,
+                        _install_nav_retry,
+                    )
+                    _install_nav_retry()
+                    suite_script = _isl(_asc(self._convert_script_to_suite_mode(current_content)))
+                    local_vars = dict(_SM_HELPERS)
                     exec(compile(suite_script, f"suite_script_{script.id}_a{attempt}.py", "exec"), local_vars)
                     if "run_test" in local_vars and callable(local_vars["run_test"]):
                         await local_vars["run_test"](self._page)
                     else:
                         raise RuntimeError("脚本中未找到 run_test 函数")
                 else:
-                    local_vars = {}
+                    from app.services.script_runner import (
+                        apply_selector_compat as _asc,
+                        _inject_step_logging as _isl,
+                        _SM_HELPERS,
+                        _install_nav_retry,
+                    )
+                    _install_nav_retry()
+                    current_content = _isl(_asc(current_content))
+                    local_vars = dict(_SM_HELPERS)
                     exec(compile(current_content, f"suite_script_{script.id}_a{attempt}.py", "exec"), local_vars)
                     if "run_test" in local_vars and callable(local_vars["run_test"]):
                         await local_vars["run_test"]()
                     else:
                         raise RuntimeError("脚本中未找到 run_test 函数")
+
+                # 收集本次执行的步骤日志（脚本中 '# 步骤N: xxx' 注释转换而来）
+                for sl in local_vars.get("__step_logs", []):
+                    exec_log.append(sl)
 
                 # 执行成功
                 run_duration = round(time.time() - run_start_time, 2)
@@ -735,6 +755,12 @@ class SuiteExecutor:
 
             except Exception as e:
                 last_error = str(e)
+                # 收集已执行到的步骤日志（失败时也能看到执行到哪一步）
+                try:
+                    for sl in local_vars.get("__step_logs", []):
+                        exec_log.append(sl)
+                except Exception:
+                    pass
                 exec_log.append({
                     "action": "result",
                     "detail": f"第{attempt}次执行失败，错误: {last_error}",
@@ -866,16 +892,35 @@ class SuiteExecutor:
                         pass
 
                 if use_shared_browser:
-                    suite_script = self._convert_script_to_suite_mode(current_content)
-                    local_vars = {}
+                    from app.services.script_runner import (
+                        apply_selector_compat as _asc,
+                        _inject_step_logging as _isl,
+                        _SM_HELPERS,
+                        _install_nav_retry,
+                    )
+                    _install_nav_retry()
+                    suite_script = _isl(_asc(self._convert_script_to_suite_mode(current_content)))
+                    local_vars = dict(_SM_HELPERS)
                     exec(compile(suite_script, f"suite_case_{case.id}_a{attempt}.py", "exec"), local_vars)
                     if "run_test" in local_vars and callable(local_vars["run_test"]):
                         await local_vars["run_test"](self._page)
                 else:
-                    local_vars = {}
+                    from app.services.script_runner import (
+                        apply_selector_compat as _asc,
+                        _inject_step_logging as _isl,
+                        _SM_HELPERS,
+                        _install_nav_retry,
+                    )
+                    _install_nav_retry()
+                    current_content = _isl(_asc(current_content))
+                    local_vars = dict(_SM_HELPERS)
                     exec(compile(current_content, f"suite_case_{case.id}_a{attempt}.py", "exec"), local_vars)
                     if "run_test" in local_vars and callable(local_vars["run_test"]):
                         await local_vars["run_test"]()
+
+                # 收集本次执行的步骤日志
+                for sl in local_vars.get("__step_logs", []):
+                    exec_log.append(sl)
 
                 # 执行成功
                 run_duration = round(time.time() - run_start_time, 2)

@@ -161,6 +161,8 @@ export const evalTargetApi = {
     request.put(`/eval/targets/${id}`, data),
   remove: (id: number) =>
     request.delete(`/eval/targets/${id}`),
+  restore: (id: number) =>
+    request.post(`/eval/targets/${id}/restore`),
 }
 
 // ═══════════ 数据集 ═══════════
@@ -173,6 +175,8 @@ export const evalDatasetApi = {
     request.put(`/eval/datasets/${id}`, data),
   remove: (id: number) =>
     request.delete(`/eval/datasets/${id}`),
+  restore: (id: number) =>
+    request.post(`/eval/datasets/${id}/restore`),
   cases: (datasetId: number, params?: any) =>
     request.get(`/eval/datasets/${datasetId}/cases`, { params }),
   createCase: (datasetId: number, data: Partial<EvalCase>) =>
@@ -181,6 +185,8 @@ export const evalDatasetApi = {
     request.put(`/eval/cases/${id}`, data),
   removeCase: (id: number) =>
     request.delete(`/eval/cases/${id}`),
+  restoreCase: (id: number) =>
+    request.post(`/eval/cases/${id}/restore`),
   importCases: (datasetId: number, cases: Partial<EvalCase>[]) =>
     request.post(`/eval/datasets/import`, { dataset_id: datasetId, cases }),
 }
@@ -197,6 +203,8 @@ export const evalTaskApi = {
     request.post(`/eval/tasks/${id}/run`),
   cancel: (id: number) =>
     request.post(`/eval/tasks/${id}/cancel`),
+  remove: (id: number) =>
+    request.delete(`/eval/tasks/${id}`),
   runs: (id: number) =>
     request.get(`/eval/tasks/${id}/runs`),
   results: (id: number, params?: any) =>

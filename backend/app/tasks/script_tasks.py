@@ -2,7 +2,6 @@
 脚本执行相关的 Celery 任务
 在独立 worker 进程中执行，完全不阻塞主服务
 """
-import asyncio
 import logging
 
 from app.celery_app import celery_app
@@ -10,12 +9,23 @@ from app.database import SessionLocal
 from app.models.automation_suite import AutomationSuiteRun
 from app.core.timezone import china_now_naive
 from app.services.script_runner import (
+    _run_in_real_thread,
     apply_headless_mode as _apply_headless_mode,
     execute_script_with_ai_fix,
 )
 from app.services.notification_service import notify_event
 
 logger = logging.getLogger(__name__)
+
+
+def _run_coro_in_new_loop(coro_factory, *args, **kwargs):
+    """在真正独立的 OS 线程 + 全新事件循环中执行协程工厂。
+
+    规避 running event loop 冲突（eventlet 环境下 ThreadPoolExecutor/to_thread
+    都会被 monkey-patch 成 greenlet，挤在同一 OS 线程导致 asyncio.run 冲突）。
+    实现委托给 script_runner._run_in_real_thread（使用 eventlet 原始 Thread）。
+    """
+    return _run_in_real_thread(coro_factory, *args, **kwargs)
 
 
 @celery_app.task(bind=True, name="run_automation_suite", max_retries=0, queue="execution")
@@ -31,7 +41,7 @@ def run_automation_suite_task(self, suite_run_id: int, headless: bool = True):
     logger.info(f"开始执行编排任务: suite_run_id={suite_run_id}, headless={headless}")
     try:
         executor = SuiteExecutor(suite_run_id, headless=headless)
-        asyncio.run(executor.execute())
+        _run_coro_in_new_loop(executor.execute)
         logger.info(f"编排任务执行完成: suite_run_id={suite_run_id}")
 
         # 发送套件完成通知
@@ -109,21 +119,20 @@ def run_automation_script_task(
     """
     db = SessionLocal()
     try:
-        result = asyncio.run(
-            execute_script_with_ai_fix(
-                db=db,
-                run_id=run_id,
-                script_id=script_id,
-                project_id=project_id,
-                script_content=script_content,
-                script_name=script_name,
-                target_url=target_url,
-                auto_fix=auto_fix,
-                max_retries=max_retries,
-                params=params,
-                headless=headless,
-                executor="celery",
-            )
+        result = _run_coro_in_new_loop(
+            execute_script_with_ai_fix,
+            db=db,
+            run_id=run_id,
+            script_id=script_id,
+            project_id=project_id,
+            script_content=script_content,
+            script_name=script_name,
+            target_url=target_url,
+            auto_fix=auto_fix,
+            max_retries=max_retries,
+            params=params,
+            headless=headless,
+            executor="celery",
         )
 
         # 单脚本执行失败时发送通知（成功不通知，避免刷屏）

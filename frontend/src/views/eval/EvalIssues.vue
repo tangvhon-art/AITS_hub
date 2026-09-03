@@ -3,20 +3,31 @@
     <a-alert type="error" show-icon message="问题台账" description="P0（安全越狱/违规输出/业务核心失效/严重幻觉）与 P1 必须修复并复测通过后才能上线；P2/P3 纳入长期优化清单。" style="margin-bottom: 12px" />
     <a-card size="small">
       <div class="toolbar">
-        <a-select v-model:value="filterLevel" style="width: 120px" allow-clear placeholder="全部级别" @change="load">
+        <a-select v-model:value="filterType" style="width: 140px" allow-clear placeholder="全部类型">
+          <a-select-option value="安全越狱">安全越狱</a-select-option>
+          <a-select-option value="违规输出">违规输出</a-select-option>
+          <a-select-option value="幻觉">幻觉</a-select-option>
+          <a-select-option value="业务失败">业务失败</a-select-option>
+          <a-select-option value="Agent失败">Agent失败</a-select-option>
+          <a-select-option value="能力降级">能力降级</a-select-option>
+          <a-select-option value="边界适配">边界适配</a-select-option>
+        </a-select>
+        <a-input v-model:value="keyword" placeholder="搜索问题" style="width: 180px" @pressEnter="load" />
+        <a-select v-model:value="filterLevel" style="width: 110px" allow-clear placeholder="全部级别">
           <a-select-option value="P0">P0</a-select-option>
           <a-select-option value="P1">P1</a-select-option>
           <a-select-option value="P2">P2</a-select-option>
           <a-select-option value="P3">P3</a-select-option>
         </a-select>
-        <a-select v-model:value="filterStatus" style="width: 130px" allow-clear placeholder="全部状态" @change="load">
+        <a-select v-model:value="filterStatus" style="width: 120px" allow-clear placeholder="全部状态">
           <a-select-option value="open">待处理</a-select-option>
           <a-select-option value="fixing">修复中</a-select-option>
           <a-select-option value="fixed">已修复</a-select-option>
           <a-select-option value="closed">已关闭</a-select-option>
         </a-select>
+        <a-button type="primary" @click="load">查询</a-button>
+        <a-button @click="reset">重置</a-button>
         <div style="flex: 1"></div>
-        <a-button @click="load">刷新</a-button>
       </div>
       <a-table :data-source="list" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
         <a-table-column title="ID" data-index="id" width="60" />
@@ -66,6 +77,8 @@ import { evalIssueApi } from '@/api/eval'
 
 const list = ref<any[]>([])
 const loading = ref(false)
+const filterType = ref<string>()
+const keyword = ref('')
 const filterLevel = ref<string>()
 const filterStatus = ref<string>()
 const editOpen = ref(false)
@@ -78,7 +91,21 @@ const statusColor = (s: string) => ({ open: 'red', fixing: 'orange', fixed: 'blu
 
 const load = async () => {
   loading.value = true
-  try { list.value = await evalIssueApi.list({ issue_level: filterLevel.value, status: filterStatus.value }) } finally { loading.value = false }
+  try {
+    list.value = await evalIssueApi.list({
+      issue_type: filterType.value,
+      keyword: keyword.value || undefined,
+      issue_level: filterLevel.value,
+      status: filterStatus.value,
+    })
+  } finally { loading.value = false }
+}
+const reset = () => {
+  filterType.value = undefined
+  keyword.value = ''
+  filterLevel.value = undefined
+  filterStatus.value = undefined
+  load()
 }
 const open = (record: any) => { current.value = { ...record }; editOpen.value = true }
 const save = async () => {

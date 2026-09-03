@@ -100,10 +100,13 @@ def _apply_soft_delete_filter(orm_execute_state):
     """
     全局 ORM 查询钩子：自动为含 is_deleted 列的表过滤已删除记录。
     遍历语句涉及的所有 FROM 表，发现 is_deleted 列就追加过滤条件。
+    查询可通过 execution_options(skip_soft_delete=True) 跳过该过滤（用于展示/恢复已删除记录）。
     """
     if not orm_execute_state.is_select:
         return
     stmt = orm_execute_state.statement
+    if stmt.get_execution_options().get("skip_soft_delete"):
+        return
     try:
         froms = stmt.get_final_froms()
     except Exception:

@@ -2,11 +2,30 @@
   <div>
     <a-card title="测评报告" size="small">
       <div class="toolbar">
-        <a-select v-model:value="filterTask" style="width: 200px" allow-clear placeholder="全部任务" @change="load">
+        <a-select v-model:value="filterTask" style="width: 170px" allow-clear placeholder="全部任务">
           <a-select-option v-for="t in tasks" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
         </a-select>
+        <a-input v-model:value="keyword" placeholder="报告标题" style="width: 160px" @pressEnter="load" />
+        <a-select v-model:value="filterType" style="width: 100px" allow-clear placeholder="全部类型">
+          <a-select-option value="overall">总报告</a-select-option>
+          <a-select-option value="ai_judge">AI裁判</a-select-option>
+          <a-select-option value="manual">人工</a-select-option>
+          <a-select-option value="agent">Agent</a-select-option>
+          <a-select-option value="business">业务</a-select-option>
+          <a-select-option value="redteam">红队</a-select-option>
+        </a-select>
+        <a-select v-model:value="filterConclusion" style="width: 100px" allow-clear placeholder="全部结论">
+          <a-select-option value="pass">准入通过</a-select-option>
+          <a-select-option value="conditional">条件通过</a-select-option>
+          <a-select-option value="reject">准入驳回</a-select-option>
+        </a-select>
+        <a-select v-model:value="filterStatus" style="width: 100px" allow-clear placeholder="全部状态">
+          <a-select-option value="completed">已完成</a-select-option>
+          <a-select-option value="generating">生成中</a-select-option>
+        </a-select>
+        <a-button type="primary" @click="load">查询</a-button>
+        <a-button @click="reset">重置</a-button>
         <div style="flex: 1"></div>
-        <a-button @click="load">刷新</a-button>
       </div>
       <a-table :data-source="list" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
         <a-table-column title="ID" data-index="id" width="60" />
@@ -43,6 +62,10 @@ const list = ref<any[]>([])
 const tasks = ref<any[]>([])
 const loading = ref(false)
 const filterTask = ref<number>()
+const keyword = ref('')
+const filterType = ref<string>()
+const filterConclusion = ref<string>()
+const filterStatus = ref<string>()
 const detailOpen = ref(false)
 const current = ref<any>()
 
@@ -59,8 +82,22 @@ const conclusionColor = (c: string) => ({ pass: 'green', conditional: 'orange', 
 const load = async () => {
   loading.value = true
   try {
-    list.value = await evalReportApi.list({ task_id: filterTask.value })
+    list.value = await evalReportApi.list({
+      task_id: filterTask.value,
+      title: keyword.value || undefined,
+      report_type: filterType.value,
+      conclusion: filterConclusion.value,
+      status: filterStatus.value,
+    })
   } finally { loading.value = false }
+}
+const reset = () => {
+  filterTask.value = undefined
+  keyword.value = ''
+  filterType.value = undefined
+  filterConclusion.value = undefined
+  filterStatus.value = undefined
+  load()
 }
 const view = (record: any) => { current.value = record; detailOpen.value = true }
 

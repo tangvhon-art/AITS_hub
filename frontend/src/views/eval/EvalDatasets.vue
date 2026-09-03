@@ -2,17 +2,23 @@
   <div>
     <a-card size="small">
       <div class="toolbar">
-        <a-select v-model:value="filterType" style="width: 160px" allow-clear placeholder="全部类型" @change="load">
+        <a-select v-model:value="filterType" style="width: 130px" allow-clear placeholder="全部类型">
           <a-select-option value="ai_judge">AI裁判</a-select-option>
           <a-select-option value="agent">Agent交互</a-select-option>
           <a-select-option value="business">业务落地</a-select-option>
           <a-select-option value="redteam">对抗红队</a-select-option>
           <a-select-option value="manual">人工</a-select-option>
         </a-select>
+        <a-select v-model:value="dsStatus" style="width: 130px" allow-clear placeholder="全部状态">
+          <a-select-option value="active">正常</a-select-option>
+          <a-select-option value="archived">已归档</a-select-option>
+          <a-select-option value="deleted">已删除</a-select-option>
+        </a-select>
+        <a-input v-model:value="dsKeyword" placeholder="搜索名称" style="width: 200px" allow-clear />
         <div style="flex: 1"></div>
         <a-button type="primary" @click="openDsModal()"><PlusOutlined /> 新增数据集</a-button>
       </div>
-      <a-table :data-source="list" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
+      <a-table :data-source="filteredDsList" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
         <a-table-column title="ID" data-index="id" width="60" />
         <a-table-column title="名称" data-index="name" />
         <a-table-column title="类型" data-index="eval_type" width="110">
@@ -23,13 +29,35 @@
         </a-table-column>
         <a-table-column title="版本" data-index="version" width="90" />
         <a-table-column title="用例数" data-index="case_count" width="90" />
-        <a-table-column title="操作" width="230">
+        <a-table-column title="状态" width="100">
+          <template #default="{ record }">
+            <a-tag v-if="record.is_deleted" color="default">已归档</a-tag>
+            <a-tag v-else-if="record.status === 'archived'" color="orange">已归档</a-tag>
+            <a-tag v-else color="green">正常</a-tag>
+          </template>
+        </a-table-column>
+        <a-table-column title="操作" width="270">
           <template #default="{ record }">
             <a-space>
               <a-button type="link" size="small" @click="openCases(record)">管理用例</a-button>
               <a-button type="link" size="small" @click="openDsModal(record)">编辑</a-button>
-              <a-popconfirm title="确认归档该数据集？" @confirm="removeDs(record)">
+              <a-popconfirm
+                v-if="!record.is_deleted && record.status === 'active'"
+                title="确认归档该数据集？"
+                @confirm="toggleDs(record, 'archived')"
+              >
                 <a-button type="link" danger size="small">归档</a-button>
+              </a-popconfirm>
+              <a-button
+                v-else-if="!record.is_deleted && record.status === 'archived'"
+                type="link" size="small" @click="toggleDs(record, 'active')"
+              >取消归档</a-button>
+              <a-popconfirm
+                v-else-if="record.is_deleted"
+                title="确认恢复该数据集？"
+                @confirm="restoreDs(record)"
+              >
+                <a-button type="link" size="small">恢复</a-button>
               </a-popconfirm>
             </a-space>
           </template>
@@ -58,6 +86,11 @@
     <!-- 用例管理抽屉 -->
     <a-drawer :open="casesDrawer" :title="`用例管理 - ${currentDs?.name || ''}`" width="900" @close="casesDrawer = false">
       <div class="toolbar">
+        <a-select v-model:value="caseStatus" style="width: 120px" allow-clear placeholder="全部状态">
+          <a-select-option value="active">正常</a-select-option>
+          <a-select-option value="archived">已归档</a-select-option>
+          <a-select-option value="deleted">已删除</a-select-option>
+        </a-select>
         <a-input v-model:value="caseKeyword" placeholder="搜索用例标题/内容" style="width: 200px" @pressEnter="loadCases" />
         <a-button @click="loadCases">搜索</a-button>
         <div style="flex: 1"></div>
@@ -66,18 +99,40 @@
         </a-upload>
         <a-button type="primary" @click="openCaseModal()"><PlusOutlined /> 新增用例</a-button>
       </div>
-      <a-table :data-source="cases" row-key="id" :loading="caseLoading" size="small" :pagination="{ pageSize: 10 }">
+      <a-table :data-source="filteredCases" row-key="id" :loading="caseLoading" size="small" :pagination="{ pageSize: 10 }">
         <a-table-column title="标题" data-index="title" ellipsis />
         <a-table-column title="类型" width="120">
           <template #default="{ record }">{{ record.attack_type || record.category || '-' }}</template>
         </a-table-column>
         <a-table-column title="难度" data-index="difficulty" width="70" />
-        <a-table-column title="操作" width="130">
+        <a-table-column title="状态" width="100">
+          <template #default="{ record }">
+            <a-tag v-if="record.is_deleted" color="default">已归档</a-tag>
+            <a-tag v-else-if="record.status === 'archived'" color="orange">已归档</a-tag>
+            <a-tag v-else color="green">正常</a-tag>
+          </template>
+        </a-table-column>
+        <a-table-column title="操作" width="200">
           <template #default="{ record }">
             <a-space>
               <a-button type="link" size="small" @click="openCaseModal(record)">编辑</a-button>
-              <a-popconfirm title="确认删除？" @confirm="removeCase(record)">
-                <a-button type="link" danger size="small">删除</a-button>
+              <a-popconfirm
+                v-if="!record.is_deleted && record.status === 'active'"
+                title="确认归档该用例？"
+                @confirm="toggleCase(record, 'archived')"
+              >
+                <a-button type="link" danger size="small">归档</a-button>
+              </a-popconfirm>
+              <a-button
+                v-else-if="!record.is_deleted && record.status === 'archived'"
+                type="link" size="small" @click="toggleCase(record, 'active')"
+              >取消归档</a-button>
+              <a-popconfirm
+                v-else-if="record.is_deleted"
+                title="确认恢复该用例？"
+                @confirm="restoreCase(record)"
+              >
+                <a-button type="link" size="small">恢复</a-button>
               </a-popconfirm>
             </a-space>
           </template>
@@ -102,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { evalDatasetApi } from '@/api/eval'
@@ -110,6 +165,8 @@ import { evalDatasetApi } from '@/api/eval'
 const list = ref<any[]>([])
 const loading = ref(false)
 const filterType = ref<string>()
+const dsStatus = ref<string>()
+const dsKeyword = ref('')
 const dsModal = ref(false)
 const dsForm = ref<any>({})
 const saving = ref(false)
@@ -118,12 +175,38 @@ const casesDrawer = ref(false)
 const cases = ref<any[]>([])
 const caseLoading = ref(false)
 const caseKeyword = ref('')
+const caseStatus = ref<string>()
 const caseModal = ref(false)
 const caseForm = ref<any>({})
 
 const typeText = (t: string) => ({ ai_judge: 'AI裁判', manual: '人工', agent: 'Agent交互', business: '业务落地', redteam: '对抗红队' } as any)[t] || t
 const typeColor = (t: string) => ({ ai_judge: 'blue', manual: 'purple', agent: 'cyan', business: 'green', redteam: 'red' } as any)[t] || 'default'
 const sourceText = (s: string) => ({ builtin: '内置', custom: '自定义', import: '导入', gray: '灰度' } as any)[s] || s
+
+// 数据集查询条件：类型 / 状态 / 名称（前端本地过滤，列表已全量返回）
+const filteredDsList = computed(() => {
+  let l = list.value
+  if (filterType.value) l = l.filter(x => x.eval_type === filterType.value)
+  if (dsStatus.value) {
+    if (dsStatus.value === 'active') l = l.filter(x => !x.is_deleted && x.status === 'active')
+    else if (dsStatus.value === 'archived') l = l.filter(x => !x.is_deleted && x.status === 'archived')
+    else if (dsStatus.value === 'deleted') l = l.filter(x => x.is_deleted)
+  }
+  const kw = dsKeyword.value.trim().toLowerCase()
+  if (kw) l = l.filter(x => (x.name || '').toLowerCase().includes(kw))
+  return l
+})
+
+// 用例查询条件：状态（前端本地过滤，名称走后端搜索）
+const filteredCases = computed(() => {
+  let l = cases.value
+  if (caseStatus.value) {
+    if (caseStatus.value === 'active') l = l.filter(x => !x.is_deleted && x.status === 'active')
+    else if (caseStatus.value === 'archived') l = l.filter(x => !x.is_deleted && x.status === 'archived')
+    else if (caseStatus.value === 'deleted') l = l.filter(x => x.is_deleted)
+  }
+  return l
+})
 
 const load = async () => {
   loading.value = true
@@ -147,8 +230,17 @@ const saveDs = async () => {
     message.success('保存成功'); dsModal.value = false; load()
   } finally { saving.value = false }
 }
-const removeDs = async (record: any) => {
-  await evalDatasetApi.remove(record.id); message.success('已归档'); load()
+// 归档/取消归档切换（status 字段，记录仍展示在列表）
+const toggleDs = async (record: any, status: string) => {
+  await evalDatasetApi.update(record.id, { status })
+  message.success(status === 'archived' ? '已归档' : '已取消归档')
+  load()
+}
+// 恢复已软删数据集
+const restoreDs = async (record: any) => {
+  await evalDatasetApi.restore(record.id)
+  message.success('已恢复')
+  load()
 }
 
 const openCases = (record: any) => {
@@ -177,8 +269,17 @@ const saveCase = async () => {
     message.success('保存成功'); caseModal.value = false; loadCases(); load()
   } finally { saving.value = false }
 }
-const removeCase = async (record: any) => {
-  await evalDatasetApi.removeCase(record.id); message.success('已删除'); loadCases(); load()
+// 用例归档/取消归档切换
+const toggleCase = async (record: any, status: string) => {
+  await evalDatasetApi.updateCase(record.id, { status })
+  message.success(status === 'archived' ? '已归档' : '已取消归档')
+  loadCases()
+}
+// 恢复已软删用例
+const restoreCase = async (record: any) => {
+  await evalDatasetApi.restoreCase(record.id)
+  message.success('已恢复')
+  loadCases()
 }
 const handleImport = (file: File) => {
   const reader = new FileReader()

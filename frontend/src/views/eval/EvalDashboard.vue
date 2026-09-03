@@ -83,7 +83,7 @@ const loadTargets = async () => {
   targetsLoading.value = true
   try {
     const resp: any = await evalTargetApi.list()
-    targetOptions.value = (Array.isArray(resp) ? resp : resp?.items || []).map((t: any) => ({
+    targetOptions.value = (Array.isArray(resp) ? resp : resp?.items || []).filter((t: any) => t.status === 'active' && !t.is_deleted).map((t: any) => ({
       id: t.id, name: t.name || `被测对象 ${t.id}`, target_type: t.target_type,
     }))
   } catch (e) { /* 忽略 */ }

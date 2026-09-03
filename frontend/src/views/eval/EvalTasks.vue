@@ -2,15 +2,20 @@
   <div>
     <a-card size="small">
       <div class="toolbar">
-        <a-select v-model:value="filterStatus" style="width: 140px" allow-clear placeholder="全部状态" @change="load">
+        <a-select v-model:value="filterTarget" style="width: 150px" allow-clear placeholder="全部被测对象">
+          <a-select-option v-for="t in activeTargets" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
+        </a-select>
+        <a-select v-model:value="filterStatus" style="width: 120px" allow-clear placeholder="全部状态">
           <a-select-option value="draft">草稿</a-select-option>
           <a-select-option value="ready">就绪</a-select-option>
           <a-select-option value="running">执行中</a-select-option>
           <a-select-option value="completed">已完成</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
+          <a-select-option value="canceled">已取消</a-select-option>
         </a-select>
         <a-input v-model:value="keyword" placeholder="搜索任务名" style="width: 180px" @pressEnter="load" />
-        <a-button @click="load">搜索</a-button>
+        <a-button type="primary" @click="load">查询</a-button>
+        <a-button @click="reset">重置</a-button>
         <div style="flex: 1"></div>
         <a-button type="primary" @click="openCreate"><PlusOutlined /> 新建测评任务</a-button>
       </div>
@@ -37,12 +42,19 @@
             <span v-else>-</span>
           </template>
         </a-table-column>
-        <a-table-column title="操作" width="220">
+        <a-table-column title="操作" width="280">
           <template #default="{ record }">
             <a-space>
               <a-button type="link" size="small" @click="goDetail(record)">详情</a-button>
               <a-button v-if="record.status === 'ready' || record.status === 'draft'" type="link" size="small" @click="runTask(record)">启动</a-button>
               <a-button v-if="record.status === 'running'" type="link" danger size="small" @click="cancelTask(record)">取消</a-button>
+              <a-popconfirm
+                v-if="record.status !== 'running'"
+                title="确认删除该测评任务及其测评数据？"
+                @confirm="removeTask(record)"
+              >
+                <a-button type="link" danger size="small">删除</a-button>
+              </a-popconfirm>
             </a-space>
           </template>
         </a-table-column>
@@ -57,14 +69,14 @@
           <a-col :span="12">
             <a-form-item label="被测对象" required>
               <a-select v-model:value="form.target_id" placeholder="选择被测对象">
-                <a-select-option v-for="t in targets" :key="t.id" :value="t.id">{{ t.name }}（{{ typeText(t.target_type) }}）</a-select-option>
+                <a-select-option v-for="t in activeTargets" :key="t.id" :value="t.id">{{ t.name }}（{{ typeText(t.target_type) }}）</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="对比对象（版本对比可选）">
               <a-select v-model:value="form.compare_target_id" allow-clear placeholder="不对比">
-                <a-select-option v-for="t in targets" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
+                <a-select-option v-for="t in activeTargets" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
@@ -100,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
@@ -110,9 +122,11 @@ import { getLLMConfigs } from '@/api/llm'
 const router = useRouter()
 const list = ref<any[]>([])
 const targets = ref<any[]>([])
+const activeTargets = computed(() => targets.value.filter((t: any) => t.status === 'active' && !t.is_deleted))
 const datasets = ref<any[]>([])
 const llmConfigs = ref<any[]>([])
 const loading = ref(false)
+const filterTarget = ref<number>()
 const filterStatus = ref<string>()
 const keyword = ref('')
 const createOpen = ref(false)
@@ -142,8 +156,18 @@ const datasetsByType = (type: string) => datasets.value.filter((d) => d.eval_typ
 const load = async () => {
   loading.value = true
   try {
-    list.value = await evalTaskApi.list({ status: filterStatus.value, keyword: keyword.value })
+    list.value = await evalTaskApi.list({
+      status: filterStatus.value,
+      keyword: keyword.value || undefined,
+      target_id: filterTarget.value,
+    })
   } finally { loading.value = false }
+}
+const reset = () => {
+  filterTarget.value = undefined
+  filterStatus.value = undefined
+  keyword.value = ''
+  load()
 }
 
 const openCreate = async () => {
@@ -181,6 +205,10 @@ const runTask = async (record: any) => {
 const cancelTask = async (record: any) => {
   await evalTaskApi.cancel(record.id)
   message.success('任务已取消'); load()
+}
+const removeTask = async (record: any) => {
+  await evalTaskApi.remove(record.id)
+  message.success('已删除测评任务'); load()
 }
 const goDetail = (record: any) => router.push(`/eval/tasks/${record.id}`)
 

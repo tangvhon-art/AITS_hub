@@ -2,6 +2,7 @@
 # AITS 一键启动脚本（先启动项目：后端 + 前端，再启动 Worker：Redis + Celery多队列 + Beat + Flower）
 # 用法:
 #   ./start.sh                                    # 启动全部（前端+后端+Celery+Flower）
+#   ./start.sh stop                               # 停止全部服务（同 Ctrl+C，可作显式兜底）
 #   ./start.sh --backend-only                     # 仅启动后端+Celery
 #   ./start.sh --frontend-only                    # 仅启动前端
 #   ./start.sh --no-celery                        # 不启动 Celery
@@ -19,8 +20,13 @@ PORT_FRONTEND=5173
 PORT_FLOWER=5555
 
 # 解析参数
+ACTION="start"
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        stop)
+            ACTION="stop"
+            shift
+            ;;
         --backend-only)
             START_FRONTEND=false
             shift
@@ -57,7 +63,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "未知参数: $1"
-            echo "用法: $0 [--backend-only] [--frontend-only] [--no-celery] [--no-flower] [--all]"
+            echo "用法: $0 [stop] [--backend-only] [--frontend-only] [--no-celery] [--no-flower] [--all]"
             echo "          [--port-backend PORT] [--port-frontend PORT] [--port-flower PORT]"
             exit 1
             ;;
@@ -71,71 +77,83 @@ fi
 
 PIDS=()
 
-# 停止所有 AITS 相关进程（Celery worker/子进程、Flower、uvicorn、vite）
-stop_existing() {
-    echo ">>> 检查并停止已有 AITS 进程..."
+# 停止所有 AITS 相关进程并确认端口释放（供启动前清理与 Ctrl+C 退出共用）
+stop_all_aits() {
     local found=false
 
-    # Celery worker 及其 fork 子进程
-    if pgrep -f "celery.*app\.celery_app\.celery_app worker" > /dev/null 2>&1; then
-        pkill -f "celery.*app\.celery_app\.celery_app worker" 2>/dev/null || true
+    # Celery Worker / Beat / Flower（含 prefork 子进程 / eventlet）
+    if pgrep -f "celery.*app\.celery_app\.celery_app" > /dev/null 2>&1; then
+        pkill -9 -f "celery.*app\.celery_app\.celery_app" 2>/dev/null || true
         found=true
-        echo "    已停止 Celery Worker"
+        echo "    已停止 Celery Worker / Beat / Flower"
     fi
 
-    # Celery Beat
-    if pgrep -f "celery.*app\.celery_app\.celery_app beat" > /dev/null 2>&1; then
-        pkill -f "celery.*app\.celery_app\.celery_app beat" 2>/dev/null || true
-        found=true
-        echo "    已停止 Celery Beat"
-    fi
-
-    # Flower
-    if pgrep -f "celery.*app\.celery_app\.celery_app flower" > /dev/null 2>&1; then
-        pkill -f "celery.*app\.celery_app\.celery_app flower" 2>/dev/null || true
-        found=true
-        echo "    已停止 Flower"
-    fi
-
-    # 后端 uvicorn
-    if pgrep -f "uvicorn app\.main:app" > /dev/null 2>&1; then
-        pkill -f "uvicorn app\.main:app" 2>/dev/null || true
+    # 后端 uvicorn（含 --reload 的 reloader 与 worker 子进程）
+    if pgrep -f "uvicorn.*app\.main:app" > /dev/null 2>&1 || pgrep -f "app\.main:app" > /dev/null 2>&1; then
+        pkill -9 -f "uvicorn.*app\.main:app" 2>/dev/null || true
+        pkill -9 -f "app\.main:app" 2>/dev/null || true
         found=true
         echo "    已停止后端 (uvicorn)"
     fi
 
     # 前端 vite
     if pgrep -f "vite" > /dev/null 2>&1; then
-        pkill -f "vite" 2>/dev/null || true
+        pkill -9 -f "vite" 2>/dev/null || true
         found=true
         echo "    已停止前端 (vite)"
     fi
 
+    sleep 2
+
+    # 再次检查端口是否释放，未释放则强制结束占用进程
+    for port in "${PORT_BACKEND}" "${PORT_FRONTEND}" "${PORT_FLOWER}"; do
+        if lsof -nP -iTCP:"$port" -sTCP:LISTEN > /dev/null 2>&1; then
+            echo "    [警告] 端口 $port 仍被占用，强制结束占用进程..."
+            lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $2}' | sort -u | xargs kill -9 2>/dev/null || true
+            sleep 2
+        fi
+    done
+
     if [ "$found" = true ]; then
-        sleep 2
-        echo "    旧进程已全部终止"
+        echo "    旧进程已全部终止，端口已释放"
     else
         echo "    无残留进程"
     fi
 }
 
+stop_existing() {
+    echo ">>> 检查并停止已有 AITS 进程..."
+    stop_all_aits
+}
+
 cleanup() {
     echo ""
     echo "正在停止所有服务..."
-    for pid in "${PIDS[@]}"; do
-        kill "$pid" 2>/dev/null || true
-    done
-    # 确保子进程也被清理
-    pkill -f "celery.*app\.celery_app\.celery_app" 2>/dev/null || true
-    pkill -f "uvicorn app\.main:app" 2>/dev/null || true
-    pkill -f "vite" 2>/dev/null || true
-    pkill -f "redis-server" 2>/dev/null || true
-    wait 2>/dev/null
+    stop_all_aits
+    # 停止本脚本启动的 Redis（daemonize 模式）
+    if pgrep -f "redis-server" > /dev/null 2>&1; then
+        pkill -9 -f "redis-server" 2>/dev/null || true
+        echo "    已停止 Redis"
+    fi
     echo "已停止"
     exit 0
 }
 
 trap cleanup SIGINT SIGTERM
+
+# 显式停止入口：./start.sh stop
+# （Ctrl+C 已通过 trap cleanup 处理；此处提供命令行显式停止，作为可靠兜底）
+if [ "$ACTION" = "stop" ]; then
+    echo ">>> 停止所有 AITS 服务..."
+    stop_all_aits
+    # 停止本脚本启动的 Redis（daemonize 模式）
+    if pgrep -f "redis-server" > /dev/null 2>&1; then
+        pkill -9 -f "redis-server" 2>/dev/null || true
+        echo "    已停止 Redis"
+    fi
+    echo "已停止"
+    exit 0
+fi
 
 echo "╔═══════════════════════════════════════╗"
 echo "║    AITS 智能测试管理平台 - 启动中     ║"
@@ -253,6 +271,23 @@ if [ "$START_CELERY" = true ]; then
     PIDS+=($DEFAULT_PID)
     echo "    Default Worker 启动 (PID=$DEFAULT_PID, 队列=default, $DEFAULT_SCALE)"
 
+    # --- Eval（AI 测评）队列 Worker ---
+    EVAL_LOG="$SCRIPT_DIR/logs/worker-eval.log"
+    nohup ./venv/bin/celery -A app.celery_app.celery_app worker \
+        --loglevel=info \
+        $AI_SCALE \
+        $POOL_ARG \
+        $FAIR_ARGS \
+        --hostname=eval-worker@%h \
+        -Q eval \
+        --events \
+        --heartbeat-interval=5 \
+        --max-tasks-per-child=100 \
+        > "$EVAL_LOG" 2>&1 &
+    EVAL_PID=$!
+    PIDS+=($EVAL_PID)
+    echo "    Eval Worker 启动 (PID=$EVAL_PID, 队列=eval, $AI_SCALE)"
+
     # --- Beat 定时任务调度器 ---
     # ⚠️ Beat 必须单实例运行（多个 beat 会重复派发任务），--pidfile 防止重复启动
     BEAT_LOG="$SCRIPT_DIR/logs/beat.log"
@@ -312,15 +347,17 @@ echo "服务已启动:"
 [ "$START_FRONTEND" = true ] && echo "  前端页面:      http://localhost:$PORT_FRONTEND"
 if [ "$START_CELERY" = true ]; then
     if [ "$(uname -s)" = "Darwin" ]; then
-        echo "  Celery Worker: 3个队列已启动（macOS eventlet协程池, 每队列并发=2）"
+        echo "  Celery Worker: 4个队列已启动（macOS eventlet协程池, 每队列并发=2）"
         echo "    - ai        (IO协程并发2, AI生成类任务)"
         echo "    - execution (IO协程并发2, 执行类任务)"
         echo "    - default   (IO协程并发2, 后台轻量任务)"
+        echo "    - eval      (IO协程并发2, AI模型测评任务)"
     else
-        echo "  Celery Worker: 3个队列已启动（Linux prefork + autoscale 动态扩缩容）"
+        echo "  Celery Worker: 4个队列已启动（Linux prefork + autoscale 动态扩缩容）"
         echo "    - ai        (autoscale=6,2, AI生成类任务)"
         echo "    - execution (autoscale=12,2, 执行类任务, 扩容上限最高)"
         echo "    - default   (autoscale=4,2, 后台轻量任务)"
+        echo "    - eval      (autoscale=4,2, AI模型测评任务)"
     fi
 fi
 [ "$START_CELERY" = true ]   && echo "  Beat:          定时任务调度器已启动"
@@ -328,9 +365,13 @@ fi
 [ "$START_FLOWER" = true ]   && echo "  任务监控:      http://localhost:$PORT_FRONTEND/task-monitor"
 [ "$START_CELERY" = true ]   && echo ""
 [ "$START_CELERY" = true ]   && echo "  日志文件:"
-[ "$START_CELERY" = true ]   && echo "    logs/worker-ai.log / worker-execution.log / worker-default.log / beat.log"
+[ "$START_CELERY" = true ]   && echo "    logs/worker-ai.log / worker-execution.log / worker-default.log / worker-eval.log / beat.log"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
 echo "─────────────────────────────────────────"
 
-wait
+# 保持前台运行，并确保 Ctrl+C / SIGTERM 能立即触发 cleanup
+# （不使用 wait：bash 在 wait 内置命令中会阻塞信号处理，导致 trap 延迟）
+while true; do
+    sleep 1
+done

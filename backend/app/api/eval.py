@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -59,7 +60,8 @@ def _audit(db, current_user: User, request: Request, action: str, resource_type:
 @router.get("/targets", response_model=List[EvalTargetResponse])
 def list_targets(target_type: Optional[str] = None, db: Session = Depends(get_db),
                  current_user: User = Depends(get_current_user)):
-    q = db.query(EvalTarget).filter(EvalTarget.status == "active")
+    # 停用（inactive）与已软删记录也需展示以支持重新启用/恢复，故跳过全局软删过滤
+    q = db.query(EvalTarget).execution_options(skip_soft_delete=True)
     if target_type:
         q = q.filter(EvalTarget.target_type == target_type)
     return q.order_by(EvalTarget.id.desc()).all()
@@ -104,11 +106,24 @@ def delete_target(target_id: int, request: Request,
     return {"message": "已停用被测对象"}
 
 
+@router.post("/targets/{target_id}/restore")
+def restore_target(target_id: int, request: Request,
+                   db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """恢复已软删的被测对象（is_deleted→False 并置为启用）"""
+    stmt = update(EvalTarget).where(EvalTarget.id == target_id).values(
+        is_deleted=False, deleted_at=None, status="active")
+    db.execute(stmt)
+    db.commit()
+    _audit(db, current_user, request, "restore", "eval_target", target_id, None)
+    return {"message": "已恢复被测对象"}
+
+
 # ═══════════════════════════ 测评数据集 ═══════════════════════════
 @router.get("/datasets", response_model=List[EvalDatasetResponse])
 def list_datasets(eval_type: Optional[str] = None, db: Session = Depends(get_db),
                   current_user: User = Depends(get_current_user)):
-    q = db.query(EvalDataset)
+    # 归档（archived）与已软删记录也需展示以支持取消归档/恢复，故跳过全局软删过滤
+    q = db.query(EvalDataset).execution_options(skip_soft_delete=True)
     if eval_type:
         q = q.filter(EvalDataset.eval_type == eval_type)
     return q.order_by(EvalDataset.id.desc()).all()
@@ -147,12 +162,24 @@ def delete_dataset(dataset_id: int, request: Request,
     return {"message": "已归档数据集"}
 
 
+@router.post("/datasets/{dataset_id}/restore")
+def restore_dataset(dataset_id: int, request: Request,
+                    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """恢复已软删的数据集（is_deleted→False 并置为启用）"""
+    stmt = update(EvalDataset).where(EvalDataset.id == dataset_id).values(
+        is_deleted=False, deleted_at=None, status="active")
+    db.execute(stmt)
+    db.commit()
+    return {"message": "已恢复数据集"}
+
+
 # ═══════════════════════════ 测评用例 ═══════════════════════════
 @router.get("/datasets/{dataset_id}/cases")
 def list_cases(dataset_id: int, keyword: Optional[str] = None,
                page: int = Query(1), page_size: int = Query(20),
                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    q = db.query(EvalCase).filter(EvalCase.dataset_id == dataset_id, EvalCase.status == "active")
+    # 归档（archived）与已软删用例也需展示以支持取消归档/恢复，故跳过全局软删过滤
+    q = db.query(EvalCase).execution_options(skip_soft_delete=True).filter(EvalCase.dataset_id == dataset_id)
     if keyword:
         q = q.filter(EvalCase.title.contains(keyword) | EvalCase.prompt.contains(keyword))
     total = q.count()
@@ -198,6 +225,17 @@ def delete_case(case_id: int, request: Request,
     return {"message": "已删除用例"}
 
 
+@router.post("/cases/{case_id}/restore")
+def restore_case(case_id: int, request: Request,
+                 db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """恢复已软删的用例（is_deleted→False 并置为启用）"""
+    stmt = update(EvalCase).where(EvalCase.id == case_id).values(
+        is_deleted=False, deleted_at=None, status="active")
+    db.execute(stmt)
+    db.commit()
+    return {"message": "已恢复用例"}
+
+
 @router.post("/datasets/import")
 def import_cases(dataset_id: int = Body(...), cases: List[EvalCaseCreate] = Body(...),
                  db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -219,12 +257,15 @@ def import_cases(dataset_id: int = Body(...), cases: List[EvalCaseCreate] = Body
 # ═══════════════════════════ 测评任务 ═══════════════════════════
 @router.get("/tasks", response_model=List[EvalTaskResponse])
 def list_tasks(status: Optional[str] = None, keyword: Optional[str] = None,
+               target_id: Optional[int] = None,
                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = db.query(EvalTask)
     if status:
         q = q.filter(EvalTask.status == status)
     if keyword:
         q = q.filter(EvalTask.name.contains(keyword))
+    if target_id:
+        q = q.filter(EvalTask.target_id == target_id)
     return q.order_by(EvalTask.id.desc()).all()
 
 
@@ -274,6 +315,26 @@ def run_task(task_id: int, request: Request,
     _audit(db, current_user, request, "run", "eval_task", task.id, task.name,
            detail={"celery": use_celery})
     return {"message": "测评已提交", "agent_task_id": cid, "use_celery": use_celery}
+
+
+@router.delete("/tasks/{task_id}")
+def delete_task(task_id: int, request: Request,
+                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """删除测评任务（软删任务及其关联测评数据；执行中的任务禁止删除）"""
+    item = db.query(EvalTask).filter(EvalTask.id == task_id).first()
+    if not item:
+        raise HTTPException(404, "测评任务不存在")
+    if item.status == "running":
+        raise HTTPException(400, "执行中的任务不可删除，请先取消")
+    task_id_, task_name = item.id, item.name
+    item.soft_delete()
+    for model, col in [(EvalRun, EvalRun.eval_task_id), (EvalResult, EvalResult.eval_task_id),
+                       (EvalReport, EvalReport.eval_task_id), (EvalIssue, EvalIssue.eval_task_id)]:
+        for child in db.query(model).filter(col == task_id_).all():
+            child.soft_delete()
+    db.commit()
+    _audit(db, current_user, request, "delete", "eval_task", task_id_, task_name)
+    return {"message": "已删除测评任务"}
 
 
 @router.post("/tasks/{task_id}/cancel")
@@ -386,12 +447,20 @@ def gen_report(task_id: int, data: EvalReportGenerateIn = Body(...), request: Re
 
 @router.get("/reports", response_model=List[EvalReportResponse])
 def list_reports(task_id: Optional[int] = None, report_type: Optional[str] = None,
-                 db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+                 title: Optional[str] = None, conclusion: Optional[str] = None,
+                 status: Optional[str] = None, db: Session = Depends(get_db),
+                 current_user: User = Depends(get_current_user)):
     q = db.query(EvalReport)
     if task_id:
         q = q.filter(EvalReport.eval_task_id == task_id)
     if report_type:
         q = q.filter(EvalReport.report_type == report_type)
+    if title:
+        q = q.filter(EvalReport.title.contains(title))
+    if conclusion:
+        q = q.filter(EvalReport.conclusion == conclusion)
+    if status:
+        q = q.filter(EvalReport.status == status)
     return q.order_by(EvalReport.id.desc()).all()
 
 
@@ -414,7 +483,8 @@ def create_issue(data: EvalIssueCreate,
 
 @router.get("/issues")
 def list_issues(task_id: Optional[int] = None, issue_level: Optional[str] = None,
-                status: Optional[str] = None, db: Session = Depends(get_db),
+                status: Optional[str] = None, issue_type: Optional[str] = None,
+                keyword: Optional[str] = None, db: Session = Depends(get_db),
                 current_user: User = Depends(get_current_user)):
     q = db.query(EvalIssue)
     if task_id:
@@ -423,6 +493,10 @@ def list_issues(task_id: Optional[int] = None, issue_level: Optional[str] = None
         q = q.filter(EvalIssue.issue_level == issue_level)
     if status:
         q = q.filter(EvalIssue.status == status)
+    if issue_type:
+        q = q.filter(EvalIssue.issue_type == issue_type)
+    if keyword:
+        q = q.filter(EvalIssue.title.contains(keyword))
     return [EvalIssueResponse.model_validate(i).model_dump() for i in q.order_by(EvalIssue.id.desc()).all()]
 
 

@@ -52,6 +52,7 @@ class EvalTargetResponse(BaseModel):
     version_tag: Optional[str] = None
     description: Optional[str] = None
     status: str
+    is_deleted: bool = False
     created_at: Optional[datetime] = None
 
     class Config:
@@ -85,6 +86,7 @@ class EvalDatasetResponse(BaseModel):
     case_count: int = 0
     description: Optional[str] = None
     status: str
+    is_deleted: bool = False
     created_at: Optional[datetime] = None
 
     class Config:
@@ -133,6 +135,7 @@ class EvalCaseResponse(BaseModel):
     attack_type: Optional[str] = None
     constraints: Optional[str] = None
     status: str
+    is_deleted: bool = False
     created_at: Optional[datetime] = None
 
     class Config:

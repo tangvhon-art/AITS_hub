@@ -97,7 +97,7 @@ const loadLogs = async () => {
 const view = (record: any) => { current.value = record; drawer.value = true }
 
 onMounted(async () => {
-  targets.value = await evalTargetApi.list()
+  targets.value = (await evalTargetApi.list()).filter((t: any) => t.status === 'active' && !t.is_deleted)
   datasets.value = (await evalDatasetApi.list()).filter((d: any) => d.eval_type === 'redteam')
   loadLogs()
 })
