@@ -60,8 +60,20 @@ _SM_ACTION_MAP = {"fill": "fill", "click": "click", "type": "type"}
 
 
 def _looks_like_text_desc(s: str) -> bool:
-    """判断 selector 是否为「文本描述」而非合法 CSS selector"""
+    """判断 selector 是否为「文本描述」而非合法 CSS selector / XPath"""
     if not s:
+        return False
+    # 明确是 CSS selector 的起始特征：# . [ * > + ~ :
+    if s[0] in "#.[]*>+~:":
+        return False
+    # XPath 特征
+    if s.startswith("//") or s.startswith("xpath=") or s.startswith(".."):
+        return False
+    # 包含 CSS 子选择器或常见伪类 → 是 CSS selector
+    if " > " in s or ":nth-child" in s or ":first-child" in s or ":last-child" in s or ":not(" in s:
+        return False
+    # 以常见 HTML 标签名开头（后跟边界符）→ 是 CSS selector
+    if re.match(r'^(html|body|div|span|input|button|a|form|table|tr|td|th|ul|ol|li|p|h[1-6]|img|textarea|select|option|label|section|header|footer|nav|main|article|aside|iframe|svg|path)\b', s):
         return False
     # 含非 ASCII（中文等）→ 判定为元素描述
     if any(ord(c) > 127 for c in s):
@@ -555,7 +567,8 @@ def run_script_sync(content: str, script_id: int, project_id: int = None, run_id
             f.write(content)
 
         # 子进程执行：cwd 设为 backend 目录，确保 app.* 模块可 import
-        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # script_runner.py 在 backend/app/services/ 下，需三层 dirname 才到 backend/
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         # 用 venv python 绝对路径，避免 sys.executable 在 venv symlink/eventlet 下解析到系统 python
         venv_python = os.path.join(backend_dir, "venv", "bin", "python")
         if not os.path.exists(venv_python):
