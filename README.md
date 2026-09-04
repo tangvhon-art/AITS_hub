@@ -117,11 +117,33 @@
 | 事件通知 | 飞书/钉钉机器人通知，18 种事件触发，19 种卡片模板，HMAC-SHA256 验签，异步发送+重试 |
 | 任务监控 | Celery + Flower 监控面板；Worker 节点统计（**活跃任务/排队中/已处理/负载/进程 PID**，基于 DB + Redis 权威统计，不依赖失效的事件流）；任务状态筛选；**手动取消**（pending/running → canceled，取消防护防止被 worker 收尾覆盖）；**孤儿任务回收**（超过 30 分钟仍 running 自动标记 failed，worker 启动兜底 + Beat 每 5 分钟周期回收） |
 | 任务调度 | 系统定时任务管理（sys_crontab 驱动动态 Beat），支持 interval/cron 两种调度 |
-| 数据池 | 测试数据管理，数据工厂生成，支持环境变量覆盖 |
+| 造数工厂 | 数据池升级：Mock 数据池（原数据池，功能保留）+ 通用造数工具（32 个工具，Schema 驱动，支持 MCP 注册调用） |
 | 审计日志 | 操作审计追踪 |
 | 数据导入导出 | Excel 导入/导出用例，XMind 导图导出 |
 | 团队协作 | 项目成员管理 + 权限控制，用户仅见参与的项目 |
 
+### 造数工厂
+
+双 Tab 结构：
+
+- **Mock 数据池**：原数据池能力保持不变（测试数据管理、环境变量覆盖）
+- **通用造数工具**：32 个在线工具，Schema 驱动表单，支持 MCP 注册调用
+
+**统一契约**：生成类工具输入生成数量（默认 1，上限 1000），返回 `{"count": n, "result": [...]}`；结果支持一键复制、导出 CSV（带 BOM）、一键导入 Mock 数据池。
+
+| 分类 | 工具 |
+|------|------|
+| 测试数据（6） | 中文姓名、手机号、邮箱（可固定后缀）、地址、身份证、银行卡号 |
+| JSON（5） | 格式化、校验、对比、JSONPath 查询、结构转换（JSON/XML/YAML 互转） |
+| 字符（2） | 文本对比、正则工具 |
+| 编码（6） | 二维码、条形码、时间戳转换（自动输出本地/UTC/ISO）、JWT 解码、Base64 ↔ 图片、Base64 编码 |
+| 随机（8） | UUID（连字符/大写勾选）、IP、MAC、整数、浮点数、日期（日期组件）、颜色（色块渲染）、密码 |
+| 加解密（5） | MD5、SHA 摘要、HMAC 签名（密钥 + MD5/SHA1/SHA256/SHA512 等算法）、AES 加密、AES 解密 |
+
+**平台化能力**：
+
+- 全部 32 个工具按 `SERVICE_REGISTRY` 注册表动态分发，统一参数校验（`count` 裁切 1~1000）与错误码体系（404/400/422/504/500）；
+- 通过 **MCP（Model Context Protocol）** 动态注册（`GET /mcp/sse` 握手 + `POST /mcp/messages` JSON-RPC），智能助手等 MCP 客户端可直接调用 32 个造数工具；
 ---
 
 ## 外部 Agent 接入
@@ -715,13 +737,14 @@ pm.environment.set("api_url", apiUrl);
 AITS_hub/
 ├── backend/                 # FastAPI 后端
 │   ├── app/
-│   │   ├── api/             # 路由层（含 eval.py AI测评、workflow.py、agent_tasks.py 任务监控等）
-│   │   ├── agents/          # 智能体（Supervisor / BDD 生成器等）
+│   │   ├── api/             # 路由层（含 eval.py AI测评、workflow.py、agent_tasks.py 任务监控、data_factory.py 造数工厂等）
+│   │   ├── agents/          # 智能体（Supervisor / BDD 生成器等；tools/builtin 含 data_factory_tools.py MCP 动态注册）
 │   │   ├── models/          # SQLAlchemy 模型（含 eval.py 测评模型、agent_task.py）
 │   │   ├── schemas/         # Pydantic 校验
-│   │   ├── services/        # 业务服务（eval_service / orphan_recycle / agent_task_status / workflow_* 等）
+│   │   ├── services/        # 业务服务（eval_service / orphan_recycle / agent_task_status / workflow_* / data_tools 造数工具等）
+│   │   │   └── data_tools/  # 造数工厂 32 个工具（base.py 注册分发 + test_data/json/text/encoding/random/crypto 六模块）
 │   │   ├── tasks/           # Celery 任务（eval_tasks / case_tasks / recycle_tasks 等）
-│   │   ├── mcp/             # MCP 连接器
+│   │   ├── mcp/             # MCP 服务（SSE + JSON-RPC 端点，tools/list、tools/call）
 │   │   ├── celery_app.py    # Celery 实例（4 队列：ai/execution/eval/default）
 │   │   └── main.py          # 应用入口（自动建表/迁移）
 │   ├── start_all_workers.sh # 启动 Beat + 4 Worker + Flower
@@ -729,11 +752,12 @@ AITS_hub/
 │   └── requirements.txt
 ├── frontend/                # Vue 3 前端
 │   └── src/
+│       ├── views/data/      # 造数工厂页面（DataFactory 双Tab / DataTools 六类导航 / DataSchemaForm / ToolPanel / ResultViewer / DataPools / DataPoolEdit）
 │       ├── views/eval/      # AI 模型测评页面（EvalLayout/Dashboard/Targets/Tasks/Reports...）
 │       ├── views/           # 其他业务页面（TaskMonitor.vue 任务监控等）
-│       ├── api/             # 接口封装
-│       └── router/          # 路由（/eval/* 测评路由）
-├── docs/                    # 需求/概设文档（含 AI 模型五维综合测评需求/概设 HTML）
+│       ├── api/             # 接口封装（dataFactory.ts 等）
+│       └── router/          # 路由（/eval/* 测评路由、/projects/:id/data-factory 造数工厂）
+├── docs/                    # 需求/概设文档（含 AI 模型五维综合测评、造数工厂 HTML）
 ├── docker-compose.yml       # 容器编排（MySQL/Redis 等）
 ├── start.sh                 # 一键启动脚本
 ├── start_backend.sh / start_frontend.sh
@@ -782,6 +806,9 @@ playwright install-deps chromium  # Linux
 
 **Q: AI 测评的外部工作流被测对象无法调用？**
 确认被测对象配置了正确的服务地址（Base URL）、调用路径与鉴权方式（none/bearer/apikey/custom），且目标服务对 AITS 可达。
+
+**Q: 智能助手无法调用造数工厂工具？**
+确认后端已启动且 MCP 端点可用（`GET /mcp/sse` 可握手）。造数工厂 32 个工具随内置工具动态注册（`tools/list` 中可见，共 49 个内置工具），智能助手需选择支持 MCP 工具调用的模型。
 
 ---
 
