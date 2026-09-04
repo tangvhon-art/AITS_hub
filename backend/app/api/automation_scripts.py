@@ -167,7 +167,7 @@ def _generate_script_background(
     prompt_id: Optional[int] = None,
 ):
     """后台异步生成AI脚本"""
-    import asyncio
+    from app.core.async_runner import run_async
     from app.database import SessionLocal
 
     db = SessionLocal()
@@ -187,13 +187,12 @@ def _generate_script_background(
         final_name = script_name
         if need_ai_name:
             try:
-                final_name = asyncio.run(
-                    ScriptGenerator.generate_script_name(
-                        description=description,
-                        target_url=target_url,
-                        llm_config_id=llm_config_id,
-                        db_session=db,
-                    )
+                final_name = run_async(
+                    ScriptGenerator.generate_script_name,
+                    description=description,
+                    target_url=target_url,
+                    llm_config_id=llm_config_id,
+                    db_session=db,
                 )
                 script.name = final_name
                 db.commit()
@@ -211,15 +210,14 @@ def _generate_script_background(
                 logger.info(f"使用自定义 Prompt: {prompt_obj.name}")
 
         # 调用AI生成脚本内容
-        generated_content = asyncio.run(
-            ScriptGenerator.generate_with_ai(
-                description=description,
-                target_url=target_url,
-                script_name=final_name,
-                llm_config_id=llm_config_id,
-                db_session=db,
-                system_prompt=system_prompt,
-            )
+        generated_content = run_async(
+            ScriptGenerator.generate_with_ai,
+            description=description,
+            target_url=target_url,
+            script_name=final_name,
+            llm_config_id=llm_config_id,
+            db_session=db,
+            system_prompt=system_prompt,
         )
 
         script.script_content = generated_content

@@ -474,36 +474,11 @@ def _run_in_real_thread(coro_factory, *args, **kwargs):
         asyncio.run() cannot be called from a running event loop
     这里用 eventlet.patcher.original('threading').Thread 创建真实的 OS 线程，
     在线程内 new_event_loop + run_until_complete 执行协程，彻底避开冲突。
+
+    统一实现见 app/core/async_runner.run_coro_in_real_thread（本函数仅为兼容别名）。
     """
-    try:
-        import eventlet.patcher
-        ThreadCls = eventlet.patcher.original("threading").Thread
-    except Exception:
-        import threading
-        ThreadCls = threading.Thread
-
-    result = {}
-
-    def _target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result["value"] = loop.run_until_complete(coro_factory(*args, **kwargs))
-        except BaseException as e:  # noqa: BLE001
-            result["error"] = e
-        finally:
-            try:
-                loop.run_until_complete(loop.shutdown_asyncgens())
-            except Exception:
-                pass
-            loop.close()
-
-    t = ThreadCls(target=_target, daemon=True)
-    t.start()
-    t.join()
-    if "error" in result:
-        raise result["error"]
-    return result.get("value")
+    from app.core.async_runner import run_coro_in_real_thread
+    return run_coro_in_real_thread(coro_factory, *args, **kwargs)
 
 
 def run_script_sync(content: str, script_id: int, project_id: int = None, run_id: int = None) -> tuple[bool, str]:

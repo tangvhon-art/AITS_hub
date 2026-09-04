@@ -1,9 +1,7 @@
 """
 接口文档 AI 生成 Celery 任务
 """
-import asyncio
 import logging
-import threading
 
 from app.celery_app import celery_app
 from app.core.task_base import BaseTask
@@ -78,28 +76,16 @@ class ApiDocTask(BaseTask):
         api_dict = _api_definition_to_dict(api_def)
         generator = ApiDocGenerator(db, llm_config_id=task.llm_config_id)
 
-        result_container = {}
+        # 统一异步桥接：run_async 自动判断，规避 eventlet 协程池下事件循环冲突
+        # （详见 app/core/async_runner.py 与 api_case_tasks 同款注释）
+        from app.core.async_runner import run_async
 
-        def _run():
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            try:
-                result_container["result"] = new_loop.run_until_complete(
-                    generator.generate(api_dict, system_prompt=system_prompt, supplement_info=supplement_info)
-                )
-            except Exception as e:
-                result_container["error"] = str(e)
-            finally:
-                new_loop.close()
-
-        thread = threading.Thread(target=_run)
-        thread.start()
-        thread.join(timeout=300)
-
-        if "error" in result_container:
-            raise Exception(result_container["error"])
-
-        markdown_content, token_usage, used_config_id = result_container.get("result", ("", {}, None))
+        markdown_content, token_usage, used_config_id = run_async(
+            generator.generate,
+            api_dict,
+            system_prompt=system_prompt,
+            supplement_info=supplement_info,
+        )
 
         if not markdown_content:
             raise ValueError("AI 返回的文档内容为空")

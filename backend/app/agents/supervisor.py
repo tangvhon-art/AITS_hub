@@ -163,12 +163,14 @@ class SupervisorEngine:
                 try:
                     from app.agents.execution_agent import ExecutionAgent
                     from app.models.test_run import TestRun
-                    import asyncio
+                    from app.core.async_runner import run_async
 
                     exec_agent = ExecutionAgent(self.db, project_id=project_id, llm_config_id=llm_config_id)
                     instruction = self._case_to_instruction(case_data)
 
                     # 桥接 sync → async：消费 ExecutionAgent.execute() 异步生成器
+                    # （统一异步桥接 run_async：自动规避 eventlet 协程池下
+                    #   同一 OS 线程多个 running event loop 冲突）
                     async def _run_execution():
                         step_logs = []
                         final_status = "passed"
@@ -182,18 +184,7 @@ class SupervisorEngine:
                                 final_status = step.get("status", "passed")
                         return final_status, error_message, step_logs
 
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            import concurrent.futures
-                            with concurrent.futures.ThreadPoolExecutor() as pool:
-                                final_status, error_msg, step_logs = pool.submit(
-                                    asyncio.run, _run_execution()
-                                ).result()
-                        else:
-                            final_status, error_msg, step_logs = loop.run_until_complete(_run_execution())
-                    except RuntimeError:
-                        final_status, error_msg, step_logs = asyncio.run(_run_execution())
+                    final_status, error_msg, step_logs = run_async(_run_execution)
 
                     # 创建 TestRun 记录
                     run = TestRun(

@@ -6,7 +6,6 @@ UI 自动化执行 Celery 任务
 """
 import json
 import time
-import asyncio
 
 from app.celery_app import celery_app
 from app.core.timezone import china_now_naive
@@ -39,38 +38,35 @@ def run_ui_execution_task(
 
     try:
         from app.agents.execution_agent import ExecutionAgent
+        from app.core.async_runner import run_async
 
         agent = ExecutionAgent(db_session=db, llm_config_id=llm_config_id, project_id=project_id)
 
-        # 同步运行 async 生成器
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            async def _run():
-                nonlocal final_status, final_result, error_message, execution_duration
-                async for event in agent.execute(
-                    instruction=instruction,
-                    target_url=target_url,
-                    headless=headless,
-                ):
-                    all_events.append(event)
+        # 同步运行 async 生成器（统一异步桥接 run_async：自动规避 eventlet 协程池下
+        # 同一 OS 线程多个 running event loop 冲突，详见 app/core/async_runner.py）
+        async def _run():
+            nonlocal final_status, final_result, error_message, execution_duration
+            async for event in agent.execute(
+                instruction=instruction,
+                target_url=target_url,
+                headless=headless,
+            ):
+                all_events.append(event)
 
-                    if event.get("type") == "finish":
-                        final_status = event.get("status", "failed")
-                        final_result = event.get("result", "")
-                        if final_status == "failed":
-                            error_message = final_result
-                    elif event.get("type") == "complete":
-                        execution_duration = event.get("duration", 0.0)
-                    elif event.get("type") == "error":
-                        error_message = event.get("message", "")
+                if event.get("type") == "finish":
+                    final_status = event.get("status", "failed")
+                    final_result = event.get("result", "")
+                    if final_status == "failed":
+                        error_message = final_result
+                elif event.get("type") == "complete":
+                    execution_duration = event.get("duration", 0.0)
+                elif event.get("type") == "error":
+                    error_message = event.get("message", "")
 
-                    # 增量写入日志（每步都更新，前端轮询可见）
-                    _update_run_log(db, run_id, all_events)
+                # 增量写入日志（每步都更新，前端轮询可见）
+                _update_run_log(db, run_id, all_events)
 
-            loop.run_until_complete(_run())
-        finally:
-            loop.close()
+        run_async(_run)
 
         # 状态归一化
         if final_status.lower() in ("success", "ok", "pass", "passed", "complete", "completed"):

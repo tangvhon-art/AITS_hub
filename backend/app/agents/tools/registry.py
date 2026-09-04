@@ -171,13 +171,9 @@ class ToolRegistry:
     @staticmethod
     def _run_tool_sync(tool, args: Dict[str, Any], db: Session,
                        project_id: Optional[int], user_id: Optional[int]):
-        """在独立线程中运行 async 工具（创建新 event loop）"""
-        import asyncio
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(tool.execute(args, db, project_id, user_id))
-        finally:
-            loop.close()
+        """在独立线程中运行 async 工具（统一异步桥接，规避事件循环冲突）"""
+        from app.core.async_runner import run_async
+        return run_async(tool.execute, args, db, project_id, user_id)
 
 
 # 全局单例

@@ -11,7 +11,15 @@
     <div v-if="!generating && generatedCases.length === 0">
       <a-form layout="vertical">
         <a-form-item label="选择接口">
-          <a-select v-model:value="config.api_id" show-search placeholder="选择要生成用例的接口">
+          <a-select
+            v-model:value="config.api_id"
+            show-search
+            placeholder="选择要生成用例的接口（可输入名称搜索）"
+            :filter-option="false"
+            :loading="apiSearching"
+            :not-found-content="apiSearching ? '搜索中...' : '未找到匹配的接口'"
+            @search="handleApiSearch"
+          >
             <a-select-option v-for="api in apiList" :key="api.id" :value="api.id">
               [{{ api.method }}] {{ api.name }} - {{ api.path }}
             </a-select-option>
@@ -75,7 +83,8 @@
     <!-- 生成结果 -->
     <div v-else class="result-area">
       <div class="result-header">
-        <span>共生成 {{ generatedCases.length }} 个用例，已选 {{ selectedCases.length }} 个</span>
+        <span v-if="autoSaved">共生成 {{ generatedCases.length }} 个用例，已自动保存至用例列表</span>
+        <span v-else>共生成 {{ generatedCases.length }} 个用例，已选 {{ selectedCases.length }} 个</span>
         <a-space>
           <a-button @click="handleRegenerate">重新生成</a-button>
         </a-space>
@@ -102,9 +111,16 @@
       </div>
       <div class="modal-actions">
         <a-button @click="handleCancel">取消</a-button>
-        <a-button type="primary" :loading="saving" :disabled="selectedCases.length === 0" @click="handleSave">
+        <a-button
+          v-if="!autoSaved"
+          type="primary"
+          :loading="saving"
+          :disabled="selectedCases.length === 0"
+          @click="handleSave"
+        >
           保存选中 ({{ selectedCases.length }})
         </a-button>
+        <a-button v-else type="primary" @click="handleDone">完成</a-button>
       </div>
     </div>
   </a-modal>
@@ -129,6 +145,7 @@ const emit = defineEmits<{
 
 const generating = ref(false)
 const saving = ref(false)
+const autoSaved = ref(false)
 const progress = ref(0)
 const taskId = ref<number | null>(null)
 const apiList = ref<any[]>([])
@@ -154,11 +171,29 @@ const getPriorityColor = (priority: string) => {
   return colors[priority] || 'default'
 }
 
-const loadApis = async () => {
+const loadApis = async (keyword?: string) => {
   try {
-    const res = await apiDefinitionsApi.list(props.projectId, { page_size: 100 })
+    const res = await apiDefinitionsApi.list(props.projectId, {
+      keyword: keyword || undefined,
+      page_size: keyword ? 20 : 100,
+    })
     apiList.value = res.items
   } catch {}
+}
+
+// 远程按名称/路径搜索接口（防抖 300ms）
+let apiSearchTimer: any = null
+const apiSearching = ref(false)
+const handleApiSearch = (keyword: string) => {
+  if (apiSearchTimer) clearTimeout(apiSearchTimer)
+  apiSearchTimer = setTimeout(() => {
+    apiSearching.value = true
+    loadApis(keyword.trim() || undefined)
+      .catch(() => {})
+      .finally(() => {
+        apiSearching.value = false
+      })
+  }, 300)
 }
 
 const loadLlmConfigs = async () => {
@@ -201,6 +236,8 @@ const startPolling = () => {
         progress.value = 100
         const cases = status.output_result?.cases || []
         generatedCases.value = cases.map((c: any) => ({ ...c, _selected: true }))
+        // 生成任务已在后端自动落库（api_test_cases），无需再手动保存
+        autoSaved.value = true
       } else if (status.status === 'failed') {
         clearInterval(pollTimer)
         generating.value = false
@@ -214,6 +251,13 @@ const handleRegenerate = () => {
   generatedCases.value = []
   taskId.value = null
   progress.value = 0
+  autoSaved.value = false
+}
+
+const handleDone = () => {
+  if (pollTimer) clearInterval(pollTimer)
+  emit('saved')
+  emit('update:open', false)
 }
 
 const handleSave = async () => {
@@ -221,10 +265,12 @@ const handleSave = async () => {
   saving.value = true
   try {
     const indices = selectedCases.value.map((c: any) => generatedCases.value.indexOf(c))
-    await apiCasesApi.aiGenerateSave(props.projectId, taskId.value, { selected_indices: indices })
-    message.success(`已保存 ${selectedCases.value.length} 个用例`)
+    const res = await apiCasesApi.aiGenerateSave(props.projectId, taskId.value, { selected_indices: indices })
+    message.success(res.already_saved ? '用例已自动保存' : `已保存 ${res.saved_count} 个用例`)
     emit('saved')
     emit('update:open', false)
+  } catch (e) {
+    message.error('保存失败')
   } finally {
     saving.value = false
   }
@@ -235,6 +281,7 @@ const handleCancel = () => {
   generatedCases.value = []
   taskId.value = null
   progress.value = 0
+  autoSaved.value = false
   emit('update:open', false)
 }
 

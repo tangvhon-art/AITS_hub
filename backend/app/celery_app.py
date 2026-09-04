@@ -110,7 +110,10 @@ def debug_task(self):
 # ---------------------------------------------------------------------------
 import logging as _logging  # noqa: E402
 
-from celery.signals import task_prerun, task_postrun, task_failure, worker_ready  # noqa: E402
+from celery.signals import (  # noqa: E402
+    task_prerun, task_postrun, task_failure, worker_ready,
+    worker_init, worker_process_init,
+)
 
 _task_log_logger = _logging.getLogger(__name__)
 
@@ -256,3 +259,24 @@ def _recycle_orphan_on_worker_ready(sender=None, **kw):
     except Exception as e:  # noqa: BLE001
         logger = __import__("logging").getLogger(__name__)
         logger.warning(f"worker_ready 孤儿任务回收失败: {e}")
+
+
+# ---------------------------------------------------------------------------
+# 统一 async 兜底保护：安装 asyncio.run 安全包装
+# 规避 eventlet 协程池下「同一 OS 线程多个 running event loop」导致的
+# "Cannot run the event loop while another loop is running"。
+# worker_init：单进程池（solo/eventlet）主进程触发；
+# worker_process_init：prefork 每个子进程触发。两者都注册以覆盖各池类型。
+# 详见 app/core/async_runner.py。
+# ---------------------------------------------------------------------------
+
+def _install_worker_asyncio_guard(**kw):
+    try:
+        from app.core.async_runner import install_worker_asyncio_guard as _install
+        _install()
+    except Exception as e:  # noqa: BLE001
+        _task_log_logger.warning(f"安装 asyncio 兜底保护失败（不影响任务执行）: {e}")
+
+
+worker_init.connect(_install_worker_asyncio_guard)
+worker_process_init.connect(_install_worker_asyncio_guard)

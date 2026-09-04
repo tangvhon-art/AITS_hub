@@ -266,10 +266,12 @@ def _run_test_plan_execution(execution_id: int):
                 f"(sort={item.sort_order})"
             )
 
-            # 串行执行（单 Session、单 asyncio.run 入口）
-            result = asyncio.run(_execute_any_item(
-                db, item, execution_id, plan.id, var_engine, environment
-            ))
+            # 串行执行（单 Session；统一异步桥接 run_async 规避 eventlet 事件循环冲突）
+            from app.core.async_runner import run_async
+            result = run_async(
+                _execute_any_item,
+                db, item, execution_id, plan.id, var_engine, environment,
+            )
             db.add(result)
             db.commit()
             _increment_stat(db, execution_id, result.status)

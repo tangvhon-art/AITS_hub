@@ -812,6 +812,35 @@ playwright install-deps chromium  # Linux
 
 ---
 
+## 后端开发约定（异步执行）
+
+> macOS 上 Celery Worker 使用 **eventlet 协程池**（`-P eventlet`），monkey-patch 后
+> `threading.Thread` / `ThreadPoolExecutor` / `asyncio.to_thread` 都会被替换成 greenlet，
+> 所有任务挤在同一 OS 线程。若某任务的事件循环正在运行，同线程内其它任务再调用
+> `asyncio.run()` / `loop.run_until_complete()` 会抛
+> `Cannot run the event loop while another loop is running`。
+
+**统一规则：所有「在同步代码里把 async 函数跑到完」的入口，一律使用 `app/core/async_runner.py` 的 `run_async()`，禁止直接写 `asyncio.run()` / `new_event_loop() + run_until_complete()`。**
+
+```python
+from app.core.async_runner import run_async
+
+# 正确：传 async 函数 + 参数（协程工厂）
+result = run_async(api_case_generator.generate, api_dict, strategy="comprehensive")
+
+# 错误：传协程对象会报 TypeError（已内置拦截提示）
+# result = run_async(api_case_generator.generate(api_dict))
+```
+
+- `run_async` 会自动判断：当前线程无 running loop → 直接在当前线程执行（最快）；
+  已有 running loop（并发 greenlet 撞车）→ 调度到真实 OS 线程 + 全新事件循环隔离执行，永不报错。
+- Worker 已通过 `worker_init` / `worker_process_init` 信号自动安装 `asyncio.run` 兜底保护
+  （`app/core/async_runner.py: install_worker_asyncio_guard`），即使遗漏直接调用 `asyncio.run()` 也不会再崩。
+- 相关既有入口已统一改造：`api_case_tasks` / `api_doc_tasks` / `execution_tasks` / `test_plan_tasks` /
+  `automation_suites` / `automation_scripts` / `supervisor` / `agents/tools/registry` / `mcp/server` / `responses_chat`。
+
+---
+
 ## 许可证
 
 MIT License

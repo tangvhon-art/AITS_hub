@@ -14,7 +14,7 @@ from app.models.requirement import TestRequirement
 from app.models.test_case import TestCase
 from app.models.defect import Defect
 from app.models.report import TestReport
-from app.models.api_test import ApiTestCase, ApiCaseAssertion
+from app.models.api_test import ApiTestCase, ApiCaseAssertion, ApiDefinition
 from app.core.timezone import china_now_naive
 
 logger = logging.getLogger(__name__)
@@ -124,6 +124,39 @@ class AICreationService:
     # ==================== 接口用例创建 ====================
 
     @staticmethod
+    def _to_kv_list(value: Any) -> list:
+        """把请求头/参数归一化为应用标准格式 ``[{key, value, enabled}]``。
+
+        AI 生成器按 Prompt 约定输出 ``{key: value}`` 字典格式，而
+        ``api_test_cases.headers / query_params`` 为 JSON 列且全站统一使用
+        ``[{key, value, enabled}]`` 列表格式（与手动创建/接口定义一致）。
+        这里做兼容转换，避免 AI 生成结果落库时请求数据被丢弃。
+        """
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            return [{"key": str(k), "value": v, "enabled": True} for k, v in value.items()]
+        return []
+
+    @staticmethod
+    def _normalize_body(value: Any):
+        """把请求体归一化为 JSON 对象（dict）；空值返回 None。
+
+        兼容 dict（AI 输出）与 JSON 字符串两种形态；body_type 依据其结果设置。
+        """
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value if value else None
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                return parsed if parsed else None
+            except Exception:  # noqa: BLE001
+                return value
+        return value
+
+    @staticmethod
     def create_api_cases(
         db: Session,
         project_id: int,
@@ -134,10 +167,21 @@ class AICreationService:
     ) -> List[ApiTestCase]:
         """批量创建接口测试用例"""
         created = []
+        # 从生成所用接口定义读取请求方法与路径写入每个用例
+        # （AI 输出不含 method/path，按接口定义补全，保证列表"方法/路径"列有值）
+        api_method = None
+        api_path = None
+        if api_id:
+            api_def = db.query(ApiDefinition).filter(ApiDefinition.id == api_id).first()
+            if api_def:
+                api_method = api_def.method
+                api_path = api_def.path
+
         for case_data in cases:
             try:
                 request_data = case_data.get("request") or {}
                 assertions = case_data.get("assertions") or []
+                body = AICreationService._normalize_body(request_data.get("body"))
 
                 case = ApiTestCase(
                     project_id=project_id,
@@ -146,9 +190,12 @@ class AICreationService:
                     name=case_data.get("name", "未命名用例")[:200],
                     description=case_data.get("description") or "",
                     priority=case_data.get("priority") or "P2",
-                    headers=request_data.get("headers") if isinstance(request_data.get("headers"), str) else None,
-                    query_params=request_data.get("params") if isinstance(request_data.get("params"), str) else None,
-                    body_content=json.dumps(request_data.get("body"), ensure_ascii=False) if request_data.get("body") else None,
+                    method=(api_method or request_data.get("method") or ""),
+                    path=(api_path or request_data.get("path") or ""),
+                    headers=AICreationService._to_kv_list(request_data.get("headers")),
+                    query_params=AICreationService._to_kv_list(request_data.get("params")),
+                    body_type="json" if body else "none",
+                    body_content=body,
                 )
                 db.add(case)
                 db.flush()

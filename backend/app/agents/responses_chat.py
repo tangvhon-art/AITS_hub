@@ -120,9 +120,9 @@ class ResponsesChat(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=ai_msg)])
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        """同步生成（同步调用异步）"""
-        import asyncio
-        return asyncio.run(self._agenerate(messages, stop, run_manager, **kwargs))
+        """同步生成（同步调用异步；统一异步桥接，规避事件循环冲突）"""
+        from app.core.async_runner import run_async
+        return run_async(self._agenerate, messages, stop, run_manager, **kwargs)
 
     async def _agenerate(
         self,

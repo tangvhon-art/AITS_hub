@@ -1,9 +1,7 @@
 """
 接口测试用例 AI 生成 Celery 任务
 """
-import asyncio
 import logging
-import threading
 
 from app.celery_app import celery_app
 from app.core.task_base import BaseTask
@@ -82,48 +80,57 @@ class ApiCaseTask(BaseTask):
         api_dict = _api_definition_to_dict(api_def)
         generator = ApiCaseGenerator(db, llm_config_id=task.llm_config_id)
 
-        result_container = {}
+        # 统一异步桥接：run_async 自动判断——当前线程无 running loop 时直接执行，
+        # 有 running loop（eventlet 并发 greenlet 撞车）时调度到真实 OS 线程隔离执行，
+        # 彻底规避 "Cannot run the event loop while another loop is running"。
+        # （macOS 上 Celery worker 用 eventlet 协程池，threading.Thread 被 patch 成
+        #   greenlet，所有任务挤在同一 OS 线程，见 app/core/async_runner.py）
+        from app.core.async_runner import run_async
 
-        def _run():
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            try:
-                result_container["result"] = new_loop.run_until_complete(
-                    generator.generate(
-                        api_dict,
-                        strategy=strategy,
-                        case_count=case_count,
-                        coverage_scenarios=coverage_scenarios,
-                        assertion_depth=assertion_depth,
-                        system_prompt=system_prompt,
-                    )
-                )
-            except Exception as e:
-                result_container["error"] = str(e)
-            finally:
-                new_loop.close()
-
-        thread = threading.Thread(target=_run)
-        thread.start()
-        thread.join(timeout=300)
-
-        if "error" in result_container:
-            raise Exception(result_container["error"])
+        gen_result = run_async(
+            generator.generate,
+            api_dict,
+            strategy=strategy,
+            case_count=case_count,
+            coverage_scenarios=coverage_scenarios,
+            assertion_depth=assertion_depth,
+            system_prompt=system_prompt,
+        )
 
         from app.services.content_extractor import ContentExtractor
 
-        gen_result = result_container.get("result", {"raw_content": "", "token_usage": {}, "llm_config_id": None})
-
-        # 提取接口用例（多策略提取，不做降级；创建由"保存"端点处理）
+        # 提取接口用例（多策略提取）
         cases = ContentExtractor.extract_api_cases(gen_result["raw_content"])
 
+        # 自动落库：与需求/用例生成任务一致，把 AI 生成的接口用例直接写入 api_test_cases 表
+        # （含请求头/参数/请求体/断言；此前仅存 output_result 等待前端手动"保存"，
+        #   导致生成结果不落库）
+        saved_case_ids = []
+        if cases:
+            from app.services.ai_creation_service import AICreationService
+            saved_cases = AICreationService.create_api_cases(
+                db,
+                project_id=task.project_id,
+                cases=cases,
+                api_id=api_id,
+                module_id=None,
+                created_by=task.created_by,
+            )
+            saved_case_ids = [c.id for c in saved_cases]
+            logger.info(f"AI接口用例已自动落库: task_id={task_id}, saved={len(saved_cases)}")
+
         finalize_agent_task(db, task, "success")
-        task.output_result = {"cases": cases, "count": len(cases)}
+        task.output_result = {
+            "cases": cases,
+            "count": len(cases),
+            "cases_saved": len(saved_case_ids),
+            "saved_case_ids": saved_case_ids,
+        }
         task.token_usage = gen_result.get("token_usage", {})
         task.llm_config_id = gen_result.get("llm_config_id")
         db.commit()
 
-        logger.info(f"AI生成用例任务完成: task_id={task_id}, count={len(cases)}")
+        logger.info(f"AI生成用例任务完成: task_id={task_id}, count={len(cases)}, saved={len(saved_case_ids)}")
 
         return {
             "status": "success",

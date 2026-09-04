@@ -312,9 +312,9 @@ async def execute_suite(
         logger.warning(f"Celery 任务提交失败，降级到 BackgroundTasks: {celery_e}")
 
         def _run_in_background(run_id: int):
-            import asyncio
+            from app.core.async_runner import run_async
             executor = SuiteExecutor(run_id, headless=req.headless)
-            asyncio.run(executor.execute())
+            run_async(executor.execute)
 
         background_tasks.add_task(_run_in_background, suite_run.id)
 

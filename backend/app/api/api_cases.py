@@ -949,6 +949,12 @@ def save_ai_generated_cases(
         raise HTTPException(status_code=400, detail="任务未完成或失败")
 
     generated_cases = task.output_result.get("cases", []) if task.output_result else []
+    # 幂等：生成任务已自动落库（output_result 含 saved_case_ids）时，直接返回已保存数量，
+    # 避免前端再次点击"保存"造成重复创建
+    saved_case_ids = (task.output_result or {}).get("saved_case_ids") or []
+    if saved_case_ids:
+        return {"saved_count": len(saved_case_ids), "already_saved": True}
+
     selected_indices = data.selected_indices or list(range(len(generated_cases)))
 
     selected_cases = []
