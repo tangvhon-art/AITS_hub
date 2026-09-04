@@ -41,13 +41,15 @@
           <a-select-option value="script_generator">脚本生成</a-select-option>
           <a-select-option value="script_fixer">脚本修复</a-select-option>
           <a-select-option value="knowledge_processor">知识库处理</a-select-option>
-          <a-select-option value="supervisor">Supervisor</a-select-option>
+          <a-select-option value="supervisor">监督者</a-select-option>
           <a-select-option value="notification">通知</a-select-option>
         </a-select>
         <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
           <a-select-option value="running">运行中</a-select-option>
           <a-select-option value="success">成功</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
+          <a-select-option value="retrying">重试中</a-select-option>
+          <a-select-option value="canceled">已取消</a-select-option>
           <a-select-option value="pending">等待中</a-select-option>
         </a-select>
         <a-select v-model:value="filterBackend" placeholder="执行后端" allow-clear style="width: 140px">
@@ -177,7 +179,7 @@ import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import { getAgentTasks, getTokenUsage, type AgentTask, type TokenUsageStats } from '@/api/agentTasks'
 import { listCallLogs, type WorkflowCallLog } from '@/api/workflow'
-import { AI_BACKEND_COLOR, AI_BACKEND_TEXT, AI_BACKEND_OPTIONS, WORKFLOW_PHASE_TEXT, WORKFLOW_PHASE_COLOR, WORKFLOW_CALL_STATUS_TEXT, WORKFLOW_CALL_STATUS_COLOR } from '@/constants/enums'
+import { AI_BACKEND_COLOR, AI_BACKEND_TEXT, AI_BACKEND_OPTIONS, WORKFLOW_PHASE_TEXT, WORKFLOW_PHASE_COLOR, WORKFLOW_CALL_STATUS_TEXT, WORKFLOW_CALL_STATUS_COLOR, AGENT_TASK_STATUS_TEXT, AGENT_TASK_STATUS_COLOR } from '@/constants/enums'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
 import SearchBar from '@/components/SearchBar.vue'
@@ -328,20 +330,14 @@ function agentTypeText(t: string) {
     script_generator: '脚本生成',
     script_fixer: '脚本修复',
     knowledge_processor: '知识库处理',
-    supervisor: 'Supervisor',
+    supervisor: '监督者',
     notification: '通知',
   }
   return map[t] || t
 }
 
-function statusColor(s: string) {
-  const map: Record<string, string> = { pending: 'default', running: 'blue', success: 'green', failed: 'red' }
-  return map[s] || 'default'
-}
-function statusText(s: string) {
-  const map: Record<string, string> = { pending: '等待中', running: '运行中', success: '成功', failed: '失败' }
-  return map[s] || s
-}
+const statusColor = (s: string) => AGENT_TASK_STATUS_COLOR[s] || 'default'
+const statusText = (s: string) => AGENT_TASK_STATUS_TEXT[s] || s
 
 onMounted(() => {
   const params = { agent_type: undefined, status: undefined, backend: undefined }

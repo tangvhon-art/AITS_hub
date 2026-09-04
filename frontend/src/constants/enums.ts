@@ -132,7 +132,8 @@ export const AGENT_TASK_STATUS_COLOR: Record<string, string> = {
   running: 'processing',
   success: 'green',
   failed: 'red',
-  cancelled: 'default',
+  retrying: 'orange',
+  canceled: 'default',
 }
 
 export const AGENT_TASK_STATUS_TEXT: Record<string, string> = {
@@ -140,7 +141,8 @@ export const AGENT_TASK_STATUS_TEXT: Record<string, string> = {
   running: '执行中',
   success: '成功',
   failed: '失败',
-  cancelled: '已取消',
+  retrying: '重试中',
+  canceled: '已取消',
 }
 
 // ─── 知识库文档状态 ───
