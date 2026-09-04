@@ -10,13 +10,17 @@
     </PageHeader>
     <a-card :bordered="false" class="page-card">
       <SearchBar @search="loadChannels" @reset="handleReset">
-        <a-input-search
-          v-model:value="searchKeyword"
-          placeholder="搜索渠道名称"
-          style="width: 220px"
-          allow-clear
-          @search="loadChannels"
-        />
+        <a-form layout="inline">
+          <a-form-item label="渠道名称">
+            <a-input-search
+              v-model:value="searchKeyword"
+              placeholder="搜索渠道名称"
+              style="width: 200px"
+              allow-clear
+              @search="loadChannels"
+            />
+          </a-form-item>
+        </a-form>
       </SearchBar>
 
       <DataTable

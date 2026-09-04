@@ -1,6 +1,30 @@
 <template>
   <div class="agent-tasks-page">
     <PageHeader title="Agent 任务监控" />
+<a-row :gutter="16" class="stats-row" v-if="tokenStats">
+      <a-col :span="6">
+        <a-card>
+          <a-statistic title="总 Token 消耗" :value="tokenStats.total_tokens" />
+        </a-card>
+      </a-col>
+      <a-col :span="6">
+        <a-card>
+          <a-statistic title="输入 Token" :value="tokenStats.total_prompt_tokens" />
+        </a-card>
+      </a-col>
+      <a-col :span="6">
+        <a-card>
+          <a-statistic title="输出 Token" :value="tokenStats.total_completion_tokens" />
+        </a-card>
+      </a-col>
+      <a-col :span="6">
+        <a-card>
+          <a-statistic title="预估成本(USD)" :value="tokenStats.estimated_cost_usd" :precision="4" />
+        </a-card>
+      </a-col>
+    </a-row>
+
+    <a-card>
       <SearchBar @search="loadTasks" @reset="handleReset">
         <a-space>
 <a-select v-model:value="filterAgentType" placeholder="Agent类型" allow-clear style="width: 160px">
@@ -29,38 +53,14 @@
         <a-select v-model:value="filterBackend" placeholder="执行后端" allow-clear style="width: 140px">
           <a-select-option v-for="opt in AI_BACKEND_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
         </a-select>
-        <a-button type="primary" @click="loadTasks">查询</a-button>
-        <a-button @click="handleReset">重置</a-button>
-        <a-button @click="loadTasks">
-          <template #icon><ReloadOutlined /></template>
-          刷新
-        </a-button>
         </a-space>
-      </SearchBar><!-- Token 统计卡片 -->
-    <a-row :gutter="16" class="stats-row" v-if="tokenStats">
-      <a-col :span="6">
-        <a-card>
-          <a-statistic title="总 Token 消耗" :value="tokenStats.total_tokens" />
-        </a-card>
-      </a-col>
-      <a-col :span="6">
-        <a-card>
-          <a-statistic title="输入 Token" :value="tokenStats.total_prompt_tokens" />
-        </a-card>
-      </a-col>
-      <a-col :span="6">
-        <a-card>
-          <a-statistic title="输出 Token" :value="tokenStats.total_completion_tokens" />
-        </a-card>
-      </a-col>
-      <a-col :span="6">
-        <a-card>
-          <a-statistic title="预估成本(USD)" :value="tokenStats.estimated_cost_usd" :precision="4" />
-        </a-card>
-      </a-col>
-    </a-row>
-
-    <a-card>
+        <template #extra>
+          <a-button @click="loadTasks">
+            <template #icon><ReloadOutlined /></template>
+            刷新
+          </a-button>
+        </template>
+      </SearchBar>
       <DataTable
         :columns="columns"
         :data-source="tasks"

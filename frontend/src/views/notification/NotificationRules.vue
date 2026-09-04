@@ -10,16 +10,20 @@
     </PageHeader>
     <a-card :bordered="false" class="page-card">
       <SearchBar @search="handleSearch" @reset="handleReset">
-        <a-select
-          v-model:value="filterEvent"
-          placeholder="按事件类型筛选"
-          style="width: 200px"
-          allow-clear
-        >
-          <a-select-option v-for="e in eventTypes" :key="e.code" :value="e.code">
-            {{ e.name }}
-          </a-select-option>
-        </a-select>
+        <a-form layout="inline">
+          <a-form-item label="事件类型">
+            <a-select
+              v-model:value="filterEvent"
+              placeholder="按事件类型筛选"
+              style="width: 200px"
+              allow-clear
+            >
+              <a-select-option v-for="e in eventTypes" :key="e.code" :value="e.code">
+                {{ e.name }}
+              </a-select-option>
+            </a-select>
+          </a-form-item>
+        </a-form>
       </SearchBar>
 
       <DataTable

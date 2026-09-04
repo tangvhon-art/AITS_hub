@@ -19,7 +19,8 @@
       <!-- 筛选栏 -->
       <SearchBar @search="handleSearch" @reset="handleReset">
   <a-form layout="inline">
-    <a-select
+    <a-form-item label="事件类型">
+      <a-select
           v-model:value="filterEvent"
           placeholder="事件类型"
           style="width: 200px"
@@ -29,7 +30,9 @@
             {{ e.name }}
           </a-select-option>
         </a-select>
-        <a-select
+    </a-form-item>
+        <a-form-item label="发送状态">
+          <a-select
           v-model:value="filterStatus"
           placeholder="发送状态"
           style="width: 140px"
@@ -39,6 +42,7 @@
           <a-select-option value="success">成功</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
         </a-select>
+        </a-form-item>
         <a-range-picker v-model:value="dateRange" />
         <a-space>
         </a-space>
