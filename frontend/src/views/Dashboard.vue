@@ -563,7 +563,7 @@ async function sendMessage() {
 .dashboard-immersive {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 64px);
+  height: calc(100vh - 104px);
   background: #fff;
   overflow: hidden;
 }

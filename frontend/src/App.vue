@@ -17,9 +17,8 @@ import zhCN from 'ant-design-vue/es/locale/zh_CN'
   min-height: 100vh;
 }
 
-/* 沉浸式页面（登录 / 仪表盘）不套用全局边距 */
-.app-content:has(.login-container),
-.app-content:has(.dashboard-immersive) {
+/* 沉浸式页面（登录页）不套用全局边距 */
+.app-content:has(.login-container) {
   padding: 0;
 }
 </style>
