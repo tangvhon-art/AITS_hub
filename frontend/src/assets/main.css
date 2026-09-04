@@ -222,3 +222,15 @@ a:hover {
 .ant-popconfirm-buttons .ant-btn-loading > span:not(.ant-btn-loading-icon) {
   opacity: 0 !important;
 }
+
+/* ===== 列表页统一风格 ===== */
+/* 筛选表单换行时保持上下间距 */
+.ant-form-inline .ant-form-item {
+  margin-bottom: 12px;
+}
+
+/* 相邻卡片保持间距（页面标题下方、筛选卡片与表格卡片等） */
+.ant-card + .ant-card {
+  margin-top: 16px;
+}
+

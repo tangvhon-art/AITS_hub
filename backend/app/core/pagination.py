@@ -82,7 +82,9 @@ def paginate(
     page = max(1, page)
     page_size = max(1, min(page_size, 200))
 
-    total = query.with_entities(func.count()).order_by(None).scalar() or 0
+    # 用 Query.count()（子查询包装）统计总数，天然忽略 ORDER BY，
+    # 避免 with_entities(func.count()) 在多列排序的 query 上被 ORDER BY 干扰
+    total = query.count()
     items = query.offset((page - 1) * page_size).limit(page_size).all()
 
     return Page(items=items, total=total, page=page, page_size=page_size)

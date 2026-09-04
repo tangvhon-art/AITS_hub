@@ -1,9 +1,9 @@
 <template>
   <div class="agent-tasks-page">
-    <div class="page-header">
-      <h2>Agent 任务监控</h2>
-      <a-space>
-        <a-select v-model:value="filterAgentType" placeholder="Agent类型" allow-clear style="width: 160px">
+    <PageHeader title="Agent 任务监控" />
+      <SearchBar @search="loadTasks" @reset="handleReset">
+        <a-space>
+<a-select v-model:value="filterAgentType" placeholder="Agent类型" allow-clear style="width: 160px">
           <a-select-option value="case_generator">用例生成</a-select-option>
           <a-select-option value="case_reviewer">用例评审</a-select-option>
           <a-select-option value="case_optimizer">用例优化</a-select-option>
@@ -35,10 +35,8 @@
           <template #icon><ReloadOutlined /></template>
           刷新
         </a-button>
-      </a-space>
-    </div>
-
-    <!-- Token 统计卡片 -->
+        </a-space>
+      </SearchBar><!-- Token 统计卡片 -->
     <a-row :gutter="16" class="stats-row" v-if="tokenStats">
       <a-col :span="6">
         <a-card>
@@ -63,14 +61,16 @@
     </a-row>
 
     <a-card>
-      <a-table
+      <DataTable
         :columns="columns"
         :data-source="tasks"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'agent_type'">
             <a-tag color="blue">{{ agentTypeText(record.agent_type) }}</a-tag>
@@ -93,7 +93,7 @@
             <a-button v-if="record.backend === 'workflow'" type="link" size="small" @click="viewCallLogs(record)">调用日志</a-button>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 任务详情弹窗 -->
@@ -141,11 +141,10 @@
     <!-- workflow 调用日志弹窗 -->
     <a-modal v-model:open="callLogVisible" title="工作流调用日志" :footer="null" width="1000px">
       <a-spin :spinning="callLogLoading">
-        <a-table
+        <DataTable
           :columns="callLogColumns"
           :data-source="callLogs"
-          :pagination="false"
-          row-key="id"
+                    row-key="id"
           size="small"
         >
           <template #bodyCell="{ column, record }">
@@ -164,7 +163,7 @@
               <span v-else style="color: #999">-</span>
             </template>
           </template>
-        </a-table>
+        </DataTable>
       </a-spin>
     </a-modal>
   </div>
@@ -179,6 +178,9 @@ import { ReloadOutlined } from '@ant-design/icons-vue'
 import { getAgentTasks, getTokenUsage, type AgentTask, type TokenUsageStats } from '@/api/agentTasks'
 import { listCallLogs, type WorkflowCallLog } from '@/api/workflow'
 import { AI_BACKEND_COLOR, AI_BACKEND_TEXT, AI_BACKEND_OPTIONS, WORKFLOW_PHASE_TEXT, WORKFLOW_PHASE_COLOR, WORKFLOW_CALL_STATUS_TEXT, WORKFLOW_CALL_STATUS_COLOR } from '@/constants/enums'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
+import SearchBar from '@/components/SearchBar.vue'
 
 const route = useRoute()
 const projectId = computed(() => {

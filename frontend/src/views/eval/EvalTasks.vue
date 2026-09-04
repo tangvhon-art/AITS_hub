@@ -1,11 +1,15 @@
 <template>
   <div>
     <a-card size="small">
-      <div class="toolbar">
-        <a-select v-model:value="filterTarget" style="width: 150px" allow-clear placeholder="全部被测对象">
+      <SearchBar @search="load" @reset="reset">
+  <a-form layout="inline">
+    <a-form-item label="被测对象">
+<a-select v-model:value="filterTarget" style="width: 150px" allow-clear placeholder="全部被测对象">
           <a-select-option v-for="t in activeTargets" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
         </a-select>
-        <a-select v-model:value="filterStatus" style="width: 120px" allow-clear placeholder="全部状态">
+</a-form-item>
+        <a-form-item label="任务状态">
+<a-select v-model:value="filterStatus" style="width: 120px" allow-clear placeholder="全部状态">
           <a-select-option value="draft">草稿</a-select-option>
           <a-select-option value="ready">就绪</a-select-option>
           <a-select-option value="running">执行中</a-select-option>
@@ -13,13 +17,16 @@
           <a-select-option value="failed">失败</a-select-option>
           <a-select-option value="canceled">已取消</a-select-option>
         </a-select>
-        <a-input v-model:value="keyword" placeholder="搜索任务名" style="width: 180px" @pressEnter="load" />
-        <a-button type="primary" @click="load">查询</a-button>
-        <a-button @click="reset">重置</a-button>
-        <div style="flex: 1"></div>
-        <a-button type="primary" @click="openCreate"><PlusOutlined /> 新建测评任务</a-button>
-      </div>
-      <a-table :data-source="list" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
+</a-form-item>
+        <a-form-item label="任务名">
+<a-input v-model:value="keyword" placeholder="搜索任务名" style="width: 180px" @pressEnter="load" />
+</a-form-item>
+        </a-form>
+        <template #extra>
+          <a-button type="primary" @click="openCreate"><PlusOutlined /> 新建测评任务</a-button>
+        </template>
+      </SearchBar>
+      <DataTable :data-source="list" row-key="id" :loading="loading" size="small">
         <a-table-column title="ID" data-index="id" width="60" />
         <a-table-column title="任务名称" data-index="name" ellipsis />
         <a-table-column title="被测对象" width="160">
@@ -48,48 +55,56 @@
               <a-button type="link" size="small" @click="goDetail(record)">详情</a-button>
               <a-button v-if="record.status === 'ready' || record.status === 'draft'" type="link" size="small" @click="runTask(record)">启动</a-button>
               <a-button v-if="record.status === 'running'" type="link" danger size="small" @click="cancelTask(record)">取消</a-button>
-              <a-popconfirm
-                v-if="record.status !== 'running'"
-                title="确认删除该测评任务及其测评数据？"
-                @confirm="removeTask(record)"
-              >
-                <a-button type="link" danger size="small">删除</a-button>
-              </a-popconfirm>
+              <a-button v-if="record.status !== 'running'" type="link" danger size="small" @click="confirmDelete(record, () => removeTask(record))">删除</a-button>
             </a-space>
           </template>
         </a-table-column>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 新建任务 -->
-    <a-modal v-model:open="createOpen" title="新建测评任务" @ok="createTask" :confirm-loading="saving" width="720" ok-text="创建并就绪">
-      <a-form :model="form" layout="vertical">
-        <a-form-item label="任务名称" required><a-input v-model:value="form.name" placeholder="如 Qwen3.5-4B 五维测评 v0.1" /></a-form-item>
+    <FormModal
+      v-model:visible="createOpen"
+      title="新建测评任务"
+      :loading="saving"
+      width="720"
+      @ok="createTask"
+    >
+      <a-form-item label="任务名称" required><a-form-item label="筛选">
+<a-input v-model:value="form.name" placeholder="如 Qwen3.5-4B 五维测评 v0.1" />
+</a-form-item></a-form-item>
         <a-row :gutter="12">
           <a-col :span="12">
             <a-form-item label="被测对象" required>
-              <a-select v-model:value="form.target_id" placeholder="选择被测对象">
+              <a-form-item label="筛选">
+<a-select v-model:value="form.target_id" placeholder="选择被测对象">
                 <a-select-option v-for="t in activeTargets" :key="t.id" :value="t.id">{{ t.name }}（{{ typeText(t.target_type) }}）</a-select-option>
               </a-select>
+</a-form-item>
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="对比对象（版本对比可选）">
-              <a-select v-model:value="form.compare_target_id" allow-clear placeholder="不对比">
+              <a-form-item label="筛选">
+<a-select v-model:value="form.compare_target_id" allow-clear placeholder="不对比">
                 <a-select-option v-for="t in activeTargets" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
               </a-select>
+</a-form-item>
             </a-form-item>
           </a-col>
         </a-row>
         <a-form-item label="裁判模型（AI裁判打分，可多选）">
-          <a-select v-model:value="form.judge_config_ids" mode="multiple" allow-clear placeholder="默认取活跃模型前 2 个">
+          <a-form-item label="筛选">
+<a-select v-model:value="form.judge_config_ids" mode="multiple" allow-clear placeholder="默认取活跃模型前 2 个">
             <a-select-option v-for="c in llmConfigs" :key="c.id" :value="c.id">{{ c.name }}</a-select-option>
           </a-select>
+</a-form-item>
         </a-form-item>
         <a-form-item label="五维模式与数据集" required>
           <div v-for="m in modeOptions" :key="m.value" class="mode-row">
             <a-checkbox v-model:checked="modeEnabled[m.value]">{{ m.label }}</a-checkbox>
-            <a-select
+            <a-form-item label="筛选">
+<a-select
               v-if="modeEnabled[m.value]"
               v-model:value="form.dataset_ids[m.value]"
               mode="multiple"
@@ -98,6 +113,7 @@
             >
               <a-select-option v-for="ds in datasetsByType(m.value)" :key="ds.id" :value="ds.id">{{ ds.name }}</a-select-option>
             </a-select>
+</a-form-item>
           </div>
         </a-form-item>
         <a-form-item label="执行后端">
@@ -106,8 +122,7 @@
             <a-radio value="workflow" disabled>外部工作流（M5 预留）</a-radio>
           </a-radio-group>
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
   </div>
 </template>
 
@@ -118,6 +133,11 @@ import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { evalTargetApi, evalDatasetApi, evalTaskApi, EVAL_MODE_TEXT, EVAL_MODE_COLOR, EVAL_TYPE_TEXT } from '@/api/eval'
 import { getLLMConfigs } from '@/api/llm'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import SearchBar from '@/components/SearchBar.vue'
+const { confirmDelete } = useConfirmDelete('测评任务')
 
 const router = useRouter()
 const list = ref<any[]>([])

@@ -24,7 +24,7 @@ export interface MCPConnectorList {
 }
 
 export const mcpApi = {
-  list: (params?: { page?: number; page_size?: number; status?: string }) =>
+  list: (params?: { page?: number; page_size?: number; status?: string; keyword?: string }) =>
     request.get<MCPConnectorList>('/mcp/connectors', { params }),
 
   create: (data: Partial<MCPConnector>) =>

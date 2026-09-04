@@ -22,7 +22,18 @@ instance.interceptors.request.use(
 
 // 响应拦截器
 instance.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    const body = response.data
+    // 统一响应格式 {code, message, data}（BaseRouter 输出）：
+    // code===0 → 解包 data；code!==0 → 视为业务错误，与 HTTP 错误一致处理
+    if (body && typeof body === 'object' && typeof body.code === 'number' && 'data' in body) {
+      if (body.code === 0) return body.data
+      const bizMsg = body.message || '请求失败'
+      message.error(bizMsg)
+      return Promise.reject(new Error(bizMsg))
+    }
+    return body
+  },
   (error) => {
     const status = error.response?.status
     const detail = error.response?.data?.detail

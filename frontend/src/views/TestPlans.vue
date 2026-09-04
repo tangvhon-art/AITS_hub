@@ -1,19 +1,18 @@
 <template>
   <div class="plans-page">
-    <div class="page-header">
-      <h2>测试计划管理</h2>
-      <div>
-        <a-button @click="showEnvModal = true" style="margin-right: 8px">
+    <PageHeader title="测试计划管理">
+  <template #extra>
+    <a-button @click="showEnvModal = true" style="margin-right: 8px">
           <EnvironmentOutlined /> 环境管理
         </a-button>
         <a-button type="primary" @click="openCreateModal">
           <PlusOutlined /> 新建计划
         </a-button>
-      </div>
-    </div>
-
-    <div class="filter-bar">
-      <a-input v-model:value="filterName" placeholder="计划名称" allow-clear style="width: 180px" />
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-input v-model:value="filterName" placeholder="计划名称" allow-clear style="width: 180px" />
       <a-select v-model:value="filterVersionId" placeholder="所属版本" allow-clear style="width: 150px">
         <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
       </a-select>
@@ -31,19 +30,18 @@
         <a-select-option value="P2">P2</a-select-option>
         <a-select-option value="P3">P3</a-select-option>
       </a-select>
-      <a-button type="primary" @click="loadPlans">查询</a-button>
-      <a-button @click="handleReset">重置</a-button>
-    </div>
-
-    <a-card>
-      <a-table
+  </a-form>
+</SearchBar>
+      <DataTable
         :columns="columns"
         :data-source="plans"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'version'">
             <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
@@ -68,25 +66,22 @@
             <a-button type="link" size="small" @click="handleExecute(record)" :disabled="record.status === 'running'">执行</a-button>
             <a-button type="link" size="small" @click="editPlan(record)">编辑</a-button>
             <a-button type="link" size="small" @click="viewReport(record)" v-if="record.last_execution_id">报告</a-button>
-            <a-popconfirm title="确定删除该计划？" @confirm="handleDelete(record)">
-              <a-button type="link" size="small" danger>删除</a-button>
-            </a-popconfirm>
+            <a-button type="link" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 新建计划弹窗（仅基本信息，创建后跳转编排页） -->
-    <a-modal
-      v-model:open="showCreateModal"
+    <FormModal
+      v-model:visible="showCreateModal"
       title="新建测试计划"
+      :loading="submitting"
       width="600px"
-      @ok="handleSubmit"
-      :confirm-loading="submitting"
       @cancel="resetForm"
+      @ok="handleSubmit"
     >
-      <a-form layout="vertical" :model="formData">
-        <a-form-item label="计划名称" required>
+      <a-form-item label="计划名称" required>
           <a-input v-model:value="formData.name" placeholder="请输入计划名称" />
         </a-form-item>
         <a-form-item label="计划描述">
@@ -125,8 +120,7 @@
             <a-select-option value="cron">定时执行</a-select-option>
           </a-select>
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 环境管理弹窗 -->
     <a-modal v-model:open="showEnvModal" title="测试环境管理" width="700px" :footer="null">
@@ -135,19 +129,17 @@
           <PlusOutlined /> 新建环境
         </a-button>
       </div>
-      <a-table :columns="envColumns" :data-source="environments" size="small" :pagination="false" row-key="id">
+      <DataTable :columns="envColumns" :data-source="environments" size="small" :pagination="false" row-key="id">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'is_default'">
             <a-tag v-if="record.is_default" color="blue">默认</a-tag>
           </template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" size="small" @click="editEnv(record)">编辑</a-button>
-            <a-popconfirm title="确定删除？" @confirm="deleteEnv(record)">
-              <a-button type="link" size="small" danger>删除</a-button>
-            </a-popconfirm>
+            <a-button type="link" size="small" danger @click="confirmDelete(record, () => deleteEnv(record))">删除</a-button>
           </template>
         </template>
-      </a-table>
+      </DataTable>
 
       <!-- 新建/编辑环境 -->
       <a-modal
@@ -190,6 +182,12 @@ import {
   type TestPlan, type TestEnvironment
 } from '@/api/testPlans'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('测试计划')
 
 const route = useRoute()
 const router = useRouter()
@@ -308,6 +306,11 @@ function handleReset() {
   filterVersionId.value = undefined
   loadPlans()
 }
+function handleSearch() {
+  pagination.value.current = 1
+  loadPlans()
+}
+
 
 async function loadEnvironments() {
   try {

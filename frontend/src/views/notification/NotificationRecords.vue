@@ -17,8 +17,9 @@
       </div>
 
       <!-- 筛选栏 -->
-      <div class="filter-bar">
-        <a-select
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-select
           v-model:value="filterEvent"
           placeholder="事件类型"
           style="width: 200px"
@@ -40,20 +41,19 @@
         </a-select>
         <a-range-picker v-model:value="dateRange" />
         <a-space>
-          <a-button type="primary" @click="onFilterChange">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
         </a-space>
-      </div>
-
-      <a-table
+  </a-form>
+</SearchBar><DataTable
         :columns="columns"
         :data-source="records"
         :loading="loading"
-        :pagination="pagination"
         row-key="id"
         size="middle"
         @change="handleTableChange"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'created_at'">
             {{ formatTime(record.created_at) }}
@@ -77,19 +77,11 @@
           <template v-else-if="column.key === 'action'">
             <a-space>
               <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
-              <a-popconfirm
-                v-if="record.status === 'failed'"
-                title="确定重新发送该通知吗？"
-                ok-text="确定"
-                cancel-text="取消"
-                @confirm="handleRetry(record)"
-              >
-                <a-button type="link" size="small">重试</a-button>
-              </a-popconfirm>
+              <a-button v-if="record.status === 'failed'" type="link" size="small" @click="confirmDelete(record, () => handleRetry(record))">重试</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 详情弹窗 -->
@@ -140,6 +132,10 @@ import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import { notificationApi, type NotificationRecord, type EventTypeInfo } from '@/api/notifications'
+import DataTable from '@/components/DataTable.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import SearchBar from '@/components/SearchBar.vue'
+const { confirmDelete } = useConfirmDelete('通知记录')
 const loading = ref(false)
 const records = ref<NotificationRecord[]>([])
 const eventTypes = ref<EventTypeInfo[]>([])
@@ -251,6 +247,11 @@ function handleReset() {
   pagination.current = 1
   loadRecords()
 }
+function handleSearch() {
+  pagination.current = 1
+  loadRecords()
+}
+
 
 function handleTableChange(pag: any) {
   pagination.current = pag.current

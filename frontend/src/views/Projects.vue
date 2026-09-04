@@ -1,26 +1,22 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <h2>项目管理</h2>
-      <a-button type="primary" @click="showCreateModal = true">
-        <template #icon>
-          <PlusOutlined />
-        </template>
-        新建项目
-      </a-button>
-    </div>
+    <PageHeader title="项目管理">
+      <template #extra>
+        <a-button type="primary" @click="openCreate()">
+          <template #icon>
+            <PlusOutlined />
+          </template>
+          新建项目
+        </a-button>
+      </template>
+    </PageHeader>
 
-    <a-form layout="inline" style="margin-bottom: 16px">
+    <a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
       <a-form-item label="关键词">
-        <a-input v-model:value="searchKeyword" placeholder="搜索项目名称/描述" allow-clear style="width: 200px" @keyup.enter="handleSearch" />
+        <a-input v-model:value="searchKeyword" placeholder="搜索项目名称/描述" allow-clear style="width: 220px" />
       </a-form-item>
-      <a-form-item>
-        <a-space>
-          <a-button type="primary" @click="handleSearch">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </a-form-item>
-    </a-form>
+    </SearchBar>
 
     <a-spin :spinning="loading">
       <a-row :gutter="[24, 24]">
@@ -50,22 +46,22 @@
               </a-button>
             </div>
             <div class="project-actions">
-              <a-button size="small" @click.stop="editProject(project)">编辑</a-button>
-              <a-button size="small" danger @click.stop="deleteProject(project)">删除</a-button>
+              <a-button size="small" @click.stop="openEdit(project.id, project)">编辑</a-button>
+              <a-button size="small" danger @click.stop="handleDelete(project.id, project.name, project)">删除</a-button>
             </div>
           </a-card>
         </a-col>
 
-        <a-col :span="24" v-if="filteredProjects.length === 0 && !loading">
+        <a-col :span="24" v-if="list.length === 0 && !loading">
           <a-empty description="暂无项目，点击右上角创建" />
         </a-col>
       </a-row>
 
-      <div class="pagination-wrapper" v-if="filteredProjects.length > 0">
+      <div class="pagination-wrapper" v-if="list.length > 0">
         <a-pagination
           v-model:current="currentPage"
           v-model:pageSize="pageSize"
-          :total="filteredProjects.length"
+          :total="list.length"
           :page-size-options="['12', '24', '48']"
           show-size-changer
           show-quick-jumper
@@ -73,57 +69,65 @@
         />
       </div>
     </a-spin>
+    </a-card>
 
     <!-- 创建/编辑项目对话框 -->
-    <a-modal
-      v-model:open="showCreateModal"
-      :title="editingProject ? '编辑项目' : '新建项目'"
-      @ok="saveProject"
-      :confirm-loading="saving"
+    <FormModal
+      v-model:visible="modalVisible"
+      :title="editingId ? '编辑项目' : '新建项目'"
+      :loading="modalLoading"
+      @ok="submit"
     >
-      <a-form layout="vertical">
-        <a-form-item label="项目名称" required>
-          <a-input v-model:value="projectForm.name" placeholder="请输入项目名称" />
-        </a-form-item>
-        <a-form-item label="项目描述">
-          <a-textarea
-            v-model:value="projectForm.description"
-            :rows="3"
-            placeholder="请输入项目描述"
-          />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+      <a-form-item label="项目名称" required>
+        <a-input v-model:value="formData.name" placeholder="请输入项目名称" />
+      </a-form-item>
+      <a-form-item label="项目描述">
+        <a-textarea
+          v-model:value="formData.description"
+          :rows="3"
+          placeholder="请输入项目描述"
+        />
+      </a-form-item>
+    </FormModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import { PlusOutlined, FolderOutlined, CalendarOutlined, FileTextOutlined, UnorderedListOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
-import { getProjects, createProject, updateProject, deleteProject as deleteProjectApi, Project } from '@/api/projects'
+import { getProjects, createProject, updateProject, deleteProject, Project } from '@/api/projects'
 import { formatDate } from '@/utils/date'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useList } from '@/composables/useList'
+import { useCRUD } from '@/composables/useCRUD'
 
 const router = useRouter()
-const loading = ref(false)
-const saving = ref(false)
-const projects = ref<Project[]>([])
 const searchKeyword = ref('')
 const currentPage = ref(1)
 const pageSize = ref(12)
-const showCreateModal = ref(false)
-const editingProject = ref<Project | null>(null)
 
-const projectForm = reactive({
-  name: '',
-  description: ''
+// ── 列表（项目为全量接口，包装为 useList 统一形态）──
+const { loading, list, loadData } = useList<Project>(
+  async (params) => {
+    const data = await getProjects()
+    localStorage.setItem('projects', JSON.stringify(data))
+    return { items: data, total: data.length, page: params.page, page_size: params.page_size }
+  },
+)
+
+// 搜索条件变化时重置到第一页
+watch(searchKeyword, () => {
+  currentPage.value = 1
 })
 
 const filteredProjects = computed(() => {
-  if (!searchKeyword.value) return projects.value
+  if (!searchKeyword.value) return list.value
   const kw = searchKeyword.value.toLowerCase()
-  return projects.value.filter(p =>
+  return list.value.filter(p =>
     p.name?.toLowerCase().includes(kw) ||
     p.description?.toLowerCase().includes(kw)
   )
@@ -134,28 +138,38 @@ const pagedProjects = computed(() => {
   return filteredProjects.value.slice(start, start + pageSize.value)
 })
 
-// 搜索条件变化时重置到第一页
-watch(searchKeyword, () => {
-  currentPage.value = 1
-})
-
-function handleSearch() {
-}
+function handleSearch() {}
 
 function handleReset() {
   searchKeyword.value = ''
 }
 
-async function fetchProjects() {
-  loading.value = true
-  try {
-    const data = await getProjects()
-    projects.value = data
-    localStorage.setItem('projects', JSON.stringify(data))
-  } finally {
-    loading.value = false
-  }
-}
+// ── 新增/编辑/删除（useCRUD + FormModal）──
+const {
+  modalVisible,
+  modalLoading,
+  editingId,
+  formData,
+  openCreate,
+  openEdit,
+  submit,
+  handleDelete,
+} = useCRUD<Project>({
+  api: {
+    create: (data) => createProject({ name: data.name, description: data.description }),
+    update: (id, data) => updateProject(id, { name: data.name, description: data.description }),
+    remove: (id) => deleteProject(id),
+  },
+  resourceName: '项目',
+  onSuccess: loadData,
+  beforeSubmit: () => {
+    if (!formData.name?.trim()) {
+      message.warning('请输入项目名称')
+      return false
+    }
+    return true
+  },
+})
 
 function enterProject(project: Project) {
   router.push(`/projects/${project.id}/cases`)
@@ -164,58 +178,6 @@ function enterProject(project: Project) {
 function goToPage(project: Project, page: string) {
   router.push(`/projects/${project.id}/${page}`)
 }
-
-function editProject(project: Project) {
-  editingProject.value = project
-  projectForm.name = project.name
-  projectForm.description = project.description
-  showCreateModal.value = true
-}
-
-async function saveProject() {
-  if (!projectForm.name.trim()) {
-    message.warning('请输入项目名称')
-    return
-  }
-  saving.value = true
-  try {
-    if (editingProject.value) {
-      await updateProject(editingProject.value.id, projectForm)
-      message.success('更新成功')
-    } else {
-      await createProject(projectForm)
-      message.success('创建成功')
-    }
-    showCreateModal.value = false
-    editingProject.value = null
-    projectForm.name = ''
-    projectForm.description = ''
-    fetchProjects()
-  } finally {
-    saving.value = false
-  }
-}
-
-function deleteProject(project: Project) {
-  Modal.confirm({
-    title: '确认删除',
-    content: `确定要删除项目「${project.name}」吗？`,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    onOk: async () => {
-      await deleteProjectApi(project.id)
-      message.success('删除成功')
-      fetchProjects()
-    }
-  })
-}
-
-onMounted(() => {
-  const params = { keyword: '' }
-  searchKeyword.value = params.keyword
-  fetchProjects()
-})
 </script>
 
 <style scoped>

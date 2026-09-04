@@ -1,8 +1,10 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <h2>UI 自动化执行</h2>
-    </div>
+    <PageHeader title="UI 自动化执行">
+  <template #extra>
+    
+  </template>
+</PageHeader>
 
     <a-row :gutter="24">
       <!-- 左侧：执行配置 -->
@@ -102,14 +104,16 @@
         <!-- 历史执行记录 -->
         <a-card title="历史执行记录" style="margin-top: 24px">
           <a-spin :spinning="runsLoading">
-            <a-table
+            <DataTable
               :columns="runColumns"
               :data-source="runs"
-              :pagination="runsPagination"
               @change="handleRunsTableChange"
               row-key="id"
               size="small"
             >
+        :page="runsPagination.current"
+        :page-size="runsPagination.pageSize"
+        :total="runsPagination.total"
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'status'">
                   <a-tag :color="runStatusColor(record.status)">{{ runStatusLabel(record.status) }}</a-tag>
@@ -120,7 +124,7 @@
                   </a-button>
                 </template>
               </template>
-            </a-table>
+            </DataTable>
           </a-spin>
         </a-card>
       </a-col>
@@ -176,6 +180,8 @@ import { message } from 'ant-design-vue'
 import { PlayCircleOutlined } from '@ant-design/icons-vue'
 import { runExecution, getExecutionRunStatus, getExecutionRuns, getExecutionRun } from '@/api/execution'
 import { getLLMConfigs } from '@/api/llm'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
 
 const route = useRoute()
 const projectId = Number(route.params.id)

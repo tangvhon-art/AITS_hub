@@ -1,36 +1,38 @@
 <template>
   <div class="api-executions">
-    <div class="page-header">
-      <h2>执行记录</h2>
-    </div>
-
-    <a-card>
-      <div class="filter-bar">
-        <a-select v-model:value="typeFilter" placeholder="执行类型" style="width: 120px" allow-clear>
+    <PageHeader title="执行记录">
+  <template #extra>
+    
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="执行类型">
+<a-select v-model:value="typeFilter" placeholder="执行类型" style="width: 120px" allow-clear>
           <a-select-option value="case">用例</a-select-option>
           <a-select-option value="scenario">场景</a-select-option>
           <a-select-option value="debug">调试</a-select-option>
         </a-select>
-        <a-select v-model:value="statusFilter" placeholder="状态" style="width: 120px" allow-clear>
+</a-form-item>
+        <a-form-item label="状态">
+<a-select v-model:value="statusFilter" placeholder="状态" style="width: 120px" allow-clear>
           <a-select-option value="passed">通过</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
           <a-select-option value="partial">部分通过</a-select-option>
           <a-select-option value="running">执行中</a-select-option>
         </a-select>
-        <a-space>
-          <a-button type="primary" @click="loadData">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </div>
-
-      <a-table
+</a-form-item>
+  </a-form>
+</SearchBar><DataTable
         :columns="columns"
         :data-source="dataSource"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="getStatusColor(record.status)">{{ getStatusName(record.status) }}</a-tag>
@@ -42,7 +44,7 @@
             <a-button type="link" size="small" @click="handleView(record)">查看详情</a-button>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
   </div>
 </template>
@@ -51,6 +53,9 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiExecutionsApi, type ApiExecution } from '@/api/apiTest'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
@@ -118,6 +123,11 @@ function handleReset() {
   pagination.value.current = 1
   loadData()
 }
+function handleSearch() {
+  pagination.value.current = 1
+  loadData()
+}
+
 
 const handleView = (record: ApiExecution) => {
   router.push(`/projects/${projectId}/api-test/executions/${record.id}`)

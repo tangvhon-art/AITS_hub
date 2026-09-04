@@ -1,30 +1,32 @@
 <template>
   <div class="performance-tests">
-    <div class="page-header">
-      <h2>性能测试</h2>
-      <div class="header-actions">
-        <a-button type="primary" @click="handleCreate">
+    <PageHeader title="性能测试">
+  <template #extra>
+    <a-button type="primary" @click="handleCreate">
           <template #icon><PlusOutlined /></template>
           新建测试
         </a-button>
-      </div>
-    </div>
-    <a-card>
-      <div class="filter-bar">
-        <a-input-search v-model:value="keyword" placeholder="搜索测试名称" allow-clear style="width: 250px" @search="loadData" />
-        <a-select v-model:value="statusFilter" allow-clear placeholder="状态筛选" style="width: 150px">
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="测试名称">
+<a-input-search v-model:value="keyword" placeholder="搜索测试名称" allow-clear style="width: 250px" @search="loadData" />
+</a-form-item>
+        <a-form-item label="状态">
+<a-select v-model:value="statusFilter" allow-clear placeholder="状态筛选" style="width: 150px">
           <a-select-option value="draft">草稿</a-select-option>
           <a-select-option value="running">运行中</a-select-option>
           <a-select-option value="completed">已执行</a-select-option>
           <a-select-option value="failed">失败</a-select-option>
           <a-select-option value="stopped">已停止</a-select-option>
         </a-select>
-        <a-space>
-          <a-button type="primary" @click="loadData">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </div>
-      <a-table :columns="columns" :data-source="dataSource" :loading="loading" :pagination="pagination" row-key="id" @change="handleTableChange">
+</a-form-item>
+  </a-form>
+</SearchBar><DataTable :columns="columns" :data-source="dataSource" :loading="loading" row-key="id" @change="handleTableChange">
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
@@ -37,13 +39,11 @@
               <a-button size="small" type="link" :disabled="record.status === 'running'" @click="handleRun(record)">执行</a-button>
               <a-button size="small" type="link" @click="handleEdit(record)">编辑</a-button>
               <a-button size="small" type="link" @click="handleViewRuns(record)">记录</a-button>
-              <a-popconfirm title="确定删除？" @confirm="handleDelete(record)">
-                <a-button size="small" type="link" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button size="small" type="link" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
   </div>
 </template>
@@ -54,6 +54,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { performanceTestsApi, type PerformanceTest } from '@/api/performanceTests'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('性能测试')
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
@@ -137,6 +142,11 @@ function handleReset() {
   pagination.value.current = 1
   loadData()
 }
+function handleSearch() {
+  pagination.value.current = 1
+  loadData()
+}
+
 
 function handleCreate() {
   router.push(`/projects/${projectId}/performance-tests/new`)

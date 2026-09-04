@@ -1,12 +1,15 @@
 <template>
   <div class="data-table-wrapper">
     <a-table
+      v-bind="pagination ? $attrs : {}"
       :columns="columns"
       :data-source="dataSource"
       :loading="loading"
-      :pagination="paginationConfig"
+      :pagination="pagination ? (paginationConfig as any) : false"
       :row-key="rowKey"
       :size="size"
+      :row-selection="rowSelection"
+      :scroll="scroll"
       @change="handleChange"
     >
       <template v-for="(_, name) in $slots" #[name]="slotData">
@@ -21,14 +24,17 @@ import { computed } from 'vue'
 import type { TableProps } from 'ant-design-vue'
 
 const props = withDefaults(defineProps<{
-  columns: any[]
+  columns?: any[]
   dataSource: any[]
   loading?: boolean
-  rowKey?: string | ((record: any) => any)
+  rowKey?: string | ((record: any, index?: number) => any)
   size?: 'small' | 'middle' | 'large'
   page?: number
   pageSize?: number
   total?: number
+  rowSelection?: Record<string, any>
+  scroll?: Record<string, any>
+  pagination?: boolean
 }>(), {
   loading: false,
   rowKey: 'id',
@@ -36,10 +42,13 @@ const props = withDefaults(defineProps<{
   page: 1,
   pageSize: 20,
   total: 0,
+  rowSelection: undefined,
+  scroll: undefined,
+  pagination: true,
 })
 
 const emit = defineEmits<{
-  change: [page: number, pageSize: number]
+  change: [pag: { current: number; pageSize: number }]
 }>()
 
 const paginationConfig = computed(() => ({
@@ -51,7 +60,7 @@ const paginationConfig = computed(() => ({
 }))
 
 function handleChange(pag: any) {
-  emit('change', pag.current, pag.pageSize)
+  emit('change', { current: pag.current, pageSize: pag.pageSize })
 }
 </script>
 

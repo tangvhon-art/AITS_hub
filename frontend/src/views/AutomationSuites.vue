@@ -1,11 +1,12 @@
 <template>
   <div class="suites-page">
-    <div class="page-header">
-      <h2>自动化编排</h2>
-      <a-button type="primary" @click="showCreateModal = true">
+    <PageHeader title="自动化编排">
+  <template #extra>
+    <a-button type="primary" @click="showCreateModal = true">
         <PlusOutlined /> 新建编排
       </a-button>
-    </div>
+  </template>
+</PageHeader>
 
     <div class="content-wrapper">
       <!-- 左侧套件列表 -->
@@ -69,9 +70,7 @@
               <a-button @click="openHistoryModal">
                 <HistoryOutlined /> 历史记录
               </a-button>
-              <a-popconfirm title="确定删除该编排？" @confirm="handleDelete">
-                <a-button danger>删除</a-button>
-              </a-popconfirm>
+              <a-button danger @click="confirmDelete(currentSuite, () => handleDelete())">删除</a-button>
             </a-space>
           </template>
 
@@ -135,9 +134,14 @@
     </div>
 
     <!-- 新建编排弹窗 -->
-    <a-modal v-model:open="showCreateModal" title="新建编排套件" @ok="handleCreate" :confirm-loading="creating">
-      <a-form layout="vertical" :model="createForm">
-        <a-form-item label="套件名称" required>
+    <FormModal
+      v-model:visible="showCreateModal"
+      title="新建编排套件"
+      :loading="creating"
+      width="600"
+      @ok="handleCreate"
+    >
+      <a-form-item label="套件名称" required>
           <a-input v-model:value="createForm.name" placeholder="请输入套件名称" />
         </a-form-item>
         <a-form-item label="描述">
@@ -150,13 +154,17 @@
             </a-select-option>
           </a-select>
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 编辑编排弹窗 -->
-    <a-modal v-model:open="showEditModal" title="编辑编排套件" @ok="handleUpdate" :confirm-loading="updating">
-      <a-form layout="vertical" :model="editForm">
-        <a-form-item label="套件名称" required>
+    <FormModal
+      v-model:visible="showEditModal"
+      title="编辑编排套件"
+      :loading="updating"
+      width="600"
+      @ok="handleUpdate"
+    >
+      <a-form-item label="套件名称" required>
           <a-input v-model:value="editForm.name" />
         </a-form-item>
         <a-form-item label="描述">
@@ -176,13 +184,18 @@
             <a-select-option value="archived">已归档</a-select-option>
           </a-select>
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 添加/编辑步骤弹窗 -->
-    <a-modal v-model:open="showStepModal" :title="editingStepIndex >= 0 ? '编辑步骤' : '添加步骤'" @ok="saveStep" :confirm-loading="addingStep">
-      <a-form layout="vertical" :model="stepForm">
-        <a-form-item label="步骤名称" required>
+    <FormModal
+      v-model:visible="showStepModal"
+      title="editingStepIndex >= 0 ? '编辑步骤' : '添加步骤'"
+      :loading="addingStep"
+      width="600"
+      @ok="saveStep"
+    >
+      = 0 ? '编辑步骤' : '添加步骤'" @ok="saveStep" :confirm-loading="addingStep">
+      <a-form-item label="步骤名称" required>
           <a-input v-model:value="stepForm.step_name" placeholder="请输入步骤名称" />
         </a-form-item>
         <a-form-item label="步骤类型" required>
@@ -229,8 +242,7 @@
             </a-form-item>
           </a-col>
         </a-row>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 执行结果弹窗 -->
     <a-modal v-model:open="showRunResult" title="编排执行结果" :footer="null" :width="700">
@@ -240,7 +252,10 @@
         :sub-title="`通过 ${runResult.passed_steps || 0} / 失败 ${runResult.failed_steps || 0} / 跳过 ${runResult.skipped_steps || 0}，耗时 ${runResult.total_duration || 0}s`"
       />
       <a-divider>步骤详情</a-divider>
-      <a-table :columns="resultColumns" :data-source="runResults" :pagination="resultPagination" @change="handleResultTableChange" size="small" row-key="id">
+      <DataTable :columns="resultColumns" :data-source="runResults" @change="handleResultTableChange" size="small" row-key="id">
+        :page="resultPagination.current"
+        :page-size="resultPagination.pageSize"
+        :total="resultPagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="getRunStatusColor(record.status)">{{ getRunStatusText(record.status) }}</a-tag>
@@ -249,20 +264,22 @@
             <span style="color: #ff4d4f; font-size: 12px">{{ record.error_message || '-' }}</span>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-modal>
 
     <!-- 历史执行记录弹窗 -->
     <a-modal v-model:open="showHistoryModal" title="历史执行记录" :footer="null" :width="900">
-      <a-table
+      <DataTable
         :columns="historyColumns"
         :data-source="suiteRuns"
         :loading="loadingHistory"
-        :pagination="suiteRunsPagination"
         @change="handleSuiteRunsTableChange"
         size="small"
         row-key="id"
       >
+        :page="suiteRunsPagination.current"
+        :page-size="suiteRunsPagination.pageSize"
+        :total="suiteRunsPagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="getRunStatusColor(record.status)">{{ getRunStatusText(record.status) }}</a-tag>
@@ -285,7 +302,7 @@
             <a-button type="link" size="small" @click="viewRunDetail(record.id!)">查看</a-button>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-modal>
   </div>
 </template>
@@ -304,6 +321,11 @@ import {
 import { getScripts, type AutomationScript } from '@/api/automationScripts'
 import { testPlansApi, type TestPlan } from '@/api/testPlans'
 import { getCases, type TestCase } from '@/api/cases'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('编排')
 
 const route = useRoute()
 const router = useRouter()

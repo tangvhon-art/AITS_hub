@@ -1,12 +1,13 @@
 <template>
   <div class="api-mock">
-    <div class="page-header">
-      <h2>Mock 服务</h2>
-      <a-button type="primary" @click="handleCreate">
+    <PageHeader title="Mock 服务">
+  <template #extra>
+    <a-button type="primary" @click="handleCreate">
         <template #icon><PlusOutlined /></template>
         新建 Mock
       </a-button>
-    </div>
+  </template>
+</PageHeader>
 
     <a-alert
       message="Mock 服务地址"
@@ -17,25 +18,29 @@
     />
 
     <a-card>
-      <div class="filter-bar">
-        <a-input-search v-model:value="keyword" placeholder="搜索 Mock 名称或路径" style="width: 250px" @search="loadData" />
-        <a-select v-model:value="enabledFilter" placeholder="启用状态" style="width: 120px" allow-clear>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="Mock名称/路径">
+<a-input-search v-model:value="keyword" placeholder="搜索 Mock 名称或路径" style="width: 250px" @search="loadData" />
+</a-form-item>
+        <a-form-item label="启用状态">
+<a-select v-model:value="enabledFilter" placeholder="启用状态" style="width: 120px" allow-clear>
           <a-select-option :value="true">已启用</a-select-option>
           <a-select-option :value="false">已禁用</a-select-option>
         </a-select>
-        <a-space>
-          <a-button type="primary" @click="loadData">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </div>
-      <a-table
+</a-form-item>
+  </a-form>
+</SearchBar>
+      <DataTable
         :columns="columns"
         :data-source="dataSource"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'method'">
             <a-tag :color="getMethodColor(record.method)">{{ record.method }}</a-tag>
@@ -46,13 +51,11 @@
           <template v-else-if="column.key === 'action'">
             <a-space>
               <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
-              <a-popconfirm title="确定删除该Mock？" @confirm="handleDelete(record)">
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 编辑弹窗 -->
@@ -61,33 +64,43 @@
         <a-row :gutter="16">
           <a-col :span="6">
             <a-form-item label="方法">
-              <a-select v-model:value="form.method" placeholder="选择方法">
+              <a-form-item label="筛选">
+<a-select v-model:value="form.method" placeholder="选择方法">
                 <a-select-option value="GET">GET</a-select-option>
                 <a-select-option value="POST">POST</a-select-option>
                 <a-select-option value="PUT">PUT</a-select-option>
                 <a-select-option value="DELETE">DELETE</a-select-option>
                 <a-select-option value="PATCH">PATCH</a-select-option>
               </a-select>
+</a-form-item>
             </a-form-item>
           </a-col>
           <a-col :span="18">
             <a-form-item label="路径">
-              <a-input v-model:value="form.path" placeholder="/api/users" />
+              <a-form-item label="筛选">
+<a-input v-model:value="form.path" placeholder="/api/users" />
+</a-form-item>
             </a-form-item>
           </a-col>
         </a-row>
         <a-form-item label="名称">
-          <a-input v-model:value="form.name" />
+          <a-form-item label="筛选">
+<a-input v-model:value="form.name" />
+</a-form-item>
         </a-form-item>
         <a-row :gutter="16">
           <a-col :span="8">
             <a-form-item label="响应状态码">
-              <a-input-number v-model:value="form.response_status" :min="100" :max="599" style="width: 100%" />
+              <a-form-item label="筛选">
+<a-input-number v-model:value="form.response_status" :min="100" :max="599" style="width: 100%" />
+</a-form-item>
             </a-form-item>
           </a-col>
           <a-col :span="8">
             <a-form-item label="延迟(ms)">
-              <a-input-number v-model:value="form.delay_ms" :min="0" style="width: 100%" />
+              <a-form-item label="筛选">
+<a-input-number v-model:value="form.delay_ms" :min="0" style="width: 100%" />
+</a-form-item>
             </a-form-item>
           </a-col>
           <a-col :span="8">
@@ -117,6 +130,11 @@ import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { apiMockApi, type ApiMockExpectation } from '@/api/apiTest'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('Mock')
 const route = useRoute()
 const projectId = Number(route.params.id)
 const mockServiceUrl = computed(() => `${window.location.origin}/mock/${projectId}/{path}`)
@@ -248,6 +266,11 @@ onMounted(() => {
   else if (params.enabled === 'false') enabledFilter.value = false
   loadData()
 })
+
+function handleSearch() {
+  pagination.value.current = 1
+  loadData()
+}
 </script>
 
 <style scoped>

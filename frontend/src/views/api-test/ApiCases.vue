@@ -1,9 +1,8 @@
 <template>
   <div class="api-cases">
-    <div class="page-header">
-      <h2>测试用例</h2>
-      <div class="header-actions">
-        <a-button @click="showAiModal = true">
+    <PageHeader title="测试用例">
+  <template #extra>
+    <a-button @click="showAiModal = true">
           <template #icon><RobotOutlined /></template>
           AI 生成用例
         </a-button>
@@ -11,33 +10,33 @@
           <template #icon><PlusOutlined /></template>
           新建用例
         </a-button>
-      </div>
-    </div>
-
-    <a-card>
-      <div class="filter-bar">
-        <a-input-search v-model:value="keyword" placeholder="搜索用例名称" style="width: 250px" @search="loadData" />
-        <a-select v-model:value="priorityFilter" placeholder="优先级" style="width: 100px" allow-clear>
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="用例名称">
+<a-input-search v-model:value="keyword" placeholder="搜索用例名称" style="width: 250px" @search="loadData" />
+</a-form-item>
+        <a-form-item label="优先级">
+<a-select v-model:value="priorityFilter" placeholder="优先级" style="width: 100px" allow-clear>
           <a-select-option value="P0">P0</a-select-option>
           <a-select-option value="P1">P1</a-select-option>
           <a-select-option value="P2">P2</a-select-option>
           <a-select-option value="P3">P3</a-select-option>
         </a-select>
-        <a-space>
-          <a-button type="primary" @click="loadData">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </div>
-
-      <a-table
+</a-form-item>
+  </a-form>
+</SearchBar><DataTable
         :columns="columns"
         :data-source="dataSource"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
         :row-selection="rowSelection"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'method'">
             <a-tag :color="getMethodColor(record.method)">{{ record.method }}</a-tag>
@@ -49,17 +48,16 @@
             <a-space>
               <a-button type="link" size="small" @click="handleRun(record)">执行</a-button>
               <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
-              <a-popconfirm title="确定删除该用例？" @confirm="handleDelete(record)">
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
 
       <div v-if="selectedRowKeys.length > 0" class="batch-actions">
         <span>已选 {{ selectedRowKeys.length }} 项</span>
-        <a-select
+        <a-form-item label="筛选">
+<a-select
           v-model:value="selectedEnvId"
           placeholder="选择执行环境"
           style="width: 220px"
@@ -73,6 +71,7 @@
             {{ env.name }}{{ env.is_default ? '（默认）' : '' }}
           </a-select-option>
         </a-select>
+</a-form-item>
         <a-button type="primary" size="small" :loading="batchRunLoading" @click="handleBatchRun">批量执行</a-button>
       </div>
     </a-card>
@@ -85,13 +84,12 @@
     />
 
     <!-- 执行环境选择弹窗 -->
-    <a-modal
-      v-model:open="runModalVisible"
+    <FormModal
+      v-model:visible="runModalVisible"
       title="选择执行环境"
-      :confirm-loading="runLoading"
+      :loading="runLoading"
+      width="600"
       @ok="confirmRun"
-      ok-text="确认执行"
-      cancel-text="取消"
     >
       <div style="margin-bottom: 12px">
         用例：<strong>{{ runningCase?.name }}</strong>
@@ -105,7 +103,7 @@
       <div v-if="runEnvironments.length === 0" style="color: #999; margin-top: 8px">
         暂无环境，请先在「环境变量」中创建
       </div>
-    </a-modal>
+    </FormModal>
   </div>
 </template>
 
@@ -117,6 +115,12 @@ import { PlusOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiCasesApi, type ApiTestCase } from '@/api/apiTest'
 import { environmentsApi, type TestEnvironment } from '@/api/environments'
 import AiGenerateCasesModal from './AiGenerateCasesModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('接口用例')
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
@@ -187,6 +191,11 @@ function handleReset() {
   pagination.value.current = 1
   loadData()
 }
+function handleSearch() {
+  pagination.value.current = 1
+  loadData()
+}
+
 
 const handleCreate = () => {
   router.push(`/projects/${projectId}/api-test/cases/new`)

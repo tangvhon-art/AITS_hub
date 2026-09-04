@@ -1,11 +1,11 @@
 <template>
   <div class="audit-page">
-    <div class="page-header">
-      <h2>操作审计日志</h2>
-    </div>
-
-    <a-card>
-      <a-form layout="inline" style="margin-bottom: 16px">
+    <PageHeader title="操作审计日志">
+  <template #extra>
+    
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="loadLogs" @reset="handleReset">
         <a-form-item label="操作类型">
           <a-select v-model:value="filterAction" allow-clear placeholder="全部" style="width: 150px">
             <a-select-option value="create">创建</a-select-option>
@@ -45,22 +45,20 @@
             <a-select-option value="partial">部分成功</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item>
-          <a-space>
-            <a-button type="primary" @click="loadLogs">查询</a-button>
-            <a-button @click="handleReset">重置</a-button>
-          </a-space>
-        </a-form-item>
-      </a-form>
 
-      <a-table
+      
+
+            </SearchBar>
+      <DataTable
         :columns="columns"
         :data-source="logs"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'action'">
             <a-tag :color="getActionColor(record.action)">{{ getActionText(record.action) }}</a-tag>
@@ -77,7 +75,7 @@
             <a-button type="link" size="small" @click="showDetail(record)">查看</a-button>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 详情弹窗 -->
@@ -113,6 +111,9 @@
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { getAuditLogs, type AuditLog } from '@/api/auditLogs'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
+import SearchBar from '@/components/SearchBar.vue'
 const loading = ref(false)
 const logs = ref<AuditLog[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })

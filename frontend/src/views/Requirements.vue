@@ -1,8 +1,7 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <h2>需求管理</h2>
-      <div class="header-actions">
+    <PageHeader title="需求管理">
+      <template #extra>
         <a-button @click="showUploadModal = true" style="margin-right: 8px">
           <template #icon>
             <UploadOutlined />
@@ -21,109 +20,118 @@
           </template>
           同步到知识库
         </a-button>
-        <a-button type="primary" @click="showCreateModal = true">
+        <a-button type="primary" @click="openCreate()">
           <template #icon>
             <PlusOutlined />
           </template>
           新建需求
         </a-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <div class="filter-bar">
-      <a-input v-model:value="filterTitle" placeholder="需求标题" allow-clear style="width: 180px" />
-      <a-select v-model:value="filterSource" placeholder="来源" allow-clear style="width: 120px">
-        <a-select-option value="manual">手动</a-select-option>
-        <a-select-option value="upload">上传</a-select-option>
-        <a-select-option value="ai">AI生成</a-select-option>
-      </a-select>
-      <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
-        <a-select-option value="pending">待生成</a-select-option>
-        <a-select-option value="generated">已生成</a-select-option>
-        <a-select-option value="reviewed">已评审</a-select-option>
-      </a-select>
-      <a-select v-model:value="filterVersionId" placeholder="全部版本" allow-clear style="width: 150px">
-        <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
-      </a-select>
-      <a-button type="primary" @click="fetchRequirements">查询</a-button>
-      <a-button @click="handleReset">重置</a-button>
-    </div>
-
-    <a-spin :spinning="loading">
-      <a-table
-        :columns="columns"
-        :data-source="requirements"
-        :pagination="pagination"
-        @change="handleTableChange"
-        row-key="id"
-        size="middle"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'version'">
-            <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
-            <span v-else style="color: #999">-</span>
-          </template>
-          <template v-else-if="column.key === 'source'">
-            <a-tag :color="sourceColor(record.source)">{{ sourceLabel(record.source) }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'feature_status'">
-            <a-tooltip v-if="record.feature_split_status === 'failed'" title="拆分失败，点击重新拆分">
-              <a-tag color="red" style="cursor: pointer" @click.stop="resplitFeatures(record)">拆分失败</a-tag>
-            </a-tooltip>
-            <a-tag v-else-if="record.feature_split_status === 'splitting'" color="processing">拆分中</a-tag>
-            <a-tag v-else-if="record.feature_split_status === 'split'" color="green">已拆分</a-tag>
-            <a-tooltip v-else title="点击立即拆分功能点">
-              <a-tag color="orange" style="cursor: pointer" @click.stop="resplitFeatures(record)">待拆分</a-tag>
-            </a-tooltip>
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <a-button type="link" size="small" @click="viewRequirement(record)"><EyeOutlined /> 查看</a-button>
-            <a-button type="link" size="small" @click="editRequirement(record)">编辑</a-button>
-            <a-button type="link" size="small" @click="generateCases(record)">生成用例</a-button>
-            <a-button type="link" size="small" @click="syncOneToKnowledge(record)">同步知识库</a-button>
-            <a-button type="link" size="small" danger @click="deleteReq(record)">删除</a-button>
-          </template>
-        </template>
-      </a-table>
-    </a-spin>
-
-    <!-- 新建/编辑需求对话框 -->
-    <a-modal
-      v-model:open="showCreateModal"
-      :title="editingId ? '编辑需求' : '新建需求'"
-      @ok="saveRequirement"
-      @cancel="resetForm"
-      :confirm-loading="saving"
-      width="600px"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="需求标题" required>
-          <a-input v-model:value="reqForm.title" placeholder="请输入需求标题" />
+    <a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+      <a-form layout="inline">
+        <a-form-item label="需求标题">
+          <a-input v-model:value="filterTitle" placeholder="需求标题" allow-clear style="width: 180px" />
         </a-form-item>
-        <a-form-item label="所属版本">
-          <a-select v-model:value="reqForm.version_id" placeholder="选择版本（可选）" allow-clear>
-            <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+        <a-form-item label="来源">
+          <a-select v-model:value="filterSource" placeholder="来源" allow-clear style="width: 120px">
+            <a-select-option value="manual">手动</a-select-option>
+            <a-select-option value="upload">上传</a-select-option>
+            <a-select-option value="ai">AI生成</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="需求状态">
-          <a-select v-model:value="reqForm.status" placeholder="选择状态">
+        <a-form-item label="状态">
+          <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
             <a-select-option value="pending">待生成</a-select-option>
             <a-select-option value="generated">已生成</a-select-option>
             <a-select-option value="reviewed">已评审</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="需求内容">
-          <a-textarea
-            v-model:value="reqForm.content"
-            :rows="8"
-            placeholder="请输入需求详细描述"
-          />
+        <a-form-item label="所属版本">
+          <a-select v-model:value="filterVersionId" placeholder="全部版本" allow-clear style="width: 150px">
+            <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+          </a-select>
         </a-form-item>
       </a-form>
-    </a-modal>
+    </SearchBar>
+
+    <DataTable
+      :columns="columns"
+      :data-source="list"
+      :loading="loading"
+      row-key="id"
+      size="middle"
+      @change="handleTableChange"
+    >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'version'">
+          <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
+          <span v-else style="color: #999">-</span>
+        </template>
+        <template v-else-if="column.key === 'source'">
+          <a-tag :color="sourceColor(record.source)">{{ sourceLabel(record.source) }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'status'">
+          <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'feature_status'">
+          <a-tooltip v-if="record.feature_split_status === 'failed'" title="拆分失败，点击重新拆分">
+            <a-tag color="red" style="cursor: pointer" @click.stop="resplitFeatures(record)">拆分失败</a-tag>
+          </a-tooltip>
+          <a-tag v-else-if="record.feature_split_status === 'splitting'" color="processing">拆分中</a-tag>
+          <a-tag v-else-if="record.feature_split_status === 'split'" color="green">已拆分</a-tag>
+          <a-tooltip v-else title="点击立即拆分功能点">
+            <a-tag color="orange" style="cursor: pointer" @click.stop="resplitFeatures(record)">待拆分</a-tag>
+          </a-tooltip>
+        </template>
+        <template v-else-if="column.key === 'action'">
+          <a-button type="link" size="small" @click="viewRequirement(record)"><EyeOutlined /> 查看</a-button>
+          <a-button type="link" size="small" @click="editRequirement(record)">编辑</a-button>
+          <a-button type="link" size="small" @click="generateCases(record)">生成用例</a-button>
+          <a-button type="link" size="small" @click="syncOneToKnowledge(record)">同步知识库</a-button>
+          <a-button type="link" size="small" danger @click="handleDelete(record.id, record.title)">删除</a-button>
+        </template>
+      </template>
+    </DataTable>
+    </a-card>
+
+    <!-- 新建/编辑需求对话框 -->
+    <FormModal
+      v-model:visible="modalVisible"
+      :title="editingId ? '编辑需求' : '新建需求'"
+      :loading="modalLoading"
+      width="600px"
+      @ok="submit"
+      @cancel="closeModal"
+    >
+      <a-form-item label="需求标题" required>
+        <a-input v-model:value="formData.title" placeholder="请输入需求标题" />
+      </a-form-item>
+      <a-form-item label="所属版本">
+        <a-select v-model:value="formData.version_id" placeholder="选择版本（可选）" allow-clear>
+          <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="需求状态">
+        <a-select v-model:value="formData.status" placeholder="选择状态">
+          <a-select-option value="pending">待生成</a-select-option>
+          <a-select-option value="generated">已生成</a-select-option>
+          <a-select-option value="reviewed">已评审</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="需求内容">
+        <a-textarea
+          v-model:value="formData.content"
+          :rows="8"
+          placeholder="请输入需求详细描述"
+        />
+      </a-form-item>
+    </FormModal>
 
     <!-- 查看需求弹窗（Markdown 渲染） -->
     <a-modal v-model:open="showViewModal" title="需求详情" :footer="null" width="800px">
@@ -165,8 +173,7 @@
       </a-upload>
     </a-modal>
 
-    <!-- 生成用例对话框 -->
-    <!-- 功能点选择 + 生成用例弹窗 -->
+    <!-- 生成用例对话框（功能点选择） -->
     <FeatureSelectModal
       v-model:open="showGenerateModal"
       :project-id="projectId"
@@ -256,24 +263,29 @@
 
 <script setup lang="ts">
 import { formatDateTime } from '@/utils/date'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { useRoute } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import { PlusOutlined, UploadOutlined, InboxOutlined, RobotOutlined, CloudUploadOutlined, EyeOutlined } from '@ant-design/icons-vue'
-import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateRequirement as generateRequirementApi, generateRequirementStatus, splitFeatures as splitFeaturesApi } from '@/api/cases'
+import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateRequirement as generateRequirementApi, splitFeatures as splitFeaturesApi } from '@/api/cases'
 import { syncRequirementsToKnowledge } from '@/api/knowledge'
 import { getLLMConfigs } from '@/api/llm'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import MdView from '@/components/MdView.vue'
 import FeatureSelectModal from '@/components/FeatureSelectModal.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useList } from '@/composables/useList'
+import { useCRUD } from '@/composables/useCRUD'
 import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
 import { AI_BACKEND_OPTIONS } from '@/constants/enums'
 
 const { showBackendOption: showReqBackend, defaultBackend: reqDefaultBackend, fetch: fetchReqBackend } = useWorkflowBackend()
 const reqBackend = ref('local')
 
-// 功能点拆分模块（requirement.split_features）的执行后端配置
 const {
   showBackendOption: showSplitBackend,
   defaultBackend: splitDefaultBackend,
@@ -284,28 +296,11 @@ const splitBackend = ref('local')
 const route = useRoute()
 const projectId = Number(route.params.id)
 
-const loading = ref(false)
-const saving = ref(false)
 const uploading = ref(false)
 const syncingKb = ref(false)
-const requirements = ref<any[]>([])
-const showCreateModal = ref(false)
 const showUploadModal = ref(false)
 const showViewModal = ref(false)
 const viewingReq = ref<any>(null)
-
-const pagination = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-  showSizeChanger: true,
-  showTotal: (total: number) => `共 ${total} 条`,
-})
-
-function handleTableChange(pag: any) {
-  pagination.current = pag.current
-  pagination.pageSize = pag.pageSize
-}
 const showGenerateModal = ref(false)
 const showAiGenerateModal = ref(false)
 const showResplitModal = ref(false)
@@ -322,19 +317,77 @@ const filterVersionId = ref<number | undefined>(undefined)
 const filterTitle = ref('')
 const filterSource = ref<string | undefined>(undefined)
 const filterStatus = ref<string | undefined>(undefined)
-const editingId = ref<number | null>(null)
 
-const aiGenForm = reactive({
-  description: '',
+// ── 列表（后端返回全量，包装为 useList 统一形态）──
+const { loading, list, total, pagination, loadData, handleTableChange } = useList<any>(
+  async (params) => {
+    const query: any = {}
+    if (filterVersionId.value) query.version_id = filterVersionId.value
+    if (filterTitle.value) query.title = filterTitle.value
+    if (filterSource.value) query.source = filterSource.value
+    if (filterStatus.value) query.status = filterStatus.value
+    const data = await getRequirements(projectId, query)
+    return { items: data, total: data.length, page: params.page, page_size: params.page_size }
+  },
+)
+
+function handleSearch() {
+  pagination.current = 1
+  loadData()
+}
+
+function handleReset() {
+  filterVersionId.value = undefined
+  filterTitle.value = ''
+  filterSource.value = undefined
+  filterStatus.value = undefined
+  pagination.current = 1
+  loadData()
+}
+
+// ── 新增/编辑/删除（useCRUD + FormModal）──
+const defaultReqForm = {
+  title: '',
+  content: '',
   version_id: undefined as number | undefined,
-  prompt_id: undefined as number | undefined,
-  llm_config_id: undefined as number | undefined
+  status: 'pending' as string,
+}
+
+const {
+  modalVisible,
+  modalLoading,
+  editingId,
+  formData,
+  openCreate,
+  openEdit,
+  closeModal,
+  submit,
+  handleDelete,
+} = useCRUD<any>({
+  api: {
+    create: (data) => createRequirement(projectId, { title: data.title, content: data.content, version_id: data.version_id }),
+    update: (id, data) => updateRequirement(projectId, id, { title: data.title, content: data.content, version_id: data.version_id, status: data.status }),
+    remove: (id) => deleteRequirement(projectId, id),
+  },
+  resourceName: '需求',
+  onSuccess: loadData,
+  beforeSubmit: () => {
+    if (!formData.title?.trim()) {
+      message.warning('请输入需求标题')
+      return false
+    }
+    return true
+  },
 })
 
-const resplitForm = reactive({
-  prompt_id: undefined as number | undefined,
-  llm_config_id: undefined as number | undefined
-})
+function editRequirement(row: any) {
+  openEdit(row.id, {
+    title: row.title,
+    content: row.content || '',
+    version_id: row.version_id,
+    status: row.status || 'pending',
+  })
+}
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
@@ -344,7 +397,7 @@ const columns = [
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '功能点', dataIndex: 'feature_split_status', key: 'feature_status', width: 120 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 380, fixed: 'right' }
+  { title: '操作', key: 'action', width: 380, fixed: 'right' },
 ]
 
 function getVersionName(versionId?: number | null) {
@@ -352,119 +405,29 @@ function getVersionName(versionId?: number | null) {
   return versions.value.find(v => v.id === versionId)?.name || '-'
 }
 
-const reqForm = reactive({
-  title: '',
-  content: '',
-  version_id: undefined as number | undefined,
-  status: 'pending' as string
-})
-
 function statusColor(status: string) {
-  const map: Record<string, string> = {
-    pending: 'default',
-    generated: 'processing',
-    reviewed: 'success'
-  }
+  const map: Record<string, string> = { pending: 'default', generated: 'processing', reviewed: 'success' }
   return map[status] || 'default'
 }
 
 function statusLabel(status: string) {
-  const map: Record<string, string> = {
-    pending: '待生成',
-    generated: '已生成',
-    reviewed: '已评审'
-  }
+  const map: Record<string, string> = { pending: '待生成', generated: '已生成', reviewed: '已评审' }
   return map[status] || status
 }
 
 function sourceColor(source: string) {
-  const map: Record<string, string> = {
-    manual: 'blue',
-    upload: 'green',
-    ai: 'purple'
-  }
+  const map: Record<string, string> = { manual: 'blue', upload: 'green', ai: 'purple' }
   return map[source] || 'default'
 }
 
 function sourceLabel(source: string) {
-  const map: Record<string, string> = {
-    manual: '手动',
-    upload: '上传',
-    ai: 'AI生成'
-  }
+  const map: Record<string, string> = { manual: '手动', upload: '上传', ai: 'AI生成' }
   return map[source] || source
-}
-
-async function fetchRequirements() {
-  loading.value = true
-  try {
-    const params: any = {}
-    if (filterVersionId.value) params.version_id = filterVersionId.value
-    if (filterTitle.value) params.title = filterTitle.value
-    if (filterSource.value) params.source = filterSource.value
-    if (filterStatus.value) params.status = filterStatus.value
-    requirements.value = await getRequirements(projectId, params)
-    pagination.total = requirements.value.length
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleReset() {
-  filterVersionId.value = undefined
-  filterTitle.value = ''
-  filterSource.value = undefined
-  filterStatus.value = undefined
-  fetchRequirements()
-}
-
-async function saveRequirement() {
-  if (!reqForm.title.trim()) {
-    message.warning('请输入需求标题')
-    return
-  }
-  saving.value = true
-  try {
-    if (editingId.value) {
-      await updateRequirement(projectId, editingId.value, {
-        title: reqForm.title,
-        content: reqForm.content,
-        version_id: reqForm.version_id,
-        status: reqForm.status
-      })
-      message.success('更新成功')
-    } else {
-      await createRequirement(projectId, { title: reqForm.title, content: reqForm.content, version_id: reqForm.version_id })
-      message.success('创建成功')
-    }
-    showCreateModal.value = false
-    resetForm()
-    fetchRequirements()
-  } finally {
-    saving.value = false
-  }
-}
-
-function resetForm() {
-  editingId.value = null
-  reqForm.title = ''
-  reqForm.content = ''
-  reqForm.version_id = undefined
-  reqForm.status = 'pending'
 }
 
 function viewRequirement(row: any) {
   viewingReq.value = row
   showViewModal.value = true
-}
-
-function editRequirement(row: any) {
-  editingId.value = row.id
-  reqForm.title = row.title
-  reqForm.content = row.content || ''
-  reqForm.version_id = row.version_id
-  reqForm.status = row.status || 'pending'
-  showCreateModal.value = true
 }
 
 function handleFileChange(info: any) {
@@ -483,25 +446,10 @@ async function uploadRequirement() {
     message.success('上传成功')
     showUploadModal.value = false
     uploadFile.value = null
-    fetchRequirements()
+    loadData()
   } finally {
     uploading.value = false
   }
-}
-
-function deleteReq(row: any) {
-  Modal.confirm({
-    title: '确认删除',
-    content: `确定要删除需求「${row.title}」吗？`,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    onOk: async () => {
-      await deleteRequirement(projectId, row.id)
-      message.success('删除成功')
-      fetchRequirements()
-    }
-  })
 }
 
 async function syncAllToKnowledge() {
@@ -531,7 +479,7 @@ function generateCases(row: any) {
 }
 
 function onCaseGenerateSuccess() {
-  fetchRequirements()
+  loadData()
 }
 
 function resplitFeatures(row: any) {
@@ -541,6 +489,11 @@ function resplitFeatures(row: any) {
   splitBackend.value = splitDefaultBackend.value || 'local'
   showResplitModal.value = true
 }
+
+const resplitForm = reactive({
+  prompt_id: undefined as number | undefined,
+  llm_config_id: undefined as number | undefined,
+})
 
 async function doResplit() {
   if (!resplittingReq.value) return
@@ -553,13 +506,20 @@ async function doResplit() {
     message.success('功能点拆分任务已提交')
     resplittingReq.value.feature_split_status = 'splitting'
     showResplitModal.value = false
-    setTimeout(() => fetchRequirements(), 5000)
+    setTimeout(() => loadData(), 5000)
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '拆分失败')
   } finally {
     resplitting.value = false
   }
 }
+
+const aiGenForm = reactive({
+  description: '',
+  version_id: undefined as number | undefined,
+  prompt_id: undefined as number | undefined,
+  llm_config_id: undefined as number | undefined,
+})
 
 async function doAiGenerate() {
   if (!aiGenForm.description.trim()) {
@@ -568,66 +528,36 @@ async function doAiGenerate() {
   }
   aiGenerating.value = true
   try {
-    const result: any = await generateRequirementApi(projectId, {
+    await generateRequirementApi(projectId, {
       description: aiGenForm.description,
+      version_id: aiGenForm.version_id,
       llm_config_id: aiGenForm.llm_config_id || undefined,
       prompt_id: aiGenForm.prompt_id || undefined,
-      version_id: aiGenForm.version_id || undefined,
       backend: showReqBackend.value ? reqBackend.value : undefined,
     })
-    message.success(`需求生成任务已提交（任务ID: ${result.task_id}），可在Agent任务中查看进度`)
+    message.success('需求生成任务已提交')
     showAiGenerateModal.value = false
     aiGenForm.description = ''
-    aiGenForm.version_id = undefined
-    aiGenForm.prompt_id = undefined
-    aiGenForm.llm_config_id = undefined
-    reqBackend.value = reqDefaultBackend.value || 'local'
-    setTimeout(() => fetchRequirements(), 3000)
+    setTimeout(() => loadData(), 5000)
   } catch (e: any) {
-    message.error(e?.response?.data?.detail || '提交失败，请重试')
+    message.error(e.response?.data?.detail || '生成失败')
   } finally {
     aiGenerating.value = false
   }
 }
 
-onMounted(() => {
-  fetchRequirements()
-  getLLMConfigs().then(data => { llmConfigs.value = data })
-  getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
-  promptsApi.list('requirement_generation').then(data => { requirementPrompts.value = data }).catch(() => {})
-  promptsApi.list('feature_split').then(data => { splitPrompts.value = data }).catch(() => {})
-  // 查询"需求生成"模块的执行后端有效配置，决定是否展示"执行方式"单选
-  fetchReqBackend('requirement.generate', projectId).then(() => {
-    reqBackend.value = reqDefaultBackend.value || 'local'
-  })
-  // 查询"功能点拆分"模块的执行后端有效配置
-  fetchSplitBackend('requirement.split_features', projectId).then(() => {
-    splitBackend.value = splitDefaultBackend.value || 'local'
-  })
+getVersions(projectId).then(data => { versions.value = ((data as any).items ?? data) as ProjectVersion[] })
+getLLMConfigs().then(data => { llmConfigs.value = data })
+promptsApi.list('requirement_generation').then(data => { requirementPrompts.value = data }).catch(() => {})
+promptsApi.list('feature_split').then(data => { splitPrompts.value = data }).catch(() => {})
+fetchReqBackend('requirement.generate', projectId).then(() => {
+  reqBackend.value = reqDefaultBackend.value || 'local'
+})
+fetchSplitBackend('requirement.split_features', projectId).then(() => {
+  splitBackend.value = splitDefaultBackend.value || 'local'
 })
 </script>
 
 <style scoped>
-.header-actions {
-  display: flex;
-  align-items: center;
-}
-.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
-.req-detail { max-height: 600px; overflow-y: auto; }
-.md-content { line-height: 1.8; color: #1f2329; font-size: 14px; }
-.md-content :deep(h1) { font-size: 20px; margin: 16px 0 8px; font-weight: 600; border-bottom: 1px solid #e8e8e8; padding-bottom: 6px; }
-.md-content :deep(h2) { font-size: 17px; margin: 14px 0 8px; font-weight: 600; color: #1677ff; border-left: 3px solid #1677ff; padding-left: 8px; }
-.md-content :deep(h3) { font-size: 15px; margin: 12px 0 6px; font-weight: 600; }
-.md-content :deep(p) { margin: 8px 0; }
-.md-content :deep(ul), .md-content :deep(ol) { margin: 8px 0; padding-left: 24px; }
-.md-content :deep(li) { margin: 4px 0; }
-.md-content :deep(strong) { font-weight: 600; }
-.md-content :deep(code) { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #d63384; }
-.md-content :deep(pre) { background: #f6f8fa; padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
-.md-content :deep(pre code) { background: none; padding: 0; color: #1f2329; }
-.md-content :deep(blockquote) { border-left: 4px solid #d9d9d9; margin: 10px 0; padding: 8px 16px; color: #606266; background: #fafafa; }
-.md-content :deep(table) { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
-.md-content :deep(th), .md-content :deep(td) { border: 1px solid #e8e8e8; padding: 8px 12px; text-align: left; }
-.md-content :deep(th) { background: #fafafa; font-weight: 600; }
-.md-content :deep(hr) { border: none; border-top: 1px solid #e8e8e8; margin: 16px 0; }
+.req-detail { line-height: 1.6; }
 </style>

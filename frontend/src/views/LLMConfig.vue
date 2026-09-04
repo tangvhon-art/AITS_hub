@@ -1,14 +1,15 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <h2>模型配置管理</h2>
-      <a-button type="primary" @click="showCreateModal = true">
-        <template #icon>
-          <PlusOutlined />
-        </template>
-        新建模型配置
-      </a-button>
-    </div>
+    <PageHeader title="模型配置管理">
+      <template #extra>
+        <a-button type="primary" @click="openCreate(defaultForm)">
+          <template #icon>
+            <PlusOutlined />
+          </template>
+          新建模型配置
+        </a-button>
+      </template>
+    </PageHeader>
 
     <a-alert
       message="支持四种接入模式：OpenAI兼容协议(DeepSeek/vLLM/TGI)、Anthropic Claude、本地Ollama"
@@ -17,174 +18,151 @@
       style="margin-bottom: 20px"
     />
 
-    <div class="filter-bar">
-      <a-space wrap>
-        <a-input
-          v-model:value="filters.name"
-          placeholder="配置名称"
-          allow-clear
-          style="width: 180px"
-          @press-enter="handleSearch"
-        />
-        <a-select
-          v-model:value="filters.provider"
-          placeholder="提供商"
-          allow-clear
-          style="width: 180px"
-          :options="providerOptions"
-        />
-        <a-input
-          v-model:value="filters.model_name"
-          placeholder="模型名称"
-          allow-clear
-          style="width: 160px"
-          @press-enter="handleSearch"
-        />
-        <a-select
-          v-model:value="filters.streaming"
-          placeholder="流式"
-          allow-clear
-          style="width: 100px"
-        >
-          <a-select-option :value="true">是</a-select-option>
-          <a-select-option :value="false">否</a-select-option>
-        </a-select>
-        <a-input-number
-          v-model:value="filters.priority"
-          placeholder="优先级"
-          :min="0"
-          style="width: 100px"
-        />
-        <a-select
-          v-model:value="filters.status"
-          placeholder="状态"
-          allow-clear
-          style="width: 100px"
-        >
-          <a-select-option value="active">启用</a-select-option>
-          <a-select-option value="inactive">停用</a-select-option>
-        </a-select>
-        <a-button type="primary" @click="handleSearch">查询</a-button>
-        <a-button @click="handleReset">重置</a-button>
-      </a-space>
-    </div>
-
-    <a-spin :spinning="loading">
-      <a-table
-        :columns="columns"
-        :data-source="configs"
-        :pagination="pagination"
-        @change="handleTableChange"
-        row-key="id"
-        size="middle"
-        :scroll="{ x: 1100 }"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'name'">
-            <span>{{ record.name }}</span>
-            <a-tag v-if="record.is_default" color="success" style="margin-left: 8px">默认</a-tag>
-          </template>
-          <template v-else-if="column.key === 'provider'">
-            <a-tag :color="providerColor(record.provider)">{{ providerLabel(record.provider) }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'streaming'">
-            <a-tag :color="record.streaming ? 'orange' : 'default'">
-              {{ record.streaming ? '是' : '否' }}
-            </a-tag>
-          </template>
-          <template v-else-if="column.key === 'status'">
-            <a-tag :color="record.status === 'active' ? 'green' : 'default'">
-              {{ record.status === 'active' ? '启用' : '停用' }}
-            </a-tag>
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <a-button type="link" size="small" @click="testConfig(record)">测试连接</a-button>
-            <a-button type="link" size="small" @click="editConfig(record)">编辑</a-button>
-            <a-button v-if="!record.is_default" type="link" size="small" @click="setDefault(record)">设默认</a-button>
-            <a-button type="link" size="small" danger @click="deleteConfig(record)">删除</a-button>
-          </template>
-        </template>
-      </a-table>
-    </a-spin>
-
-    <!-- 创建/编辑对话框 -->
-    <a-modal
-      v-model:open="showCreateModal"
-      :title="editingConfig ? '编辑模型配置' : '新建模型配置'"
-      @ok="saveConfig"
-      :confirm-loading="saving"
-      width="640px"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="配置名称" required>
-          <a-input v-model:value="configForm.name" placeholder="例如：DeepSeek 官方" />
+    <a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+      <a-form layout="inline">
+        <a-form-item label="配置名称">
+          <a-input v-model:value="filters.name" placeholder="配置名称" allow-clear style="width: 180px" />
         </a-form-item>
-        <a-form-item label="提供商" required>
-          <a-select v-model:value="configForm.provider" @change="onProviderChange" :options="providerOptions" />
+        <a-form-item label="提供商">
+          <a-select v-model:value="filters.provider" placeholder="提供商" allow-clear style="width: 180px" :options="providerOptions" />
         </a-form-item>
-        <a-form-item v-if="configForm.provider === 'openai_compatible'" label="API 格式">
-          <a-select v-model:value="configForm.api_format">
-            <a-select-option value="chat_completions">Chat Completions（/v1/chat/completions）</a-select-option>
-            <a-select-option value="responses">Responses API（/v1/responses）</a-select-option>
+        <a-form-item label="模型名称">
+          <a-input v-model:value="filters.model_name" placeholder="模型名称" allow-clear style="width: 160px" />
+        </a-form-item>
+        <a-form-item label="流式">
+          <a-select v-model:value="filters.streaming" placeholder="流式" allow-clear style="width: 100px">
+            <a-select-option :value="true">是</a-select-option>
+            <a-select-option :value="false">否</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item v-if="configForm.provider !== 'anthropic'" label="Base URL">
-          <a-input v-model:value="configForm.base_url" :placeholder="baseUrlPlaceholder" />
+        <a-form-item label="优先级">
+          <a-input-number v-model:value="filters.priority" placeholder="优先级" :min="0" style="width: 100px" />
         </a-form-item>
-        <a-form-item v-if="configForm.provider !== 'ollama'" label="API Key">
-          <a-input-password
-            v-model:value="configForm.api_key"
-            placeholder="留空则不修改"
-          />
-        </a-form-item>
-        <a-form-item label="模型名称" required>
-          <a-input v-model:value="configForm.model_name" :placeholder="modelNamePlaceholder" />
-        </a-form-item>
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="最大 Token">
-              <a-input-number
-                v-model:value="configForm.max_tokens"
-                :min="256"
-                :max="128000"
-                style="width: 100%"
-              />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="温度">
-              <a-input-number
-                v-model:value="configForm.temperature"
-                :min="0"
-                :max="2"
-                :step="0.1"
-                style="width: 100%"
-              />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="优先级">
-              <a-input-number v-model:value="configForm.priority" :min="0" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="流式输出">
-              <a-switch v-model:checked="configForm.streaming" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="设为默认">
-              <a-switch v-model:checked="configForm.is_default" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="描述">
-          <a-textarea v-model:value="configForm.description" :rows="2" placeholder="可选描述" />
+        <a-form-item label="状态">
+          <a-select v-model:value="filters.status" placeholder="状态" allow-clear style="width: 100px">
+            <a-select-option value="active">启用</a-select-option>
+            <a-select-option value="inactive">停用</a-select-option>
+          </a-select>
         </a-form-item>
       </a-form>
-    </a-modal>
+    </SearchBar>
+
+    <DataTable
+      :columns="columns"
+      :data-source="list"
+      :loading="loading"
+      row-key="id"
+      size="middle"
+      @change="handleTableChange"
+    >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'name'">
+          <span>{{ record.name }}</span>
+          <a-tag v-if="record.is_default" color="success" style="margin-left: 8px">默认</a-tag>
+        </template>
+        <template v-else-if="column.key === 'provider'">
+          <a-tag :color="providerColor(record.provider)">{{ providerLabel(record.provider) }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'streaming'">
+          <a-tag :color="record.streaming ? 'orange' : 'default'">
+            {{ record.streaming ? '是' : '否' }}
+          </a-tag>
+        </template>
+        <template v-else-if="column.key === 'status'">
+          <a-tag :color="record.status === 'active' ? 'green' : 'default'">
+            {{ record.status === 'active' ? '启用' : '停用' }}
+          </a-tag>
+        </template>
+        <template v-else-if="column.key === 'action'">
+          <a-button type="link" size="small" @click="testConfig(record)">测试连接</a-button>
+          <a-button type="link" size="small" @click="editConfig(record)">编辑</a-button>
+          <a-button v-if="!record.is_default" type="link" size="small" @click="setDefault(record)">设默认</a-button>
+          <a-button type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
+        </template>
+      </template>
+    </DataTable>
+    </a-card>
+
+    <!-- 创建/编辑对话框 -->
+    <FormModal
+      v-model:visible="modalVisible"
+      :title="editingId ? '编辑模型配置' : '新建模型配置'"
+      :loading="modalLoading"
+      width="640px"
+      @ok="submit"
+    >
+      <a-form-item label="配置名称" required>
+        <a-input v-model:value="formData.name" placeholder="例如：DeepSeek 官方" />
+      </a-form-item>
+      <a-form-item label="提供商" required>
+        <a-select v-model:value="formData.provider" @change="onProviderChange" :options="providerOptions" />
+      </a-form-item>
+      <a-form-item v-if="formData.provider === 'openai_compatible'" label="API 格式">
+        <a-select v-model:value="formData.api_format">
+          <a-select-option value="chat_completions">Chat Completions（/v1/chat/completions）</a-select-option>
+          <a-select-option value="responses">Responses API（/v1/responses）</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item v-if="formData.provider !== 'anthropic'" label="Base URL">
+        <a-input v-model:value="formData.base_url" :placeholder="baseUrlPlaceholder" />
+      </a-form-item>
+      <a-form-item v-if="formData.provider !== 'ollama'" label="API Key">
+        <a-input-password
+          v-model:value="formData.api_key"
+          placeholder="留空则不修改"
+        />
+      </a-form-item>
+      <a-form-item label="模型名称" required>
+        <a-input v-model:value="formData.model_name" :placeholder="modelNamePlaceholder" />
+      </a-form-item>
+      <a-row :gutter="16">
+        <a-col :span="12">
+          <a-form-item label="最大 Token">
+            <a-input-number
+              v-model:value="formData.max_tokens"
+              :min="256"
+              :max="128000"
+              style="width: 100%"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="12">
+          <a-form-item label="温度">
+            <a-input-number
+              v-model:value="formData.temperature"
+              :min="0"
+              :max="2"
+              :step="0.1"
+              style="width: 100%"
+            />
+          </a-form-item>
+        </a-col>
+      </a-row>
+      <a-row :gutter="16">
+        <a-col :span="8">
+          <a-form-item label="优先级">
+            <a-input-number v-model:value="formData.priority" :min="0" style="width: 100%" />
+          </a-form-item>
+        </a-col>
+        <a-col :span="8">
+          <a-form-item label="流式输出">
+            <a-switch v-model:checked="formData.streaming" />
+          </a-form-item>
+        </a-col>
+        <a-col :span="8">
+          <a-form-item label="设为默认">
+            <a-switch v-model:checked="formData.is_default" />
+          </a-form-item>
+        </a-col>
+      </a-row>
+      <a-form-item label="描述">
+        <a-textarea v-model:value="formData.description" :rows="2" placeholder="可选描述" />
+      </a-form-item>
+    </FormModal>
 
     <!-- 测试结果对话框 -->
     <a-modal
@@ -217,15 +195,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
-import { message, Modal } from 'ant-design-vue'
+import { ref, reactive, computed } from 'vue'
+import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { getLLMConfigs, createLLMConfig, updateLLMConfig, deleteLLMConfig, testLLMConfig, setDefaultLLMConfig, type LLMConfigQuery } from '@/api/llm'
-
-const loading = ref(false)
-const saving = ref(false)
-const configs = ref<any[]>([])
-const showCreateModal = ref(false)
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useList } from '@/composables/useList'
+import { useCRUD } from '@/composables/useCRUD'
 
 const filters = reactive<LLMConfigQuery>({
   name: undefined,
@@ -236,21 +215,39 @@ const filters = reactive<LLMConfigQuery>({
   status: undefined,
 })
 
-const pagination = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-  showSizeChanger: true,
-  showTotal: (total: number) => `共 ${total} 条`,
-})
+// ── 列表（后端返回全量，包装为 useList 统一形态）──
+const { loading, list, total, pagination, loadData, handleTableChange } = useList<any>(
+  async (params) => {
+    const query: LLMConfigQuery = {}
+    if (filters.name) query.name = filters.name
+    if (filters.provider) query.provider = filters.provider
+    if (filters.model_name) query.model_name = filters.model_name
+    if (filters.streaming !== undefined && filters.streaming !== null) query.streaming = filters.streaming
+    if (filters.priority !== undefined && filters.priority !== null) query.priority = filters.priority
+    if (filters.status) query.status = filters.status
+    const data = await getLLMConfigs(query)
+    return { items: data, total: data.length, page: params.page, page_size: params.page_size }
+  },
+)
 
-function handleTableChange(pag: any) {
-  pagination.current = pag.current
-  pagination.pageSize = pag.pageSize
+function handleSearch() {
+  pagination.current = 1
+  loadData()
 }
-const editingConfig = ref<any>(null)
 
-const configForm = reactive({
+function handleReset() {
+  filters.name = undefined
+  filters.provider = undefined
+  filters.model_name = undefined
+  filters.streaming = undefined
+  filters.priority = undefined
+  filters.status = undefined
+  pagination.current = 1
+  loadData()
+}
+
+// ── 新增/编辑/删除（useCRUD + FormModal）──
+const defaultForm = {
   name: '',
   provider: 'openai_compatible',
   base_url: '',
@@ -263,8 +260,60 @@ const configForm = reactive({
   status: 'active',
   priority: 0,
   description: '',
-  api_format: 'chat_completions'
+  api_format: 'chat_completions',
+}
+
+const {
+  modalVisible,
+  modalLoading,
+  editingId,
+  formData,
+  openCreate,
+  openEdit,
+  submit,
+  handleDelete,
+} = useCRUD<any>({
+  api: {
+    create: (data) => {
+      const payload: any = { ...data }
+      delete payload.api_key
+      return createLLMConfig(payload)
+    },
+    update: (id, data) => {
+      const payload: any = { ...data }
+      if (!payload.api_key) delete payload.api_key
+      return updateLLMConfig(id, payload)
+    },
+    remove: (id) => deleteLLMConfig(id),
+  },
+  resourceName: '模型配置',
+  onSuccess: loadData,
+  beforeSubmit: () => {
+    if (!formData.name?.trim()) {
+      message.warning('请输入配置名称')
+      return false
+    }
+    if (!formData.model_name?.trim()) {
+      message.warning('请输入模型名称')
+      return false
+    }
+    // 新建且非 ollama 时必须有 API Key
+    if (editingId.value === null && !formData.api_key && formData.provider !== 'ollama') {
+      message.warning('请输入 API Key')
+      return false
+    }
+    return true
+  },
 })
+
+/** 编辑：回填表单，API Key 留空 */
+function editConfig(row: any) {
+  openEdit(row.id, {
+    ...row,
+    api_key: '',
+    api_format: row.api_format || 'chat_completions',
+  })
+}
 
 const showTestResult = ref(false)
 const testLoading = ref(false)
@@ -279,23 +328,23 @@ const columns = [
   { title: '流式', dataIndex: 'streaming', key: 'streaming', width: 70 },
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 80 },
-  { title: '操作', key: 'action', width: 260, fixed: 'right' }
+  { title: '操作', key: 'action', width: 300, fixed: 'right' },
 ]
 
 const providerOptions = [
   { label: 'OpenAI 兼容协议 (DeepSeek/vLLM/TGI)', value: 'openai_compatible' },
   { label: 'Anthropic Claude', value: 'anthropic' },
-  { label: '本地 Ollama', value: 'ollama' }
+  { label: '本地 Ollama', value: 'ollama' },
 ]
 
 const baseUrlPlaceholder = computed(() => {
-  if (configForm.provider === 'ollama') return 'http://localhost:11434'
+  if (formData.provider === 'ollama') return 'http://localhost:11434'
   return 'https://api.deepseek.com/v1'
 })
 
 const modelNamePlaceholder = computed(() => {
-  if (configForm.provider === 'anthropic') return 'claude-3-5-sonnet-20241022'
-  if (configForm.provider === 'ollama') return 'llama3.1'
+  if (formData.provider === 'anthropic') return 'claude-3-5-sonnet-20241022'
+  if (formData.provider === 'ollama') return 'llama3.1'
   return 'deepseek-chat'
 })
 
@@ -303,7 +352,7 @@ function providerLabel(provider: string) {
   const map: Record<string, string> = {
     openai_compatible: 'OpenAI兼容',
     anthropic: 'Claude',
-    ollama: 'Ollama'
+    ollama: 'Ollama',
   }
   return map[provider] || provider
 }
@@ -312,121 +361,20 @@ function providerColor(provider: string) {
   const map: Record<string, string> = {
     openai_compatible: 'blue',
     anthropic: 'purple',
-    ollama: 'green'
+    ollama: 'green',
   }
   return map[provider] || 'default'
 }
 
 function onProviderChange() {
-  if (configForm.provider === 'ollama') {
-    configForm.base_url = 'http://localhost:11434'
-    configForm.api_key = ''
-  } else if (configForm.provider === 'openai_compatible') {
-    configForm.base_url = 'https://api.deepseek.com/v1'
-  } else if (configForm.provider === 'anthropic') {
-    configForm.base_url = ''
+  if (formData.provider === 'ollama') {
+    formData.base_url = 'http://localhost:11434'
+    formData.api_key = ''
+  } else if (formData.provider === 'openai_compatible') {
+    formData.base_url = 'https://api.deepseek.com/v1'
+  } else if (formData.provider === 'anthropic') {
+    formData.base_url = ''
   }
-}
-
-async function fetchConfigs() {
-  loading.value = true
-  try {
-    const params: LLMConfigQuery = {}
-    if (filters.name) params.name = filters.name
-    if (filters.provider) params.provider = filters.provider
-    if (filters.model_name) params.model_name = filters.model_name
-    if (filters.streaming !== undefined && filters.streaming !== null) params.streaming = filters.streaming
-    if (filters.priority !== undefined && filters.priority !== null) params.priority = filters.priority
-    if (filters.status) params.status = filters.status
-    configs.value = await getLLMConfigs(params)
-    pagination.total = configs.value.length
-    pagination.current = 1
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  fetchConfigs()
-}
-
-function handleReset() {
-  filters.name = undefined
-  filters.provider = undefined
-  filters.model_name = undefined
-  filters.streaming = undefined
-  filters.priority = undefined
-  filters.status = undefined
-  fetchConfigs()
-}
-
-function editConfig(row: any) {
-  editingConfig.value = row
-  Object.assign(configForm, {
-    name: row.name,
-    provider: row.provider,
-    base_url: row.base_url,
-    api_key: '',
-    model_name: row.model_name,
-    max_tokens: row.max_tokens,
-    temperature: row.temperature,
-    streaming: row.streaming || false,
-    is_default: row.is_default,
-    status: row.status,
-    priority: row.priority,
-    description: row.description,
-    api_format: row.api_format || 'chat_completions'
-  })
-  showCreateModal.value = true
-}
-
-async function saveConfig() {
-  if (!configForm.name.trim()) {
-    message.warning('请输入配置名称')
-    return
-  }
-  if (!configForm.model_name.trim()) {
-    message.warning('请输入模型名称')
-    return
-  }
-
-  const data: any = { ...configForm }
-  if (!data.api_key) delete data.api_key
-
-  saving.value = true
-  try {
-    if (editingConfig.value) {
-      await updateLLMConfig(editingConfig.value.id, data)
-      message.success('更新成功')
-    } else {
-      if (!configForm.api_key && configForm.provider !== 'ollama') {
-        message.warning('请输入 API Key')
-        return
-      }
-      await createLLMConfig(configForm)
-      message.success('创建成功')
-    }
-    showCreateModal.value = false
-    editingConfig.value = null
-    fetchConfigs()
-  } finally {
-    saving.value = false
-  }
-}
-
-function deleteConfig(row: any) {
-  Modal.confirm({
-    title: '确认删除',
-    content: `确定要删除配置「${row.name}」吗？`,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    onOk: async () => {
-      await deleteLLMConfig(row.id)
-      message.success('删除成功')
-      fetchConfigs()
-    }
-  })
 }
 
 async function testConfig(row: any) {
@@ -445,16 +393,11 @@ async function testConfig(row: any) {
 async function setDefault(row: any) {
   await setDefaultLLMConfig(row.id)
   message.success('已设为默认模型')
-  fetchConfigs()
+  loadData()
 }
-
-onMounted(fetchConfigs)
 </script>
 
 <style scoped>
-.filter-bar {
-  margin-bottom: 16px;
-}
 .response-box {
   background: #fafafa;
   border: 1px solid #f0f0f0;

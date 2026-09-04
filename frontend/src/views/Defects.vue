@@ -1,35 +1,47 @@
 <template>
   <div class="defects-page">
-    <div class="page-header">
-      <h2>缺陷管理</h2>
-      <a-button type="primary" @click="showCreateModal">
+    <PageHeader title="缺陷管理">
+  <template #extra>
+    <a-button type="primary" @click="showCreateModal">
         <template #icon><PlusOutlined /></template>
         新建缺陷
       </a-button>
-    </div>
-
-    <div class="filter-bar">
-      <a-input v-model:value="filterTitle" placeholder="标题" allow-clear style="width: 180px" />
-      <a-select v-model:value="filterVersionId" placeholder="所属版本" allow-clear style="width: 150px">
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="标题">
+<a-input v-model:value="filterTitle" placeholder="标题" allow-clear style="width: 180px" />
+</a-form-item>
+      <a-form-item label="所属版本">
+<a-select v-model:value="filterVersionId" placeholder="所属版本" allow-clear style="width: 150px">
         <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
       </a-select>
-      <a-select v-model:value="filterSeverity" placeholder="严重程度" allow-clear style="width: 120px">
+</a-form-item>
+      <a-form-item label="严重程度">
+<a-select v-model:value="filterSeverity" placeholder="严重程度" allow-clear style="width: 120px">
         <a-select-option value="blocker">致命</a-select-option>
         <a-select-option value="critical">严重</a-select-option>
         <a-select-option value="major">主要</a-select-option>
         <a-select-option value="minor">次要</a-select-option>
         <a-select-option value="trivial">轻微</a-select-option>
       </a-select>
-      <a-select v-model:value="filterPriority" placeholder="优先级" allow-clear style="width: 120px">
+</a-form-item>
+      <a-form-item label="优先级">
+<a-select v-model:value="filterPriority" placeholder="优先级" allow-clear style="width: 120px">
         <a-select-option value="P0">P0</a-select-option>
         <a-select-option value="P1">P1</a-select-option>
         <a-select-option value="P2">P2</a-select-option>
         <a-select-option value="P3">P3</a-select-option>
       </a-select>
-      <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
+</a-form-item>
+      <a-form-item label="状态">
+<a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
         <a-select-option v-for="opt in DEFECT_STATUS_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
       </a-select>
-      <a-select v-model:value="filterRootCauseCategory" placeholder="根因分类" allow-clear style="width: 120px">
+</a-form-item>
+      <a-form-item label="根因分类">
+<a-select v-model:value="filterRootCauseCategory" placeholder="根因分类" allow-clear style="width: 120px">
         <a-select-option value="frontend">前端</a-select-option>
         <a-select-option value="backend">后端</a-select-option>
         <a-select-option value="data">数据</a-select-option>
@@ -37,19 +49,19 @@
         <a-select-option value="requirement">需求</a-select-option>
         <a-select-option value="other">其他</a-select-option>
       </a-select>
-      <a-button type="primary" @click="loadDefects">查询</a-button>
-      <a-button @click="handleReset">重置</a-button>
-    </div>
-
-    <a-card>
-      <a-table
+</a-form-item>
+  </a-form>
+</SearchBar>
+      <DataTable
         :columns="columns"
         :data-source="defects"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'version'">
             <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
@@ -68,70 +80,78 @@
             <a-space>
               <a-button type="link" size="small" @click="viewDefect(record)">详情</a-button>
               <a-button type="link" size="small" @click="editDefect(record)">编辑</a-button>
-              <a-popconfirm title="确定删除此缺陷？" @confirm="deleteDefect(record.id)">
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" danger @click="confirmDelete(record, () => deleteDefect(record.id))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 新建/编辑弹窗 -->
-    <a-modal
-      v-model:open="modalVisible"
-      :title="editingDefect ? '编辑缺陷' : '新建缺陷'"
-      @ok="handleSubmit"
-      :confirm-loading="submitting"
+    <FormModal
+      v-model:visible="modalVisible"
+      title="editingDefect ? '编辑缺陷' : '新建缺陷'"
+      :loading="submitting"
       width="700px"
+      @ok="handleSubmit"
     >
-      <a-form :model="formData" layout="vertical">
-        <a-row :gutter="16">
+      <a-row :gutter="16">
           <a-col :span="16">
             <a-form-item label="缺陷标题" required>
-              <a-input v-model:value="formData.title" placeholder="请输入缺陷标题" />
+              <a-form-item label="筛选">
+<a-input v-model:value="formData.title" placeholder="请输入缺陷标题" />
+</a-form-item>
             </a-form-item>
           </a-col>
           <a-col :span="8">
             <a-form-item label="严重程度">
-              <a-select v-model:value="formData.severity">
+              <a-form-item label="筛选">
+<a-select v-model:value="formData.severity">
                 <a-select-option value="blocker">致命</a-select-option>
                 <a-select-option value="critical">严重</a-select-option>
                 <a-select-option value="major">主要</a-select-option>
                 <a-select-option value="minor">次要</a-select-option>
                 <a-select-option value="trivial">轻微</a-select-option>
               </a-select>
+</a-form-item>
             </a-form-item>
           </a-col>
         </a-row>
         <a-row :gutter="16">
           <a-col :span="8">
             <a-form-item label="所属版本">
-              <a-select v-model:value="formData.version_id" allow-clear placeholder="选择版本（可选）">
+              <a-form-item label="筛选">
+<a-select v-model:value="formData.version_id" allow-clear placeholder="选择版本（可选）">
                 <a-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</a-select-option>
               </a-select>
+</a-form-item>
             </a-form-item>
           </a-col>
           <a-col :span="8">
             <a-form-item label="优先级">
-              <a-select v-model:value="formData.priority">
+              <a-form-item label="筛选">
+<a-select v-model:value="formData.priority">
                 <a-select-option value="P0">P0</a-select-option>
                 <a-select-option value="P1">P1</a-select-option>
                 <a-select-option value="P2">P2</a-select-option>
                 <a-select-option value="P3">P3</a-select-option>
               </a-select>
+</a-form-item>
             </a-form-item>
           </a-col>
           <a-col :span="8">
             <a-form-item label="状态">
-              <a-select v-model:value="formData.status">
+              <a-form-item label="筛选">
+<a-select v-model:value="formData.status">
                 <a-select-option v-for="opt in DEFECT_STATUS_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
               </a-select>
+</a-form-item>
             </a-form-item>
           </a-col>
           <a-col :span="8">
             <a-form-item label="根因分类">
-              <a-select v-model:value="formData.root_cause_category" allow-clear>
+              <a-form-item label="筛选">
+<a-select v-model:value="formData.root_cause_category" allow-clear>
                 <a-select-option value="frontend">前端</a-select-option>
                 <a-select-option value="backend">后端</a-select-option>
                 <a-select-option value="data">数据</a-select-option>
@@ -139,6 +159,7 @@
                 <a-select-option value="requirement">需求</a-select-option>
                 <a-select-option value="other">其他</a-select-option>
               </a-select>
+</a-form-item>
             </a-form-item>
           </a-col>
         </a-row>
@@ -163,8 +184,7 @@
         <a-form-item label="根因分析">
           <a-textarea v-model:value="formData.root_cause" :rows="2" />
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 详情弹窗 -->
     <a-modal v-model:open="detailVisible" title="缺陷详情" :footer="null" width="700px">
@@ -199,6 +219,12 @@ import { PlusOutlined } from '@ant-design/icons-vue'
 import { getDefects, createDefect, updateDefect, deleteDefect as deleteDefectApi, type Defect } from '@/api/defects'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { DEFECT_STATUS_COLOR, DEFECT_STATUS_TEXT, DEFECT_STATUS_OPTIONS } from '@/constants/enums'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('缺陷')
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -285,6 +311,11 @@ function handleReset() {
   filterVersionId.value = undefined
   loadDefects()
 }
+function handleSearch() {
+  pagination.value.current = 1
+  loadDefects()
+}
+
 
 function handleTableChange(pag: any) {
   pagination.value.current = pag.current

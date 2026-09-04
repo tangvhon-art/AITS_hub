@@ -1,15 +1,14 @@
 <template>
   <div class="case-reviews-page">
-    <div class="page-header">
-      <h2>用例评审</h2>
-      <a-button type="primary" @click="showReviewModal = true">
+    <PageHeader title="用例评审">
+  <template #extra>
+    <a-button type="primary" @click="showReviewModal = true">
         <template #icon><AuditOutlined /></template>
         新建评审
       </a-button>
-    </div>
-
-    <a-card>
-      <a-form layout="inline" style="margin-bottom: 16px">
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="loadReviews" @reset="handleReset">
         <a-form-item label="状态">
           <a-select v-model:value="filterStatus" allow-clear placeholder="全部" style="width: 150px">
             <a-select-option value="running">评审中</a-select-option>
@@ -17,21 +16,18 @@
             <a-select-option value="failed">失败</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item>
-          <a-space>
-            <a-button type="primary" @click="loadReviews">查询</a-button>
-            <a-button @click="handleReset">重置</a-button>
-          </a-space>
-        </a-form-item>
-      </a-form>
-      <a-table
+        
+      </SearchBar>
+      <DataTable
         :columns="columns"
         :data-source="reviews"
         :loading="loading"
-        :pagination="pagination"
         row-key="id"
         @change="handleTableChange"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
@@ -67,7 +63,7 @@
             <a-button type="link" size="small" @click="viewDetail(record)">查看详情</a-button>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 新建评审弹窗 -->
@@ -185,11 +181,10 @@
 
           <!-- 分组评价 -->
           <a-card v-if="currentDetail.output_result?.group_reviews?.length" size="small" title="分组评价（按需求+模块）" style="margin-bottom: 16px">
-            <a-table
+            <DataTable
               :columns="groupReviewColumns"
               :data-source="currentDetail.output_result.group_reviews"
-              :pagination="false"
-              row-key="(_r: any, i: number) => i"
+                            row-key="(_r: any, i: number) => i"
               size="small"
             >
               <template #bodyCell="{ column, record }">
@@ -217,7 +212,7 @@
                   </a-tooltip>
                 </template>
               </template>
-            </a-table>
+            </DataTable>
           </a-card>
 
           <!-- 遗漏场景 -->
@@ -239,12 +234,11 @@
           <!-- 问题列表 -->
           <a-card size="small" title="问题列表" style="margin-bottom: 16px">
             <a-empty v-if="!currentDetail.output_result?.issues?.length" description="无问题" />
-            <a-table
+            <DataTable
               v-else
               :columns="issueColumns"
               :data-source="currentDetail.output_result.issues"
-              :pagination="false"
-              row-key="case_id"
+                            row-key="case_id"
               size="small"
             >
               <template #bodyCell="{ column, record }">
@@ -284,7 +278,7 @@
                   </a-tooltip>
                 </template>
               </template>
-            </a-table>
+            </DataTable>
           </a-card>
 
           <!-- 改进建议 -->
@@ -339,16 +333,17 @@
           @pressEnter="scopePage = 1"
         />
         <a-space>
-          <a-button type="primary" @click="scopePage = 1">查询</a-button>
-          <a-button @click="handleScopeReset">重置</a-button>
+          
         </a-space>
       </div>
-      <a-table
+      <DataTable
         :columns="scopeColumns"
         :data-source="scopeFilteredData"
-        :pagination="scopePagination"
         :loading="false"
         row-key="(_r: any, i: number) => i"
+        :page="scopePagination.current"
+        :page-size="scopePagination.pageSize"
+        :total="scopePagination.total"
         size="small"
         @change="handleScopeTableChange"
       >
@@ -366,7 +361,7 @@
             </a-tooltip>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-modal>
 
     <!-- 优化用例弹窗 -->
@@ -467,6 +462,9 @@ import { getLLMConfigs } from '@/api/llm'
 import { getAgentTask } from '@/api/agentTasks'
 import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
 import { AI_BACKEND_OPTIONS } from '@/constants/enums'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
+import SearchBar from '@/components/SearchBar.vue'
 
 // 用例评审模块（case.review）的执行后端配置
 const {

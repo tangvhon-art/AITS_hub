@@ -1,23 +1,25 @@
 <template>
   <div class="data-pools">
-    <div class="page-header">
-      <h2>测试数据池</h2>
-      <a-button type="primary" @click="handleCreate"><PlusOutlined /> 新建数据池</a-button>
-    </div>
-    <a-card>
-      <div class="filter-bar">
-        <a-input-search v-model:value="keyword" placeholder="搜索名称" allow-clear style="width: 250px" @search="loadData" />
+    <PageHeader title="测试数据池">
+  <template #extra>
+    <a-button type="primary" @click="handleCreate"><PlusOutlined /> 新建数据池</a-button>
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-input-search v-model:value="keyword" placeholder="搜索名称" allow-clear style="width: 250px" @search="loadData" />
         <a-select v-model:value="typeFilter" allow-clear placeholder="数据类型" style="width: 150px">
           <a-select-option value="static">静态数据</a-select-option>
           <a-select-option value="dynamic">动态生成</a-select-option>
           <a-select-option value="generated">自动生成</a-select-option>
         </a-select>
         <a-space>
-          <a-button type="primary" @click="loadData">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
         </a-space>
-      </div>
-      <a-table :columns="columns" :data-source="list" :loading="loading" :pagination="paginationConfig" row-key="id" @change="handleTableChange">
+  </a-form>
+</SearchBar><DataTable :columns="columns" :data-source="list" :loading="loading" row-key="id" @change="handleTableChange">
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'data_type'">
             <a-tag :color="typeColor(record.data_type)">{{ typeText(record.data_type) }}</a-tag>
@@ -26,17 +28,15 @@
             <a-space>
               <a-button size="small" type="link" @click="handlePreview(record)">预览</a-button>
               <a-button size="small" type="link" @click="handleEdit(record)">编辑</a-button>
-              <a-popconfirm title="确定删除？" @confirm="handleDelete(record)">
-                <a-button size="small" type="link" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button size="small" type="link" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <a-modal v-model:open="previewVisible" title="数据预览" width="800px" :footer="null">
-      <a-table :columns="previewColumns" :data-source="previewData" :pagination="false" size="small" :scroll="{ y: 400 }" />
+      <DataTable :columns="previewColumns" :data-source="previewData" :pagination="false" size="small" :scroll="{ y: 400 }" />
     </a-modal>
   </div>
 </template>
@@ -48,6 +48,11 @@ import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { dataPoolsApi, type TestDataPool } from '@/api/dataPools'
 import { useList } from '@/composables/useList'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('数据池')
 
 const route = useRoute()
 const router = useRouter()
@@ -98,6 +103,11 @@ function handleReset() {
   pagination.current = 1
   loadData()
 }
+function handleSearch() {
+  pagination.current = 1
+  loadData()
+}
+
 
 function handleCreate() {
   router.push(`/projects/${projectId}/data-factory/pools/new`)

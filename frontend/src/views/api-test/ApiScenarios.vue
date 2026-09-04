@@ -1,41 +1,39 @@
 <template>
   <div class="api-scenarios">
-    <div class="page-header">
-      <h2>场景编排</h2>
-      <a-button type="primary" @click="handleCreate">
+    <PageHeader title="场景编排">
+  <template #extra>
+    <a-button type="primary" @click="handleCreate">
         <template #icon><PlusOutlined /></template>
         新建场景
       </a-button>
-    </div>
-
-    <a-card>
-      <div class="filter-bar">
-        <a-input-search v-model:value="keyword" placeholder="搜索场景名称" style="width: 250px" @search="loadData" />
-        <a-space>
-          <a-button type="primary" @click="loadData">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </div>
-      <a-table
+  </template>
+</PageHeader><a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="场景名称">
+<a-input-search v-model:value="keyword" placeholder="搜索场景名称" style="width: 250px" @search="loadData" />
+</a-form-item>
+  </a-form>
+</SearchBar><DataTable
         :columns="columns"
         :data-source="dataSource"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'action'">
             <a-space>
               <a-button type="link" size="small" @click="handleRun(record)">执行</a-button>
               <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
-              <a-popconfirm title="确定删除该场景？" @confirm="handleDelete(record)">
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
   </div>
 </template>
@@ -46,6 +44,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { apiScenariosApi, type ApiScenario } from '@/api/apiTest'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('接口场景')
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
@@ -87,6 +90,11 @@ function handleReset() {
   pagination.value.current = 1
   loadData()
 }
+function handleSearch() {
+  pagination.value.current = 1
+  loadData()
+}
+
 
 const handleCreate = () => {
   router.push(`/projects/${projectId}/api-test/scenarios/new`)

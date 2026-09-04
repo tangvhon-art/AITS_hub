@@ -19,12 +19,17 @@ def list_connectors(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
+    keyword: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     query = db.query(MCPConnector).filter(MCPConnector.is_deleted == False)
     if status:
         query = query.filter(MCPConnector.status == status)
+    if keyword:
+        query = query.filter(
+            (MCPConnector.name.ilike(f"%{keyword}%")) | (MCPConnector.description.ilike(f"%{keyword}%"))
+        )
     total = query.count()
     items = query.order_by(MCPConnector.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {"total": total, "items": items}

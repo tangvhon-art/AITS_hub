@@ -1,107 +1,112 @@
 <template>
   <div class="versions-page">
-    <div class="page-header">
-      <h2>版本管理</h2>
-      <a-button type="primary" @click="openCreate(defaultForm)">
-        <template #icon><PlusOutlined /></template>
-        新建版本
-      </a-button>
-    </div>
+    <PageHeader title="版本管理">
+      <template #extra>
+        <a-button type="primary" @click="openCreate(defaultForm)">
+          <template #icon><PlusOutlined /></template>
+          新建版本
+        </a-button>
+      </template>
+    </PageHeader>
 
     <a-card>
-      <div style="margin-bottom: 12px">
-        <a-space wrap>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+      <a-form layout="inline">
+        <a-form-item label="版本名称">
           <a-input v-model:value="filterName" placeholder="版本名称" allow-clear style="width: 180px" />
+        </a-form-item>
+        <a-form-item label="状态">
           <a-select v-model:value="filterStatus" placeholder="状态筛选" allow-clear style="width: 140px">
             <a-select-option value="draft">草稿</a-select-option>
             <a-select-option value="active">进行中</a-select-option>
             <a-select-option value="released">已发布</a-select-option>
             <a-select-option value="archived">已归档</a-select-option>
           </a-select>
+        </a-form-item>
+        <a-form-item label="日期范围">
           <a-range-picker v-model:value="filterDateRange" :placeholder="['开始日期', '结束日期']" />
-          <a-button type="primary" @click="handleSearch">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </div>
+        </a-form-item>
+      </a-form>
+    </SearchBar>
 
-      <a-table
-        :columns="columns"
-        :data-source="list"
-        :loading="loading"
-        :pagination="paginationConfig"
-        @change="handleTableChange"
-        row-key="id"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'date_range'">
-            <span>{{ record.start_date ? formatDate(record.start_date) : '-' }} ~ {{ record.end_date ? formatDate(record.end_date) : '-' }}</span>
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <a-space>
-              <a-button type="link" size="small" @click="openEdit(record.id, record)">编辑</a-button>
-              <a-button type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
-            </a-space>
-          </template>
+    <DataTable
+      :columns="columns"
+      :data-source="list"
+      :loading="loading"
+      row-key="id"
+      @change="handleTableChange"
+    >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'status'">
+          <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
         </template>
-      </a-table>
+        <template v-else-if="column.key === 'date_range'">
+          <span>{{ record.start_date ? formatDate(record.start_date) : '-' }} ~ {{ record.end_date ? formatDate(record.end_date) : '-' }}</span>
+        </template>
+        <template v-else-if="column.key === 'action'">
+          <a-space>
+            <a-button type="link" size="small" @click="openEdit(record.id, record)">编辑</a-button>
+            <a-button type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
+          </a-space>
+        </template>
+      </template>
+    </DataTable>
     </a-card>
 
     <!-- 新建/编辑弹窗 -->
-    <a-modal
-      v-model:open="modalVisible"
+    <FormModal
+      v-model:visible="modalVisible"
       :title="editingId ? '编辑版本' : '新建版本'"
-      @ok="submit"
-      :confirm-loading="modalLoading"
+      :loading="modalLoading"
       width="600px"
+      @ok="submit"
     >
-      <a-form :model="formData" layout="vertical">
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="版本名称" required>
-              <a-input v-model:value="formData.name" placeholder="例如：v1.0.0" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="状态">
-              <a-select v-model:value="formData.status">
-                <a-select-option value="draft">草稿</a-select-option>
-                <a-select-option value="active">进行中</a-select-option>
-                <a-select-option value="released">已发布</a-select-option>
-                <a-select-option value="archived">已归档</a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="版本描述">
-          <a-textarea v-model:value="formData.description" :rows="3" placeholder="请输入版本描述" />
-        </a-form-item>
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="开始时间">
-              <a-date-picker v-model:value="formData.start_date" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="结束时间">
-              <a-date-picker v-model:value="formData.end_date" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="发布时间">
-              <a-date-picker v-model:value="formData.released_at" show-time style="width: 100%" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-      </a-form>
-    </a-modal>
+      <a-row :gutter="16">
+        <a-col :span="12">
+          <a-form-item label="版本名称" required>
+            <a-input v-model:value="formData.name" placeholder="例如：v1.0.0" />
+          </a-form-item>
+        </a-col>
+        <a-col :span="12">
+          <a-form-item label="状态">
+            <a-select v-model:value="formData.status">
+              <a-select-option value="draft">草稿</a-select-option>
+              <a-select-option value="active">进行中</a-select-option>
+              <a-select-option value="released">已发布</a-select-option>
+              <a-select-option value="archived">已归档</a-select-option>
+            </a-select>
+          </a-form-item>
+        </a-col>
+      </a-row>
+      <a-form-item label="版本描述">
+        <a-textarea v-model:value="formData.description" :rows="3" placeholder="请输入版本描述" />
+      </a-form-item>
+      <a-row :gutter="16">
+        <a-col :span="8">
+          <a-form-item label="开始时间">
+            <a-date-picker v-model:value="formData.start_date" style="width: 100%" />
+          </a-form-item>
+        </a-col>
+        <a-col :span="8">
+          <a-form-item label="结束时间">
+            <a-date-picker v-model:value="formData.end_date" style="width: 100%" />
+          </a-form-item>
+        </a-col>
+        <a-col :span="8">
+          <a-form-item label="发布时间">
+            <a-date-picker v-model:value="formData.released_at" show-time style="width: 100%" />
+          </a-form-item>
+        </a-col>
+      </a-row>
+    </FormModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useList } from '@/composables/useList'
 import { useCRUD } from '@/composables/useCRUD'
@@ -109,6 +114,10 @@ import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { formatDateTime, formatDate } from '@/utils/date'
 import dayjs from 'dayjs'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
 import {
   getVersions, createVersion, updateVersion, deleteVersion,
   type ProjectVersion
@@ -138,14 +147,6 @@ function handleSearch() {
   pagination.current = 1
   loadVersions()
 }
-
-const paginationConfig = computed(() => ({
-  current: pagination.current,
-  pageSize: pagination.pageSize,
-  total: total.value,
-  showSizeChanger: true,
-  showTotal: (t: number) => `共 ${t} 条`,
-}))
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -207,18 +208,11 @@ const {
   },
 })
 
-onMounted(() => {
-  if (projectId) {
-    const params = { status: undefined, name: undefined }
-    filterStatus.value = params.status
-    filterName.value = params.name
-    loadVersions()
-  }
-})
+if (projectId) {
+  loadVersions()
+}
 </script>
 
 <style scoped>
 .versions-page { padding: 20px; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { margin: 0; font-size: 20px; font-weight: 600; }
 </style>
