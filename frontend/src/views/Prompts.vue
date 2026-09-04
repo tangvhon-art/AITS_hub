@@ -1,47 +1,47 @@
 <template>
   <div class="prompts-page">
-    <div class="page-header">
-      <h2>Prompt 管理</h2>
-      <div class="header-actions">
+    <PageHeader title="Prompt 管理">
+      <template #extra>
         <a-button @click="handleSeedDefaults" :loading="seeding">初始化默认模板</a-button>
         <a-button type="primary" @click="openCreate(defaultForm)">
           <template #icon><PlusOutlined /></template>
           新建 Prompt
         </a-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <a-form layout="inline" style="margin-bottom: 16px">
-      <a-form-item label="分类">
-        <a-select v-model:value="filterCategory" allow-clear placeholder="全部分类" style="width: 150px">
-          <a-select-option value="case_generation">用例生成</a-select-option>
-          <a-select-option value="case_review">用例评审</a-select-option>
-          <a-select-option value="api_doc_generation">接口文档生成</a-select-option>
-          <a-select-option value="api_case_generation">接口用例生成</a-select-option>
-          <a-select-option value="requirement_generation">需求生成</a-select-option>
-          <a-select-option value="report_generation">报告生成</a-select-option>
-          <a-select-option value="script_generation">脚本生成</a-select-option>
-          <a-select-option value="other">其他</a-select-option>
-        </a-select>
-      </a-form-item>
-      <a-form-item label="关键词">
-        <a-input v-model:value="searchKeyword" placeholder="搜索名称/描述" allow-clear style="width: 200px" @keyup.enter="handleSearch" />
-      </a-form-item>
-      <a-form-item>
-        <a-space>
-          <a-button type="primary" @click="handleSearch">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </a-form-item>
-    </a-form>
+    <!-- 搜索筛选栏（五件套） -->
+    <a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+      <a-form layout="inline">
+        <a-form-item label="分类">
+          <a-select v-model:value="filterCategory" allow-clear placeholder="全部分类" style="width: 150px">
+            <a-select-option value="case_generation">用例生成</a-select-option>
+            <a-select-option value="case_review">用例评审</a-select-option>
+            <a-select-option value="api_doc_generation">接口文档生成</a-select-option>
+            <a-select-option value="api_case_generation">接口用例生成</a-select-option>
+            <a-select-option value="requirement_generation">需求生成</a-select-option>
+            <a-select-option value="report_generation">报告生成</a-select-option>
+            <a-select-option value="script_generation">脚本生成</a-select-option>
+            <a-select-option value="other">其他</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="关键词">
+          <a-input v-model:value="searchKeyword" placeholder="搜索名称/描述" allow-clear style="width: 200px" @keyup.enter="handleSearch" />
+        </a-form-item>
+      </a-form>
+    </SearchBar>
 
-    <a-table
+    <!-- 服务端分页表格（五件套） -->
+    <DataTable
       :columns="columns"
-      :data-source="filteredPrompts"
+      :data-source="list"
       :loading="loading"
-      row-key="id"
-      :pagination="{ pageSize: 20, showSizeChanger: true }"
+      @change="handleTableChange"
     >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'">
           <span>{{ record.name }}</span>
@@ -68,72 +68,75 @@
           <a-button v-if="!record.is_default || isAdmin" type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
         </template>
       </template>
-    </a-table>
+    </DataTable>
+    </a-card>
 
-    <!-- 编辑/新建弹窗 -->
-    <a-modal
-      v-model:open="modalVisible"
+    <!-- 编辑/新建弹窗（五件套 FormModal） -->
+    <FormModal
+      v-model:visible="modalVisible"
       :title="editingId ? '编辑 Prompt' : '新建 Prompt'"
+      :loading="modalLoading"
+      :model="formData"
       width="700px"
+      ok-text="确定"
+      cancel-text="取消"
       @ok="submit"
-      :confirm-loading="modalLoading"
     >
-      <a-form layout="vertical">
-        <a-form-item label="名称" required>
-          <a-input v-model:value="formData.name" placeholder="Prompt 名称" />
-        </a-form-item>
-        <a-form-item label="分类">
-          <a-select v-model:value="formData.category" style="width: 100%">
-            <a-select-option value="case_generation">用例生成</a-select-option>
-            <a-select-option value="case_review">用例评审</a-select-option>
-            <a-select-option value="api_doc_generation">接口文档生成</a-select-option>
+      <a-form-item label="名称" required>
+        <a-input v-model:value="formData.name" placeholder="Prompt 名称" />
+      </a-form-item>
+      <a-form-item label="分类">
+        <a-select v-model:value="formData.category" style="width: 100%">
+          <a-select-option value="case_generation">用例生成</a-select-option>
+          <a-select-option value="case_review">用例评审</a-select-option>
+          <a-select-option value="api_doc_generation">接口文档生成</a-select-option>
           <a-select-option value="api_case_generation">接口用例生成</a-select-option>
-            <a-select-option value="requirement_generation">需求生成</a-select-option>
-            <a-select-option value="report_generation">报告生成</a-select-option>
-            <a-select-option value="script_generation">脚本生成</a-select-option>
-            <a-select-option value="other">其他</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="描述">
-          <a-input v-model:value="formData.description" placeholder="Prompt 描述说明" />
-        </a-form-item>
-        <a-form-item label="System 提示词" required>
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-            <a-switch v-model:checked="previewMode" size="small" />
-            <span style="color: #999; font-size: 12px;">{{ previewMode ? '预览模式（只读）' : '编辑模式' }}</span>
-          </div>
-          <a-textarea
-            v-if="!previewMode"
-            v-model:value="formData.system_prompt"
-            :rows="8"
-            placeholder="作为 system 角色的提示词，定义 AI 的行为和输出要求"
-          />
-          <MdView v-else :content="formData.system_prompt" />
-        </a-form-item>
-        <a-form-item label="设为默认">
-          <a-switch v-model:checked="formData.is_default" />
-          <span style="margin-left: 8px; color: #999">设为该分类下的默认 Prompt</span>
-        </a-form-item>
-      </a-form>
-    </a-modal>
+          <a-select-option value="requirement_generation">需求生成</a-select-option>
+          <a-select-option value="report_generation">报告生成</a-select-option>
+          <a-select-option value="script_generation">脚本生成</a-select-option>
+          <a-select-option value="other">其他</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="描述">
+        <a-input v-model:value="formData.description" placeholder="Prompt 描述说明" />
+      </a-form-item>
+      <a-form-item label="System 提示词" required>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <a-switch v-model:checked="previewMode" size="small" />
+          <span style="color: #999; font-size: 12px;">{{ previewMode ? '预览模式（只读）' : '编辑模式' }}</span>
+        </div>
+        <a-textarea
+          v-if="!previewMode"
+          v-model:value="formData.system_prompt"
+          :rows="8"
+          placeholder="作为 system 角色的提示词，定义 AI 的行为和输出要求"
+        />
+        <MdView v-else :content="formData.system_prompt" />
+      </a-form-item>
+      <a-form-item label="设为默认">
+        <a-switch v-model:checked="formData.is_default" />
+        <span style="margin-left: 8px; color: #999">设为该分类下的默认 Prompt</span>
+      </a-form-item>
+    </FormModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import MdView from '@/components/MdView.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useList } from '@/composables/useList'
 import { useCRUD } from '@/composables/useCRUD'
 import { promptsApi, type Prompt, type PromptCreate } from '@/api/prompts'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.userInfo?.is_admin === true)
-const loading = ref(false)
-const dataSource = ref<Prompt[]>([])
-const filterCategory = ref<string>()
-const searchKeyword = ref('')
 const seeding = ref(false)
 const previewMode = ref(false)
 
@@ -147,7 +150,41 @@ const defaultForm: PromptCreate = {
   status: 'active',
 }
 
-// 使用 useCRUD 封装新增/编辑/删除逻辑
+// ── 服务端分页列表（五件套：useList + DataTable）──
+const filterCategory = ref<string>()
+const searchKeyword = ref('')
+const {
+  loading,
+  list,
+  total,
+  pagination,
+  loadData,
+  handleTableChange,
+} = useList<Prompt>(
+  (params) =>
+    promptsApi.list({
+      category: filterCategory.value,
+      keyword: searchKeyword.value,
+      page: params.page,
+      page_size: params.page_size,
+    }) as Promise<{ items: Prompt[]; total: number }>,
+)
+
+/** 搜索：回到第一页再加载 */
+function handleSearch() {
+  pagination.current = 1
+  loadData()
+}
+
+/** 重置筛选并回到第一页 */
+function handleReset() {
+  filterCategory.value = undefined
+  searchKeyword.value = ''
+  pagination.current = 1
+  loadData()
+}
+
+// ── 新增/编辑/删除（五件套：useCRUD + FormModal）──
 const {
   modalVisible,
   modalLoading,
@@ -198,40 +235,6 @@ const categoryText = (c: string) => ({
   other: '其他',
 })[c] || c
 
-const filteredPrompts = computed(() => {
-  let result = dataSource.value
-  if (filterCategory.value) {
-    result = result.filter(p => p.category === filterCategory.value)
-  }
-  if (searchKeyword.value) {
-    const kw = searchKeyword.value.toLowerCase()
-    result = result.filter(p =>
-      p.name?.toLowerCase().includes(kw) ||
-      p.description?.toLowerCase().includes(kw)
-    )
-  }
-  return result
-})
-
-function handleSearch() {
-}
-
-function handleReset() {
-  filterCategory.value = undefined
-  searchKeyword.value = ''
-}
-
-async function loadData() {
-  loading.value = true
-  try {
-    dataSource.value = await promptsApi.list()
-  } catch {
-    message.error('加载 Prompt 列表失败')
-  } finally {
-    loading.value = false
-  }
-}
-
 async function handleSeedDefaults() {
   seeding.value = true
   try {
@@ -244,25 +247,10 @@ async function handleSeedDefaults() {
     seeding.value = false
   }
 }
-
-onMounted(() => {
-  const params = { category: undefined, keyword: '' }
-  filterCategory.value = params.category
-  searchKeyword.value = params.keyword
-  loadData()
-})
 </script>
 
 <style scoped>
 .prompts-page { padding: 0; }
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.page-header h2 { margin: 0; }
-.header-actions { display: flex; gap: 8px; }
 .prompt-preview {
   color: #666;
   font-size: 13px;

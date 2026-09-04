@@ -61,6 +61,7 @@ const html = computed(() => {
 .md-view :deep(ol) { padding-left: 22px; margin: 6px 0; }
 .md-view :deep(pre) {
   background: #f6f8fa;
+  color: #24292f;
   border-radius: 8px;
   padding: 10px 12px;
   overflow-x: auto;
@@ -73,7 +74,11 @@ const html = computed(() => {
   font-size: 12.5px;
   font-family: 'SF Mono', 'Menlo', Consolas, monospace;
 }
-.md-view :deep(pre code) { background: none; padding: 0; }
+.md-view :deep(pre code) {
+  background: none;
+  color: #24292f;
+  padding: 0;
+}
 .md-view :deep(a) { color: #1d6fa5; }
 .md-view :deep(table) { border-collapse: collapse; margin: 8px 0; }
 .md-view :deep(th),

@@ -1,40 +1,48 @@
 <template>
   <div class="skills-page">
-    <div class="page-header">
-      <h2>Skill 管理</h2>
-      <div class="header-actions">
+    <PageHeader title="Skill 管理">
+      <template #extra>
         <a-button @click="handleRegisterAll" title="将所有启用的 Skill 注册为大模型工具">全部注册</a-button>
         <a-button @click="openImport">导入 Skill 包</a-button>
-        <a-button type="primary" @click="openCreate">新建 Skill</a-button>
-      </div>
-    </div>
+        <a-button type="primary" @click="openCreateSkill()">新建 Skill</a-button>
+      </template>
+    </PageHeader>
 
-    <div class="filter-bar">
-      <a-input
-        v-model:value="searchKeyword"
-        placeholder="搜索名称/标识/描述"
-        allow-clear
-        style="width: 220px"
-        @keyup.enter="handleSearch"
-      >
-        <template #prefix><SearchOutlined /></template>
-      </a-input>
-      <a-select v-model:value="filterSource" placeholder="来源" style="width: 120px" allow-clear @change="handleSearch">
-        <a-select-option value="builtin">内置</a-select-option>
-        <a-select-option value="manual">手动</a-select-option>
-        <a-select-option value="imported">已导入</a-select-option>
-      </a-select>
-      <a-select v-model:value="filterCategory" placeholder="分类" style="width: 120px" allow-clear @change="handleSearch">
-        <a-select-option value="testing">测试</a-select-option>
-        <a-select-option value="analysis">分析</a-select-option>
-        <a-select-option value="automation">自动化</a-select-option>
-        <a-select-option value="other">其他</a-select-option>
-      </a-select>
-      <a-button type="primary" @click="handleSearch">查询</a-button>
-      <a-button @click="handleReset">重置</a-button>
-    </div>
+    <a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+      <a-form layout="inline">
+        <a-form-item label="关键词">
+          <a-input
+            v-model:value="searchKeyword"
+            placeholder="搜索名称/标识/描述"
+            allow-clear
+            style="width: 220px"
+          >
+            <template #prefix><SearchOutlined /></template>
+          </a-input>
+        </a-form-item>
+        <a-form-item label="来源">
+          <a-select v-model:value="filterSource" placeholder="来源" style="width: 120px" allow-clear>
+            <a-select-option value="builtin">内置</a-select-option>
+            <a-select-option value="manual">手动</a-select-option>
+            <a-select-option value="imported">已导入</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="分类">
+          <a-select v-model:value="filterCategory" placeholder="分类" style="width: 120px" allow-clear>
+            <a-select-option value="testing">测试</a-select-option>
+            <a-select-option value="analysis">分析</a-select-option>
+            <a-select-option value="automation">自动化</a-select-option>
+            <a-select-option value="other">其他</a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </SearchBar>
 
-    <a-table :columns="columns" :data-source="filteredList" :pagination="pagination" :loading="loading" row-key="id">
+    <DataTable :columns="columns" :data-source="filteredList" :loading="loading" row-key="id" @change="handleTableChange">
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="filteredList.length"
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'source'">
           <a-tag :color="sourceColor(record.source)">{{ sourceLabel(record.source) }}</a-tag>
@@ -65,78 +73,81 @@
             @click="handleRegister(record)"
             title="注册为大模型可调用工具"
           >注册</a-button>
-          <a-button type="link" size="small" @click="openEdit(record)">编辑</a-button>
+          <a-button type="link" size="small" @click="openEditSkill(record)">编辑</a-button>
           <a-button type="link" size="small" @click="handleExport(record)">导出</a-button>
           <a-button type="link" size="small" @click="openFileViewer(record)" :disabled="!record.files || Object.keys(record.files).length === 0">文件</a-button>
-          <a-popconfirm v-if="!record.is_builtin" title="确认删除？" @confirm="handleDelete(record)">
-            <a-button type="link" size="small" danger>删除</a-button>
-          </a-popconfirm>
+          <a-button v-if="!record.is_builtin" type="link" size="small" danger @click="handleDelete(record.id, record.title, record)">删除</a-button>
         </template>
       </template>
-    </a-table>
+    </DataTable>
+    </a-card>
 
     <!-- 新建/编辑弹窗 -->
-    <a-modal v-model:open="modalVisible" :title="editingId ? '编辑 Skill' : '新建 Skill'" :width="720" @ok="handleSave" :confirm-loading="saving">
-      <a-form :model="form" layout="vertical">
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="标识名" required>
-              <a-input v-model:value="form.name" placeholder="英文标识，唯一" :disabled="!!editingId" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="显示名称" required>
-              <a-input v-model:value="form.title" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="描述">
-          <a-textarea v-model:value="form.description" :rows="2" />
-        </a-form-item>
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="分类">
-              <a-select v-model:value="form.category">
-                <a-select-option value="testing">测试</a-select-option>
-                <a-select-option value="analysis">分析</a-select-option>
-                <a-select-option value="automation">自动化</a-select-option>
-                <a-select-option value="other">其他</a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="版本">
-              <a-input v-model:value="form.version" placeholder="1.0.0" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="最大工具调用轮次">
-              <a-input-number v-model:value="maxRounds" :min="1" :max="50" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="触发方式">
-          <a-select v-model:value="triggerType" @change="onTriggerTypeChange">
-            <a-select-option value="keyword">关键词</a-select-option>
-            <a-select-option value="regex">正则表达式</a-select-option>
-            <a-select-option value="intent">意图</a-select-option>
-            <a-select-option value="keyword_or_intent">关键词或意图</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item v-if="triggerType === 'keyword' || triggerType === 'keyword_or_intent'" label="关键词（逗号分隔）">
-          <a-input v-model:value="keywordsStr" placeholder="自动测试, 生成计划" />
-        </a-form-item>
-        <a-form-item v-if="triggerType === 'regex' || triggerType === 'keyword_or_intent'" label="正则表达式">
-          <a-input v-model:value="regexPattern" placeholder="^跑.*测试$" />
-        </a-form-item>
-        <a-form-item label="System Prompt">
-          <a-textarea v-model:value="systemPrompt" :rows="4" placeholder="定义 Skill 的角色和行为..." />
-        </a-form-item>
-        <a-form-item label="允许的工具（多选）">
-          <a-select v-model:value="allowedTools" mode="multiple" placeholder="选择工具" :options="toolOptions" style="width: 100%" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+    <FormModal
+      v-model:visible="modalVisible"
+      :title="editingId ? '编辑 Skill' : '新建 Skill'"
+      :loading="modalLoading"
+      width="720px"
+      @ok="submit"
+    >
+      <a-row :gutter="16">
+        <a-col :span="12">
+          <a-form-item label="标识名" required>
+            <a-input v-model:value="formData.name" placeholder="英文标识，唯一" :disabled="!!editingId" />
+          </a-form-item>
+        </a-col>
+        <a-col :span="12">
+          <a-form-item label="显示名称" required>
+            <a-input v-model:value="formData.title" />
+          </a-form-item>
+        </a-col>
+      </a-row>
+      <a-form-item label="描述">
+        <a-textarea v-model:value="formData.description" :rows="2" />
+      </a-form-item>
+      <a-row :gutter="16">
+        <a-col :span="8">
+          <a-form-item label="分类">
+            <a-select v-model:value="formData.category">
+              <a-select-option value="testing">测试</a-select-option>
+              <a-select-option value="analysis">分析</a-select-option>
+              <a-select-option value="automation">自动化</a-select-option>
+              <a-select-option value="other">其他</a-select-option>
+            </a-select>
+          </a-form-item>
+        </a-col>
+        <a-col :span="8">
+          <a-form-item label="版本">
+            <a-input v-model:value="formData.version" placeholder="1.0.0" />
+          </a-form-item>
+        </a-col>
+        <a-col :span="8">
+          <a-form-item label="最大工具调用轮次">
+            <a-input-number v-model:value="maxRounds" :min="1" :max="50" style="width: 100%" />
+          </a-form-item>
+        </a-col>
+      </a-row>
+      <a-form-item label="触发方式">
+        <a-select v-model:value="triggerType">
+          <a-select-option value="keyword">关键词</a-select-option>
+          <a-select-option value="regex">正则表达式</a-select-option>
+          <a-select-option value="intent">意图</a-select-option>
+          <a-select-option value="keyword_or_intent">关键词或意图</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item v-if="triggerType === 'keyword' || triggerType === 'keyword_or_intent'" label="关键词（逗号分隔）">
+        <a-input v-model:value="keywordsStr" placeholder="自动测试, 生成计划" />
+      </a-form-item>
+      <a-form-item v-if="triggerType === 'regex' || triggerType === 'keyword_or_intent'" label="正则表达式">
+        <a-input v-model:value="regexPattern" placeholder="^跑.*测试$" />
+      </a-form-item>
+      <a-form-item label="System Prompt">
+        <a-textarea v-model:value="systemPrompt" :rows="4" placeholder="定义 Skill 的角色和行为..." />
+      </a-form-item>
+      <a-form-item label="允许的工具（多选）">
+        <a-select v-model:value="allowedTools" mode="multiple" placeholder="选择工具" :options="toolOptions" style="width: 100%" />
+      </a-form-item>
+    </FormModal>
 
     <!-- 导入弹窗 -->
     <a-modal v-model:open="importVisible" title="导入 Skill" @ok="handleImport" :confirm-loading="importing" width="640px" :ok-button-props="{ disabled: importMode === 'zip' && !importFile }">
@@ -257,15 +268,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import { InboxOutlined, SearchOutlined, FileZipOutlined, LoadingOutlined, FolderOutlined, FileTextOutlined, CodeOutlined, FileOutlined, CaretRightOutlined, CaretDownOutlined } from '@ant-design/icons-vue'
 import JSZip from 'jszip'
 import { skillsApi, type Skill } from '@/api/skills'
 import { mcpApi } from '@/api/mcp'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useList } from '@/composables/useList'
+import { useCRUD } from '@/composables/useCRUD'
 
-const loading = ref(false)
-const saving = ref(false)
 const importing = ref(false)
 const fileViewerVisible = ref(false)
 const fileViewerSkill = ref<Skill | null>(null)
@@ -292,7 +307,6 @@ const visibleTreeItems = computed<TreeNode[]>(() => {
 
   for (const path of paths) {
     const parts = path.split('/')
-    // 为每一级文件夹创建节点
     for (let i = 1; i < parts.length; i++) {
       const folderPath = parts.slice(0, i).join('/')
       if (!folderSet.has(folderPath)) {
@@ -307,7 +321,6 @@ const visibleTreeItems = computed<TreeNode[]>(() => {
         })
       }
     }
-    // 文件节点
     items.push({
       key: 'file:' + path,
       name: parts[parts.length - 1],
@@ -318,31 +331,22 @@ const visibleTreeItems = computed<TreeNode[]>(() => {
     })
   }
 
-  // 过滤收起的文件夹内容
   const result: TreeNode[] = []
   for (const item of items) {
     if (item.type === 'file') {
-      // 检查文件的所有父文件夹是否都展开
       const parts = item.path.split('/')
       let hidden = false
       for (let i = 1; i < parts.length; i++) {
         const parentPath = parts.slice(0, i).join('/')
-        if (!expandedFolders.value.has(parentPath)) {
-          hidden = true
-          break
-        }
+        if (!expandedFolders.value.has(parentPath)) { hidden = true; break }
       }
       if (!hidden) result.push(item)
     } else {
-      // 文件夹：检查父文件夹是否展开
       const parts = item.path.split('/')
       let hidden = false
       for (let i = 1; i < parts.length; i++) {
         const parentPath = parts.slice(0, i).join('/')
-        if (!expandedFolders.value.has(parentPath)) {
-          hidden = true
-          break
-        }
+        if (!expandedFolders.value.has(parentPath)) { hidden = true; break }
       }
       if (!hidden) result.push(item)
     }
@@ -372,26 +376,18 @@ function getFileIconClass(path: string): string {
   if (['txt'].includes(ext)) return 'icon-txt'
   return 'icon-other'
 }
-const list = ref<Skill[]>([])
-const pagination = ref({ current: 1, pageSize: 20, total: 0, showSizeChanger: true })
+
+// ── 列表（全量加载 + 前端过滤 + 前端分页）──
+const { loading, list, pagination, loadData, handleTableChange } = useList<Skill>(
+  async (params) => {
+    const res = await skillsApi.list({ page: 1, page_size: 100 })
+    return { items: res.items, total: res.total, page: params.page, page_size: params.page_size }
+  },
+)
+
 const filterSource = ref<string>()
 const filterCategory = ref<string>()
 const searchKeyword = ref('')
-const modalVisible = ref(false)
-const importVisible = ref(false)
-const editingId = ref<number | null>(null)
-const importFile = ref<File | null>(null)
-const importResult = ref<any>(null)
-const importMode = ref<'zip' | 'text'>('zip')
-const importText = ref('')
-const previewLoading = ref(false)
-const previewError = ref('')
-const previewMeta = ref<Record<string, any>>({})
-const previewBody = ref('')
-const previewFiles = ref<string[]>([])
-const allTools = ref<any[]>([])
-const registeredSkillNames = ref<Set<string>>(new Set())
-const registeringIds = ref<Set<number>>(new Set())
 
 const filteredList = computed(() => {
   let result = list.value
@@ -408,13 +404,102 @@ const filteredList = computed(() => {
   return result
 })
 
-const form = ref<any>({ name: '', title: '', description: '', category: 'other', version: '1.0.0' })
+function handleSearch() {}
+
+function handleReset() {
+  searchKeyword.value = ''
+  filterSource.value = undefined
+  filterCategory.value = undefined
+}
+
+const importVisible = ref(false)
+const importFile = ref<File | null>(null)
+const importResult = ref<any>(null)
+const importMode = ref<'zip' | 'text'>('zip')
+const importText = ref('')
+const previewLoading = ref(false)
+const previewError = ref('')
+const previewMeta = ref<Record<string, any>>({})
+const previewBody = ref('')
+const previewFiles = ref<string[]>([])
+const allTools = ref<any[]>([])
+const registeredSkillNames = ref<Set<string>>(new Set())
+const registeringIds = ref<Set<number>>(new Set())
+
+// ── 新增/编辑/删除（useCRUD + FormModal）──
+const defaultForm = { name: '', title: '', description: '', category: 'other', version: '1.0.0' }
 const triggerType = ref('keyword')
 const keywordsStr = ref('')
 const regexPattern = ref('')
 const systemPrompt = ref('')
 const allowedTools = ref<string[]>([])
 const maxRounds = ref(10)
+
+const {
+  modalVisible,
+  modalLoading,
+  editingId,
+  formData,
+  openCreate,
+  openEdit,
+  submit,
+  handleDelete,
+} = useCRUD<Skill>({
+  api: {
+    create: (data) => skillsApi.create(buildPayload(data)),
+    update: (id, data) => skillsApi.update(id, buildPayload(data)),
+    remove: (id) => skillsApi.remove(id),
+  },
+  resourceName: 'Skill',
+  onSuccess: () => {
+    loadData()
+    loadRegistered()
+  },
+  beforeSubmit: () => {
+    if (!formData.name?.trim() || !formData.title?.trim()) {
+      message.warning('请填写标识名和显示名称')
+      return false
+    }
+    return true
+  },
+  beforeDelete: (id, record) => {
+    if (record?.is_builtin) return false
+    return true
+  },
+})
+
+/** 组装 trigger_config / skill_config 提交体 */
+function buildPayload(data: Record<string, any>) {
+  const trigger_config: any = { type: triggerType.value }
+  if (keywordsStr.value) trigger_config.keywords = keywordsStr.value.split(',').map(s => s.trim()).filter(Boolean)
+  if (regexPattern.value) trigger_config.pattern = regexPattern.value
+  const skill_config = { system_prompt: systemPrompt.value, allowed_tools: allowedTools.value, max_tool_calls: maxRounds.value }
+  return { ...data, trigger_config, skill_config }
+}
+
+/** 新建：重置复杂表单字段 */
+function openCreateSkill() {
+  openCreate(defaultForm)
+  triggerType.value = 'keyword'
+  keywordsStr.value = ''
+  regexPattern.value = ''
+  systemPrompt.value = ''
+  allowedTools.value = []
+  maxRounds.value = 10
+}
+
+/** 编辑：回填 trigger_config / skill_config */
+function openEditSkill(record: Skill) {
+  openEdit(record.id, { ...record })
+  const tc = record.trigger_config || {}
+  triggerType.value = tc.type || 'keyword'
+  keywordsStr.value = (tc.keywords || []).join(', ')
+  regexPattern.value = tc.pattern || ''
+  const sc = record.skill_config || {}
+  systemPrompt.value = sc.system_prompt || ''
+  allowedTools.value = sc.allowed_tools || []
+  maxRounds.value = sc.max_tool_calls || 10
+}
 
 const toolOptions = computed(() => allTools.value.map(t => ({ label: `${t.name} - ${t.description.slice(0, 30)}`, value: t.name })))
 
@@ -426,86 +511,18 @@ const columns = [
   { title: '版本', dataIndex: 'version', key: 'version', width: 80 },
   { title: '启用', key: 'is_active', width: 80 },
   { title: '工具注册', key: 'registered', width: 100 },
-  { title: '操作', key: 'action', width: 320 },
+  { title: '操作', key: 'action', width: 340 },
 ]
 
 function sourceColor(s: string) { return { builtin: 'blue', manual: 'green', imported: 'orange' }[s] || 'default' }
 function sourceLabel(s: string) { return { builtin: '内置', manual: '手动', imported: '已导入' }[s] || s }
 
-async function loadData() {
-  loading.value = true
-  try {
-    const res = await skillsApi.list({ page: 1, page_size: 100 })
-    list.value = res.items
-    pagination.value.total = res.total
-  } finally { loading.value = false }
-}
-
-function handleSearch() {
-  pagination.value.current = 1
-}
-
-function handleReset() {
-  searchKeyword.value = ''
-  filterSource.value = undefined
-  filterCategory.value = undefined
-  pagination.value.current = 1
-}
-
 async function loadTools() {
   try { const res = await mcpApi.listAllTools(); allTools.value = res.tools } catch {}
 }
 
-function openCreate() {
-  editingId.value = null
-  form.value = { name: '', title: '', description: '', category: 'other', version: '1.0.0' }
-  triggerType.value = 'keyword'; keywordsStr.value = ''; regexPattern.value = ''; systemPrompt.value = ''; allowedTools.value = []; maxRounds.value = 10
-  modalVisible.value = true
-}
-
-function openEdit(record: Skill) {
-  editingId.value = record.id
-  form.value = { ...record }
-  const tc = record.trigger_config || {}
-  triggerType.value = tc.type || 'keyword'
-  keywordsStr.value = (tc.keywords || []).join(', ')
-  regexPattern.value = tc.pattern || ''
-  const sc = record.skill_config || {}
-  systemPrompt.value = sc.system_prompt || ''
-  allowedTools.value = sc.allowed_tools || []
-  maxRounds.value = sc.max_tool_calls || 10
-  modalVisible.value = true
-}
-
-function onTriggerTypeChange() {}
-
-async function handleSave() {
-  if (!form.value.name || !form.value.title) { message.warning('请填写标识名和显示名称'); return }
-  saving.value = true
-  try {
-    const trigger_config: any = { type: triggerType.value }
-    if (keywordsStr.value) trigger_config.keywords = keywordsStr.value.split(',').map(s => s.trim()).filter(Boolean)
-    if (regexPattern.value) trigger_config.pattern = regexPattern.value
-    const skill_config = { system_prompt: systemPrompt.value, allowed_tools: allowedTools.value, max_tool_calls: maxRounds.value }
-    const data = { ...form.value, trigger_config, skill_config }
-    if (editingId.value) await skillsApi.update(editingId.value, data)
-    else await skillsApi.create(data)
-    message.success('保存成功')
-    modalVisible.value = false
-    loadData()
-    loadRegistered()
-  } finally { saving.value = false }
-}
-
 async function toggleSkill(record: Skill) {
   await skillsApi.toggle(record.id)
-  loadData()
-  loadRegistered()
-}
-
-async function handleDelete(record: Skill) {
-  await skillsApi.remove(record.id)
-  message.success('删除成功')
   loadData()
   loadRegistered()
 }
@@ -570,7 +587,6 @@ function openFileViewer(record: Skill) {
   fileViewerSkill.value = record
   selectedFile.value = ''
   expandedFolders.value = new Set()
-  // 默认展开第一级文件夹
   const files = record.files || {}
   const topFolders = new Set<string>()
   for (const path of Object.keys(files)) {
@@ -618,21 +634,17 @@ async function parseZipPreview(file: File) {
     const zip = await JSZip.loadAsync(file)
     const files = Object.keys(zip.files).filter(n => !zip.files[n].dir && !n.startsWith('__MACOSX'))
     previewFiles.value = files
-    // 查找 skill.md：支持根目录或子文件夹（第一层为 skill 名称文件夹）
     const mdFile = files.find(n => n.toLowerCase().endsWith('skill.md'))
     if (!mdFile) {
       previewError.value = '包内未找到 skill.md 文件（支持根目录或子文件夹）'
       return
     }
-    const baseDir = mdFile.includes('/') ? mdFile.split('/').slice(0, -1).join('/') + '/' : ''
     const content = await zip.files[mdFile].async('string')
-    // 解析 frontmatter
     if (content.startsWith('---')) {
       const endIdx = content.indexOf('\n---', 3)
       if (endIdx !== -1) {
         const fmText = content.slice(3, endIdx).trim()
         previewBody.value = content.slice(endIdx + 4).trim().slice(0, 500)
-        // 简单解析 frontmatter 关键字段
         const lines = fmText.split('\n')
         for (const line of lines) {
           const m = line.match(/^(\w+):\s*(.+)$/)
@@ -683,15 +695,12 @@ async function handleImport() {
   } finally { importing.value = false }
 }
 
-onMounted(() => { loadData(); loadTools(); loadRegistered() })
+loadTools()
+loadRegistered()
 </script>
 
 <style scoped>
 .skills-page { padding: 20px; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { margin: 0; font-size: 18px; }
-.header-actions { display: flex; gap: 8px; }
-.filter-bar { display: flex; gap: 12px; margin-bottom: 16px; }
 .import-result { margin-top: 12px; padding: 10px; border-radius: 6px; font-size: 13px; }
 .import-result.success { background: #f6ffed; color: #52c41a; }
 .import-result.error { background: #fff2f0; color: #ff4d4f; }

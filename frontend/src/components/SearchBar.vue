@@ -46,7 +46,7 @@ withDefaults(
   }>(),
   {
     loading: false,
-    searchText: '搜索',
+    searchText: '查询',
     resetText: '重置',
   },
 )

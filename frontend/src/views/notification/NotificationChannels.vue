@@ -1,37 +1,35 @@
 <template>
   <div class="notification-channels-page">
+    <PageHeader title="通知渠道">
+      <template #extra>
+        <a-button type="primary" @click="openCreateModal">
+          <template #icon><plus-outlined /></template>
+          新建渠道
+        </a-button>
+      </template>
+    </PageHeader>
     <a-card :bordered="false" class="page-card">
-      <div class="page-header">
-        <div class="header-left">
-          <h2 class="page-title">通知渠道</h2>
-          <span class="page-desc">配置飞书机器人等通知渠道，全局共享</span>
-        </div>
-        <div class="header-right">
-          <a-input-search
-            v-model:value="searchKeyword"
-            placeholder="搜索渠道名称"
-            style="width: 220px; margin-right: 12px"
-            allow-clear
-            @search="loadChannels"
-          />
-          <a-button type="primary" style="margin-right: 8px" @click="loadChannels">查询</a-button>
-          <a-button style="margin-right: 8px" @click="handleReset">重置</a-button>
-          <a-button type="primary" @click="openCreateModal">
-            <template #icon><plus-outlined /></template>
-            新建渠道
-          </a-button>
-        </div>
-      </div>
+      <SearchBar @search="loadChannels" @reset="handleReset">
+        <a-input-search
+          v-model:value="searchKeyword"
+          placeholder="搜索渠道名称"
+          style="width: 220px"
+          allow-clear
+          @search="loadChannels"
+        />
+      </SearchBar>
 
-      <a-table
+      <DataTable
         :columns="columns"
         :data-source="channels"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
         size="middle"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'">
             <span class="channel-name">{{ record.name }}</span>
@@ -62,32 +60,22 @@
                 测试发送
               </a-button>
               <a-button type="link" size="small" @click="openEditModal(record)">编辑</a-button>
-              <a-popconfirm
-                title="确定删除该渠道吗？"
-                ok-text="确定"
-                cancel-text="取消"
-                @confirm="handleDelete(record)"
-              >
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 新建/编辑弹窗 -->
-    <a-modal
-      v-model:open="modalVisible"
-      :title="isEdit ? '编辑渠道' : '新建渠道'"
+    <FormModal
+      v-model:visible="modalVisible"
+      title="isEdit ? '编辑渠道' : '新建渠道'"
+      :loading="saving"
       width="560px"
-      :confirm-loading="saving"
-      ok-text="保存"
-      cancel-text="取消"
       @ok="handleSave"
     >
-      <a-form :model="formData" layout="vertical">
-        <a-form-item label="渠道名称" required>
+      <a-form-item label="渠道名称" required>
           <a-input v-model:value="formData.name" placeholder="请输入渠道名称，如：测试团队飞书群" />
         </a-form-item>
         <a-form-item label="渠道类型" required>
@@ -122,8 +110,7 @@
         <a-form-item label="启用渠道">
           <a-switch v-model:checked="formData.enabled" />
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
   </div>
 </template>
 
@@ -132,6 +119,12 @@ import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, LoadingOutlined } from '@ant-design/icons-vue'
 import { notificationApi, type NotificationChannel } from '@/api/notifications'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+const { confirmDelete } = useConfirmDelete('通知渠道')
 const loading = ref(false)
 const saving = ref(false)
 const channels = ref<NotificationChannel[]>([])

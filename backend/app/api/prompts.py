@@ -1,130 +1,79 @@
 """
 Prompt 管理 API（全局公用，不绑定项目）
-"""
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Query
-from sqlalchemy.orm import Session
-from typing import List, Optional
-from app.database import get_db
-from app.core.deps import get_current_user
-from app.core.audit import log_audit
-from app.core.crud import CRUDBase
-from app.core.timezone import china_now_naive
-from app.models.user import User
-from app.models.prompt import Prompt
-from app.schemas.prompt import PromptCreate, PromptUpdate, PromptResponse
 
-router = APIRouter(prefix="/api/prompts", tags=["Prompt 管理"])
+标准 CRUD（search / create / update / delete + 分页 + 审计 + 统一响应）
+由 BaseRouter 组装，默认模板互斥、管理员权限校验通过业务钩子实现；
+seed-defaults 初始化端点保留为自定义端点。
+"""
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.core.base_router import ResourceRouter
+from app.core.crud import CRUDBase
+from app.core.deps import get_current_user
+from app.models.prompt import Prompt
+from app.models.user import User
+from app.schemas.prompt import PromptCreate, PromptUpdate, PromptResponse
 
 # 全局资源，project_id=None
 prompt_crud = CRUDBase(Prompt, "Prompt")
 
 
-@router.post("/search", response_model=List[PromptResponse])
-def list_prompts(
-    category: Optional[str] = Body(default=None, embed=True),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """获取 Prompt 列表"""
-    query = db.query(Prompt)
-    if category:
-        query = query.filter(Prompt.category == category)
-    return query.order_by(Prompt.is_default.desc(), Prompt.id.desc()).all()
-
-
-@router.post("", response_model=PromptResponse, status_code=201)
-def create_prompt(
-    data: PromptCreate,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """创建 Prompt"""
-    if data.is_default:
-        db.query(Prompt).filter(
-            Prompt.category == data.category,
-            Prompt.is_default == True,
-        ).update({Prompt.is_default: False}, synchronize_session=False)
-
-    prompt = Prompt(
-        name=data.name,
-        description=data.description,
-        category=data.category,
-        system_prompt=data.system_prompt,
-        user_prompt_template=data.user_prompt_template,
-        variables=data.variables,
-        is_default=data.is_default,
-        status=data.status,
-        created_by=current_user.id,
+def _clear_category_default(db: Session, category: str, exclude_id: Optional[int] = None):
+    """将同分类下其它 Prompt 的 is_default 置为 False（默认模板互斥）"""
+    query = db.query(Prompt).filter(
+        Prompt.category == category,
+        Prompt.is_default == True,
     )
-    db.add(prompt)
-    db.flush()
-    log_audit(
-        db, action="create", resource_type="prompt",
-        resource_id=prompt.id, resource_name=prompt.name,
-        user=current_user,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-        detail={"category": data.category},
-    )
-    db.commit()
-    db.refresh(prompt)
-    return prompt
+    if exclude_id is not None:
+        query = query.filter(Prompt.id != exclude_id)
+    query.update({Prompt.is_default: False}, synchronize_session=False)
 
 
-@router.put("/{prompt_id}", response_model=PromptResponse)
-def update_prompt(
-    prompt_id: int,
-    data: PromptUpdate,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """更新 Prompt"""
-    prompt = prompt_crud.get(db, prompt_id)
-    if prompt.is_default and not current_user.is_admin:
+def _before_create(db: Session, data: PromptCreate, user, request):
+    """创建前：新模板设为默认时，清空同分类其它默认"""
+    if getattr(data, "is_default", False):
+        _clear_category_default(db, data.category)
+
+
+def _before_update(db: Session, obj: Prompt, data: PromptUpdate, user, request):
+    """更新前：默认模板仅管理员可编辑；设为默认时清空同分类其它默认"""
+    if obj.is_default and not user.is_admin:
         raise HTTPException(status_code=403, detail="默认模板仅管理员可编辑")
-
-    update_data = data.model_dump(exclude_unset=True)
-    if data.is_default:
-        db.query(Prompt).filter(
-            Prompt.category == prompt.category,
-            Prompt.id != prompt_id,
-            Prompt.is_default == True,
-        ).update({Prompt.is_default: False}, synchronize_session=False)
-
-    for key, value in update_data.items():
-        setattr(prompt, key, value)
-    prompt.updated_at = china_now_naive()
-    db.commit()
-    db.refresh(prompt)
-    return prompt
+    if getattr(data, "is_default", False):
+        _clear_category_default(db, obj.category, exclude_id=obj.id)
 
 
-@router.delete("/{prompt_id}")
-def delete_prompt(
-    prompt_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """删除 Prompt"""
-    prompt = prompt_crud.get(db, prompt_id)
-    if prompt.is_default and not current_user.is_admin:
+def _before_delete(db: Session, obj: Prompt, user, request):
+    """删除前：默认模板仅管理员可删除"""
+    if obj.is_default and not user.is_admin:
         raise HTTPException(status_code=403, detail="默认模板仅管理员可删除")
-    prompt_name = prompt.name
-    prompt_crud.soft_delete(db, prompt_id)
-    log_audit(
-        db, action="delete", resource_type="prompt",
-        resource_id=prompt_id, resource_name=prompt_name,
-        user=current_user,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-    return {"detail": "删除成功"}
 
 
-@router.post("/seed-defaults")
+# ── 标准资源路由（统一响应 {code, message, data} + 分页 + 审计）──
+resource = ResourceRouter(
+    prefix="/api/prompts",
+    tags=["Prompt 管理"],
+    resource_name="Prompt",
+    model=Prompt,
+    create_schema=PromptCreate,
+    update_schema=PromptUpdate,
+    response_schema=PromptResponse,
+    global_=True,
+    crud=prompt_crud,
+    search_fields=["category"],
+    keyword_fields=["name", "description"],
+    order_by=["is_default_desc", "id_desc"],
+    before_create=_before_create,
+    before_update=_before_update,
+    before_delete=_before_delete,
+)
+router = resource.build()
+
+
 def seed_default_prompts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

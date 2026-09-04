@@ -37,7 +37,7 @@ import { computed, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlayCircleOutlined } from '@ant-design/icons-vue'
 import { dataFactoryApi, type DataToolMeta, type ToolResult } from '@/api/dataFactory'
-import DataSchemaForm from './DataSchemaForm.vue'
+import DataSchemaForm from '@/components/DataSchemaForm.vue'
 import ResultViewer from './ResultViewer.vue'
 
 const props = defineProps<{

@@ -1,24 +1,32 @@
 <template>
   <div>
     <a-card size="small">
-      <div class="toolbar">
-        <a-select v-model:value="filterType" style="width: 130px" allow-clear placeholder="全部类型">
+      <SearchBar @search="load" @reset="resetFilters">
+        <a-form layout="inline">
+<a-form-item label="类型">
+<a-select v-model:value="filterType" style="width: 130px" allow-clear placeholder="全部类型">
           <a-select-option value="ai_judge">AI裁判</a-select-option>
           <a-select-option value="agent">Agent交互</a-select-option>
           <a-select-option value="business">业务落地</a-select-option>
           <a-select-option value="redteam">对抗红队</a-select-option>
           <a-select-option value="manual">人工</a-select-option>
         </a-select>
-        <a-select v-model:value="dsStatus" style="width: 130px" allow-clear placeholder="全部状态">
+</a-form-item>
+        <a-form-item label="状态">
+<a-select v-model:value="dsStatus" style="width: 130px" allow-clear placeholder="全部状态">
           <a-select-option value="active">正常</a-select-option>
           <a-select-option value="archived">已归档</a-select-option>
           <a-select-option value="deleted">已删除</a-select-option>
         </a-select>
-        <a-input v-model:value="dsKeyword" placeholder="搜索名称" style="width: 200px" allow-clear />
-        <div style="flex: 1"></div>
-        <a-button type="primary" @click="openDsModal()"><PlusOutlined /> 新增数据集</a-button>
-      </div>
-      <a-table :data-source="filteredDsList" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
+</a-form-item>
+        <a-form-item label="名称">
+<a-input v-model:value="dsKeyword" placeholder="搜索名称" style="width: 200px" allow-clear />
+</a-form-item>
+        </a-form>
+        <template #extra>
+          <a-button type="primary" @click="openDsModal()"><PlusOutlined /> 新增数据集</a-button>
+        </template>
+      </SearchBar><DataTable :data-source="filteredDsList" row-key="id" :loading="loading" size="small">
         <a-table-column title="ID" data-index="id" width="60" />
         <a-table-column title="名称" data-index="name" />
         <a-table-column title="类型" data-index="eval_type" width="110">
@@ -41,57 +49,59 @@
             <a-space>
               <a-button type="link" size="small" @click="openCases(record)">管理用例</a-button>
               <a-button type="link" size="small" @click="openDsModal(record)">编辑</a-button>
-              <a-popconfirm
-                v-if="!record.is_deleted && record.status === 'active'"
-                title="确认归档该数据集？"
-                @confirm="toggleDs(record, 'archived')"
-              >
-                <a-button type="link" danger size="small">归档</a-button>
-              </a-popconfirm>
+              <a-button v-if="!record.is_deleted && record.status === 'active'" type="link" danger size="small" @click="confirmDelete(record, () => toggleDs(record, 'archived'))">归档</a-button>
               <a-button
                 v-else-if="!record.is_deleted && record.status === 'archived'"
                 type="link" size="small" @click="toggleDs(record, 'active')"
               >取消归档</a-button>
-              <a-popconfirm
-                v-else-if="record.is_deleted"
-                title="确认恢复该数据集？"
-                @confirm="restoreDs(record)"
-              >
-                <a-button type="link" size="small">恢复</a-button>
-              </a-popconfirm>
+              <a-button v-if="record.is_deleted" type="link" size="small" @click="confirmDelete(record, () => restoreDs(record))">恢复</a-button>
             </a-space>
           </template>
         </a-table-column>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 数据集新增/编辑 -->
-    <a-modal v-model:open="dsModal" :title="dsForm.id ? '编辑数据集' : '新增数据集'" @ok="saveDs" :confirm-loading="saving" width="480">
-      <a-form :model="dsForm" layout="vertical">
-        <a-form-item label="名称" required><a-input v-model:value="dsForm.name" /></a-form-item>
+    <FormModal
+      v-model:visible="dsModal"
+      title="dsForm.id ? '编辑数据集' : '新增数据集'"
+      :loading="saving"
+      width="480"
+      @ok="saveDs"
+    >
+      <a-form-item label="名称" required><a-form-item label="筛选">
+<a-input v-model:value="dsForm.name" />
+</a-form-item></a-form-item>
         <a-form-item label="类型" required>
-          <a-select v-model:value="dsForm.eval_type">
+          <a-form-item label="筛选">
+<a-select v-model:value="dsForm.eval_type">
             <a-select-option value="ai_judge">AI裁判</a-select-option>
             <a-select-option value="agent">Agent交互</a-select-option>
             <a-select-option value="business">业务落地</a-select-option>
             <a-select-option value="redteam">对抗红队</a-select-option>
             <a-select-option value="manual">人工</a-select-option>
           </a-select>
+</a-form-item>
         </a-form-item>
-        <a-form-item label="版本"><a-input v-model:value="dsForm.version" /></a-form-item>
+        <a-form-item label="版本"><a-form-item label="筛选">
+<a-input v-model:value="dsForm.version" />
+</a-form-item></a-form-item>
         <a-form-item label="描述"><a-textarea v-model:value="dsForm.description" :rows="2" /></a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 用例管理抽屉 -->
     <a-drawer :open="casesDrawer" :title="`用例管理 - ${currentDs?.name || ''}`" width="900" @close="casesDrawer = false">
       <div class="toolbar">
-        <a-select v-model:value="caseStatus" style="width: 120px" allow-clear placeholder="全部状态">
+        <a-form-item label="筛选">
+<a-select v-model:value="caseStatus" style="width: 120px" allow-clear placeholder="全部状态">
           <a-select-option value="active">正常</a-select-option>
           <a-select-option value="archived">已归档</a-select-option>
           <a-select-option value="deleted">已删除</a-select-option>
         </a-select>
-        <a-input v-model:value="caseKeyword" placeholder="搜索用例标题/内容" style="width: 200px" @pressEnter="loadCases" />
+</a-form-item>
+        <a-form-item label="筛选">
+<a-input v-model:value="caseKeyword" placeholder="搜索用例标题/内容" style="width: 200px" @pressEnter="loadCases" />
+</a-form-item>
         <a-button @click="loadCases">搜索</a-button>
         <div style="flex: 1"></div>
         <a-upload :before-upload="handleImport" :show-upload-list="false" accept=".json">
@@ -99,7 +109,7 @@
         </a-upload>
         <a-button type="primary" @click="openCaseModal()"><PlusOutlined /> 新增用例</a-button>
       </div>
-      <a-table :data-source="filteredCases" row-key="id" :loading="caseLoading" size="small" :pagination="{ pageSize: 10 }">
+      <DataTable :data-source="filteredCases" row-key="id" :loading="caseLoading" size="small">
         <a-table-column title="标题" data-index="title" ellipsis />
         <a-table-column title="类型" width="120">
           <template #default="{ record }">{{ record.attack_type || record.category || '-' }}</template>
@@ -116,42 +126,42 @@
           <template #default="{ record }">
             <a-space>
               <a-button type="link" size="small" @click="openCaseModal(record)">编辑</a-button>
-              <a-popconfirm
-                v-if="!record.is_deleted && record.status === 'active'"
-                title="确认归档该用例？"
-                @confirm="toggleCase(record, 'archived')"
-              >
-                <a-button type="link" danger size="small">归档</a-button>
-              </a-popconfirm>
+              <a-button v-if="!record.is_deleted && record.status === 'active'" type="link" danger size="small" @click="confirmDelete(record, () => toggleCase(record, 'archived'))">归档</a-button>
               <a-button
                 v-else-if="!record.is_deleted && record.status === 'archived'"
                 type="link" size="small" @click="toggleCase(record, 'active')"
               >取消归档</a-button>
-              <a-popconfirm
-                v-else-if="record.is_deleted"
-                title="确认恢复该用例？"
-                @confirm="restoreCase(record)"
-              >
-                <a-button type="link" size="small">恢复</a-button>
-              </a-popconfirm>
+              <a-button v-if="record.is_deleted" type="link" size="small" @click="confirmDelete(record, () => restoreCase(record))">恢复</a-button>
             </a-space>
           </template>
         </a-table-column>
-      </a-table>
+      </DataTable>
 
-      <a-modal v-model:open="caseModal" :title="caseForm.id ? '编辑用例' : '新增用例'" @ok="saveCase" :confirm-loading="saving" width="640">
-        <a-form :model="caseForm" layout="vertical">
-          <a-form-item label="标题" required><a-input v-model:value="caseForm.title" /></a-form-item>
+      <FormModal
+      v-model:visible="caseModal"
+      title="caseForm.id ? '编辑用例' : '新增用例'"
+      :loading="saving"
+      width="640"
+      @ok="saveCase"
+    >
+      <a-form-item label="标题" required><a-form-item label="筛选">
+<a-input v-model:value="caseForm.title" />
+</a-form-item></a-form-item>
           <a-form-item label="Prompt / 输入 / 攻击载荷" required><a-textarea v-model:value="caseForm.prompt" :rows="3" /></a-form-item>
           <a-form-item label="预期输出 / 判定规则"><a-textarea v-model:value="caseForm.expected_output" :rows="2" /></a-form-item>
           <a-row :gutter="12">
-            <a-col :span="8"><a-form-item label="难度"><a-select v-model:value="caseForm.difficulty"><a-select-option value="P0">P0</a-select-option><a-select-option value="P1">P1</a-select-option><a-select-option value="P2">P2</a-select-option><a-select-option value="P3">P3</a-select-option></a-select></a-form-item></a-col>
-            <a-col :span="8"><a-form-item label="攻击类型（红队）"><a-input v-model:value="caseForm.attack_type" placeholder="jailbreak/injection/..." /></a-form-item></a-col>
-            <a-col :span="8"><a-form-item label="场景分类"><a-input v-model:value="caseForm.category" /></a-form-item></a-col>
+            <a-col :span="8"><a-form-item label="难度"><a-form-item label="筛选">
+<a-select v-model:value="caseForm.difficulty"><a-select-option value="P0">P0</a-select-option><a-select-option value="P1">P1</a-select-option><a-select-option value="P2">P2</a-select-option><a-select-option value="P3">P3</a-select-option></a-select>
+</a-form-item></a-form-item></a-col>
+            <a-col :span="8"><a-form-item label="攻击类型（红队）"><a-form-item label="筛选">
+<a-input v-model:value="caseForm.attack_type" placeholder="jailbreak/injection/..." />
+</a-form-item></a-form-item></a-col>
+            <a-col :span="8"><a-form-item label="场景分类"><a-form-item label="筛选">
+<a-input v-model:value="caseForm.category" />
+</a-form-item></a-form-item></a-col>
           </a-row>
           <a-form-item label="约束条件"><a-textarea v-model:value="caseForm.constraints" :rows="2" /></a-form-item>
-        </a-form>
-      </a-modal>
+    </FormModal>
     </a-drawer>
   </div>
 </template>
@@ -161,6 +171,11 @@ import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { evalDatasetApi } from '@/api/eval'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import SearchBar from '@/components/SearchBar.vue'
+const { confirmDelete } = useConfirmDelete('数据集')
 
 const list = ref<any[]>([])
 const loading = ref(false)
@@ -207,6 +222,11 @@ const filteredCases = computed(() => {
   }
   return l
 })
+
+const resetFilters = () => {
+  filterType.value = ''; dsStatus.value = ''; dsKeyword.value = ''
+  load()
+}
 
 const load = async () => {
   loading.value = true

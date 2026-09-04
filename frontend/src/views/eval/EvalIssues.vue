@@ -2,8 +2,10 @@
   <div>
     <a-alert type="error" show-icon message="问题台账" description="P0（安全越狱/违规输出/业务核心失效/严重幻觉）与 P1 必须修复并复测通过后才能上线；P2/P3 纳入长期优化清单。" style="margin-bottom: 12px" />
     <a-card size="small">
-      <div class="toolbar">
-        <a-select v-model:value="filterType" style="width: 140px" allow-clear placeholder="全部类型">
+      <SearchBar @search="load" @reset="reset">
+  <a-form layout="inline">
+    <a-form-item label="类型">
+<a-select v-model:value="filterType" style="width: 140px" allow-clear placeholder="全部类型">
           <a-select-option value="安全越狱">安全越狱</a-select-option>
           <a-select-option value="违规输出">违规输出</a-select-option>
           <a-select-option value="幻觉">幻觉</a-select-option>
@@ -12,24 +14,30 @@
           <a-select-option value="能力降级">能力降级</a-select-option>
           <a-select-option value="边界适配">边界适配</a-select-option>
         </a-select>
-        <a-input v-model:value="keyword" placeholder="搜索问题" style="width: 180px" @pressEnter="load" />
-        <a-select v-model:value="filterLevel" style="width: 110px" allow-clear placeholder="全部级别">
+</a-form-item>
+        <a-form-item label="问题">
+<a-input v-model:value="keyword" placeholder="搜索问题" style="width: 180px" @pressEnter="load" />
+</a-form-item>
+        <a-form-item label="级别">
+<a-select v-model:value="filterLevel" style="width: 110px" allow-clear placeholder="全部级别">
           <a-select-option value="P0">P0</a-select-option>
           <a-select-option value="P1">P1</a-select-option>
           <a-select-option value="P2">P2</a-select-option>
           <a-select-option value="P3">P3</a-select-option>
         </a-select>
-        <a-select v-model:value="filterStatus" style="width: 120px" allow-clear placeholder="全部状态">
+</a-form-item>
+        <a-form-item label="状态">
+<a-select v-model:value="filterStatus" style="width: 120px" allow-clear placeholder="全部状态">
           <a-select-option value="open">待处理</a-select-option>
           <a-select-option value="fixing">修复中</a-select-option>
           <a-select-option value="fixed">已修复</a-select-option>
           <a-select-option value="closed">已关闭</a-select-option>
         </a-select>
-        <a-button type="primary" @click="load">查询</a-button>
-        <a-button @click="reset">重置</a-button>
-        <div style="flex: 1"></div>
-      </div>
-      <a-table :data-source="list" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
+</a-form-item>
+        
+        </a-form>
+      </SearchBar>
+      <DataTable :data-source="list" row-key="id" :loading="loading" size="small">
         <a-table-column title="ID" data-index="id" width="60" />
         <a-table-column title="级别" data-index="issue_level" width="70">
           <template #default="{ text }"><a-tag :color="levelColor(text)">{{ text }}</a-tag></template>
@@ -48,25 +56,33 @@
             </a-space>
           </template>
         </a-table-column>
-      </a-table>
+      </DataTable>
     </a-card>
 
-    <a-modal v-model:open="editOpen" title="问题处理" @ok="save" :confirm-loading="saving" width="560">
-      <a-form :model="current" layout="vertical">
-        <a-form-item label="问题标题"><a-input v-model:value="current.title" /></a-form-item>
+    <FormModal
+      v-model:visible="editOpen"
+      title="问题处理"
+      :loading="saving"
+      width="560"
+      @ok="save"
+    >
+      <a-form-item label="问题标题"><a-form-item label="筛选">
+<a-input v-model:value="current.title" />
+</a-form-item></a-form-item>
         <a-form-item label="问题描述"><a-textarea v-model:value="current.description" :rows="2" /></a-form-item>
         <a-form-item label="修复建议"><a-textarea v-model:value="current.fix_suggestion" :rows="2" /></a-form-item>
         <a-form-item label="复测结果"><a-textarea v-model:value="current.retest_result" :rows="2" /></a-form-item>
         <a-form-item label="状态">
-          <a-select v-model:value="current.status">
+          <a-form-item label="筛选">
+<a-select v-model:value="current.status">
             <a-select-option value="open">待处理</a-select-option>
             <a-select-option value="fixing">修复中</a-select-option>
             <a-select-option value="fixed">已修复</a-select-option>
             <a-select-option value="closed">已关闭</a-select-option>
           </a-select>
+</a-form-item>
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
   </div>
 </template>
 
@@ -74,6 +90,9 @@
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { evalIssueApi } from '@/api/eval'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import SearchBar from '@/components/SearchBar.vue'
 
 const list = ref<any[]>([])
 const loading = ref(false)

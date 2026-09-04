@@ -1,25 +1,32 @@
 <template>
   <div class="profiles-page">
-    <div class="filter-bar">
-      <a-input v-model:value="keyword" placeholder="搜索页面名称/URL" allow-clear style="width: 300px" @pressEnter="loadProfiles">
+    <PageHeader title="自愈配置" />
+    <a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="页面名称/URL">
+      <a-input v-model:value="keyword" placeholder="搜索页面名称/URL" allow-clear style="width: 240px" @pressEnter="loadProfiles">
         <template #prefix><SearchOutlined /></template>
       </a-input>
-      <a-button @click="loadProfiles"><SearchOutlined /> 查询</a-button>
-      <a-button @click="resetFilter">重置</a-button>
-      <a-button type="primary" :loading="aggregating" @click="triggerAggregate" style="margin-left: auto">
-        <ThunderboltOutlined /> 手动聚合
-      </a-button>
-    </div>
-
-    <a-table
+    </a-form-item>
+  </a-form>
+      <template #extra>
+        <a-button type="primary" :loading="aggregating" @click="triggerAggregate">
+          <template #icon><ThunderboltOutlined /></template>
+          手动聚合
+        </a-button>
+      </template>
+</SearchBar><DataTable
       :columns="columns"
       :data-source="profiles"
       :loading="loading"
-      :pagination="pagination"
       @change="handleTableChange"
       row-key="id"
       size="middle"
     >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'success_rate'">
           <a-progress :percent="Math.round((record.success_rate || 0) * 100)" size="small" :stroke-color="rateColor(record.success_rate)" />
@@ -34,7 +41,8 @@
           <a-button type="link" size="small" @click="viewDetail(record)">详情</a-button>
         </template>
       </template>
-    </a-table>
+    </DataTable>
+    </a-card>
 
     <a-modal v-model:open="detailVisible" title="页面画像详情" width="800px" :footer="null">
       <div v-if="currentProfile" class="detail-content">
@@ -51,7 +59,7 @@
 
         <div v-if="currentProfile.key_elements?.length" class="detail-section">
           <h4>关键元素 ({{ currentProfile.key_elements.length }})</h4>
-          <a-table :data-source="currentProfile.key_elements" :columns="elementColumns" size="small" :pagination="false" row-key="text">
+          <DataTable :data-source="currentProfile.key_elements" :columns="elementColumns" size="small" :pagination="false" row-key="text">
             <template #bodyCell="{ column, record: el }">
               <template v-if="column.key === 'selectors'">
                 <div v-for="s in (el.selectors || []).slice(0, 2)" :key="s.value">
@@ -62,7 +70,7 @@
                 <a-progress :percent="Math.round((el.frequency || 0) * 100)" size="small" style="width: 80px" />
               </template>
             </template>
-          </a-table>
+          </DataTable>
         </div>
 
         <div v-if="currentProfile.failure_patterns?.length" class="detail-section">
@@ -83,6 +91,9 @@ import { message } from 'ant-design-vue'
 import { SearchOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 import { useRoute } from 'vue-router'
 import { listPageProfiles, getPageProfile, triggerAggregation, type PageProfile } from '@/api/uiHealing'
+import DataTable from '@/components/DataTable.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -184,6 +195,17 @@ function formatTime(dt?: string) {
 }
 
 onMounted(loadProfiles)
+
+function handleSearch() {
+  pagination.current = 1
+  loadProfiles()
+}
+
+function handleReset() {
+  keyword.value = ''
+  pagination.current = 1
+  loadProfiles()
+}
 </script>
 
 <style scoped>

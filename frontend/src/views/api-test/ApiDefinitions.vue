@@ -62,33 +62,36 @@
         </div>
       </div>
 
-      <div class="filter-bar">
-        <a-input-search
+      <a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="接口名称/路径">
+<a-input-search
           v-model:value="keyword"
           placeholder="搜索接口名称或路径"
           style="width: 280px"
           @search="loadData"
         />
-        <a-select v-model:value="methodFilter" placeholder="请求方式" style="width: 120px" allow-clear>
+</a-form-item>
+        <a-form-item label="请求方式">
+<a-select v-model:value="methodFilter" placeholder="请求方式" style="width: 120px" allow-clear>
           <a-select-option value="GET">GET</a-select-option>
           <a-select-option value="POST">POST</a-select-option>
           <a-select-option value="PUT">PUT</a-select-option>
           <a-select-option value="DELETE">DELETE</a-select-option>
         </a-select>
-        <a-space>
-          <a-button type="primary" @click="loadData">查询</a-button>
-          <a-button @click="handleReset">重置</a-button>
-        </a-space>
-      </div>
-
-      <a-table
+</a-form-item>
+  </a-form>
+</SearchBar><DataTable
         :columns="columns"
         :data-source="dataSource"
         :loading="loading"
-        :pagination="pagination"
         @change="handleTableChange"
         row-key="id"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'method'">
             <a-tag :color="getMethodColor(record.method)">{{ record.method }}</a-tag>
@@ -100,35 +103,42 @@
             <a-space>
               <a-button type="link" size="small" @click="handleDebug(record)">调试</a-button>
               <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
-              <a-popconfirm title="确定删除该接口？" @confirm="handleDelete(record)">
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
+    </a-card>
     </div>
 
     <!-- 分组弹窗（新建/重命名） -->
-    <a-modal v-model:open="showGroupModal" :title="groupModalTitle" @ok="saveGroup" :confirm-loading="groupSaving">
-      <a-form layout="vertical">
-        <a-form-item label="分组名称" required>
-          <a-input v-model:value="groupForm.name" placeholder="输入分组名称" @pressEnter="saveGroup" />
+    <FormModal
+      v-model:visible="showGroupModal"
+      title="groupModalTitle"
+      :loading="groupSaving"
+      width="600"
+      @ok="saveGroup"
+    >
+      <a-form-item label="分组名称" required>
+          <a-form-item label="筛选">
+<a-input v-model:value="groupForm.name" placeholder="输入分组名称" @pressEnter="saveGroup" />
+</a-form-item>
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 导入弹窗 -->
     <a-modal v-model:open="showImportModal" title="导入接口" width="600px">
       <a-form layout="vertical">
         <a-form-item label="导入格式">
-          <a-select v-model:value="importType" style="width: 100%" placeholder="选择导入格式">
+          <a-form-item label="筛选">
+<a-select v-model:value="importType" style="width: 100%" placeholder="选择导入格式">
             <a-select-option value="swagger">Swagger / OpenAPI</a-select-option>
             <a-select-option value="postman">Postman Collection</a-select-option>
             <a-select-option value="jmeter">JMeter</a-select-option>
             <a-select-option value="har">HAR 文件</a-select-option>
             <a-select-option value="apifox">Apifox</a-select-option>
           </a-select>
+</a-form-item>
         </a-form-item>
         <a-form-item label="选择文件">
           <a-upload :before-upload="handleBeforeUpload" :show-upload-list="false" accept=".json,.yaml,.yml,.jmx,.har">
@@ -158,6 +168,11 @@ import {
   EditOutlined, DeleteOutlined, MoreOutlined,
 } from '@ant-design/icons-vue'
 import { apiDefinitionsApi, apiModulesApi, apiImportApi, type ApiDefinition, type ApiModule } from '@/api/apiTest'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import SearchBar from '@/components/SearchBar.vue'
+const { confirmDelete } = useConfirmDelete('接口定义')
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
@@ -269,6 +284,11 @@ function handleReset() {
   pagination.value.current = 1
   loadData()
 }
+function handleSearch() {
+  pagination.value.current = 1
+  loadData()
+}
+
 
 // ====== 分组操作 ======
 function selectModule(moduleId: number | undefined) {

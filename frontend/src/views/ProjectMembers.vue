@@ -1,57 +1,52 @@
 <template>
   <div class="project-members">
-    <a-card title="成员管理" :bordered="false">
+    <PageHeader title="成员管理">
       <template #extra>
         <a-button type="primary" @click="showAddModal" v-if="canManage">
           <PlusOutlined />
           添加成员
         </a-button>
       </template>
+    </PageHeader>
 
-      <a-table
-        :columns="columns"
-        :data-source="members"
-        :loading="loading"
-        row-key="id"
-        :pagination="false"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'username'">
-            <a-avatar size="small" style="background-color: #1677ff; margin-right: 8px">
-              {{ record.username.charAt(0).toUpperCase() }}
-            </a-avatar>
-            {{ record.username }}
-            <span v-if="record.full_name" style="color: #999; margin-left: 4px">({{ record.full_name }})</span>
-          </template>
-          <template v-else-if="column.key === 'role'">
-            <a-tag :color="roleColors[record.role] || 'default'">
-              {{ roleLabels[record.role] || record.role }}
-            </a-tag>
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <a-space v-if="canManage && record.role !== 'owner'">
-              <a-select
-                :value="record.role"
-                size="small"
-                style="width: 110px"
-                @change="(val: string) => handleRoleChange(record, val)"
-              >
-                <a-select-option value="admin">管理员</a-select-option>
-                <a-select-option value="developer">开发者</a-select-option>
-                <a-select-option value="tester">测试</a-select-option>
-              </a-select>
-              <a-popconfirm
-                title="确定要移除该成员吗？"
-                @confirm="handleRemove(record)"
-              >
-                <a-button type="link" size="small" danger>移除</a-button>
-              </a-popconfirm>
-            </a-space>
-            <span v-else-if="record.role === 'owner'" style="color: #999">—</span>
-          </template>
+    <a-table
+      :columns="columns"
+      :data-source="members"
+      :loading="loading"
+      row-key="id"
+      :pagination="false"
+    >
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'username'">
+          <a-avatar size="small" style="background-color: #1677ff; margin-right: 8px">
+            {{ record.username.charAt(0).toUpperCase() }}
+          </a-avatar>
+          {{ record.username }}
+          <span v-if="record.full_name" style="color: #999; margin-left: 4px">({{ record.full_name }})</span>
         </template>
-      </a-table>
-    </a-card>
+        <template v-else-if="column.key === 'role'">
+          <a-tag :color="roleColors[record.role] || 'default'">
+            {{ roleLabels[record.role] || record.role }}
+          </a-tag>
+        </template>
+        <template v-else-if="column.key === 'action'">
+          <a-space v-if="canManage && record.role !== 'owner'">
+            <a-select
+              :value="record.role"
+              size="small"
+              style="width: 110px"
+              @change="(val: string) => handleRoleChange(record, val)"
+            >
+              <a-select-option value="admin">管理员</a-select-option>
+              <a-select-option value="developer">开发者</a-select-option>
+              <a-select-option value="tester">测试</a-select-option>
+            </a-select>
+            <a-button type="link" size="small" danger @click="confirmRemove(record)">移除</a-button>
+          </a-space>
+          <span v-else-if="record.role === 'owner'" style="color: #999">—</span>
+        </template>
+      </template>
+    </a-table>
 
     <a-modal
       v-model:open="addModalVisible"
@@ -108,25 +103,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, CheckOutlined } from '@ant-design/icons-vue'
 import {
   getMembers, searchUsers, addMember, updateMemberRole, removeMember,
   type ProjectMember, type UserSearchResult,
 } from '@/api/projectMembers'
 import { useUserStore } from '@/stores/user'
+import PageHeader from '@/components/PageHeader.vue'
+import { useList } from '@/composables/useList'
 
 const route = useRoute()
 const userStore = useUserStore()
 
 const projectId = computed(() => Number(route.params.id))
 
-const members = ref<ProjectMember[]>([])
-const loading = ref(false)
-
 const canManage = ref(false)
+
+// ── 成员列表（useList 统一列表逻辑）──
+const { loading, list: members, loadData } = useList<ProjectMember>(
+  async (params) => {
+    const data = await getMembers(projectId.value)
+    const currentMember = data.find(m => m.user_id === userStore.userInfo?.id)
+    canManage.value = userStore.userInfo?.is_admin === true ||
+      (currentMember != null && (currentMember.role === 'owner' || currentMember.role === 'admin'))
+    return { items: data, total: data.length, page: params.page, page_size: params.page_size }
+  },
+  { onError: () => message.error('加载成员列表失败') },
+)
 
 const columns = [
   { title: '用户', key: 'username', dataIndex: 'username' },
@@ -157,20 +163,6 @@ const searchLoading = ref(false)
 const searchResults = ref<UserSearchResult[]>([])
 const selectedUser = ref<UserSearchResult | null>(null)
 const newMemberRole = ref('tester')
-
-async function loadMembers() {
-  loading.value = true
-  try {
-    members.value = await getMembers(projectId.value)
-    const currentMember = members.value.find(m => m.user_id === userStore.userInfo?.id)
-    canManage.value = userStore.userInfo?.is_admin === true ||
-      (currentMember != null && (currentMember.role === 'owner' || currentMember.role === 'admin'))
-  } catch {
-    message.error('加载成员列表失败')
-  } finally {
-    loading.value = false
-  }
-}
 
 async function handleSearch() {
   if (!searchKeyword.value.trim()) return
@@ -208,7 +200,7 @@ async function handleAdd() {
     })
     message.success('成员添加成功')
     addModalVisible.value = false
-    await loadMembers()
+    await loadData()
   } catch (e: any) {
     const detail = e?.response?.data?.detail || e?.message || '添加失败'
     message.error(detail)
@@ -222,27 +214,33 @@ async function handleRoleChange(record: ProjectMember, newRole: string) {
   try {
     await updateMemberRole(projectId.value, record.user_id, newRole)
     message.success('角色已更新')
-    await loadMembers()
+    await loadData()
   } catch (e: any) {
     const detail = e?.response?.data?.detail || e?.message || '更新失败'
     message.error(detail)
   }
 }
 
-async function handleRemove(record: ProjectMember) {
-  try {
-    await removeMember(projectId.value, record.user_id)
-    message.success('成员已移除')
-    await loadMembers()
-  } catch (e: any) {
-    const detail = e?.response?.data?.detail || e?.message || '移除失败'
-    message.error(detail)
-  }
+/** 移除成员：统一删除确认弹窗 */
+function confirmRemove(record: ProjectMember) {
+  Modal.confirm({
+    title: '确认移除',
+    content: `确定要移除成员「${record.username}」吗？`,
+    okText: '移除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        await removeMember(projectId.value, record.user_id)
+        message.success('成员已移除')
+        await loadData()
+      } catch (e: any) {
+        const detail = e?.response?.data?.detail || e?.message || '移除失败'
+        message.error(detail)
+      }
+    },
+  })
 }
-
-onMounted(() => {
-  loadMembers()
-})
 </script>
 
 <style scoped>

@@ -1,11 +1,12 @@
 <template>
   <div class="scripts-page">
-    <div class="page-header">
-      <h2>自动化脚本库</h2>
-      <a-button type="primary" @click="showCreateModal = true">
-        <PlusOutlined /> 新建脚本
-      </a-button>
-    </div>
+    <PageHeader title="自动化脚本库">
+      <template #extra>
+        <a-button type="primary" @click="showCreateModal = true">
+          <PlusOutlined /> 新建脚本
+        </a-button>
+      </template>
+    </PageHeader>
 
     <div class="content-wrapper">
       <!-- 左侧脚本列表 -->
@@ -116,9 +117,7 @@
               <a-button @click="showHistoryModal = true; loadScriptRuns()">
                 <HistoryOutlined /> 历史
               </a-button>
-              <a-popconfirm title="确定删除该脚本？" @confirm="handleDelete">
-                <a-button danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" danger @click="confirmDeleteScript">删除</a-button>
             </a-space>
           </div>
 
@@ -378,7 +377,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
+import PageHeader from '@/components/PageHeader.vue'
 import {
   PlusOutlined, SearchOutlined, PlayCircleOutlined, ReloadOutlined, EditOutlined, HistoryOutlined, MedicineBoxOutlined
 } from '@ant-design/icons-vue'
@@ -586,6 +586,28 @@ async function handleSave() {
   } finally {
     saving.value = false
   }
+}
+
+/** 删除脚本：统一确认弹窗 */
+function confirmDeleteScript() {
+  if (!currentScript.value) return
+  Modal.confirm({
+    title: '确认删除',
+    content: `确定要删除脚本「${currentScript.value.name}」吗？`,
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        await deleteScript(projectId, currentScript.value!.id!)
+        message.success('删除成功')
+        currentScript.value = null
+        await loadScripts()
+      } catch (e: any) {
+        message.error(e.response?.data?.detail || '删除失败')
+      }
+    },
+  })
 }
 
 async function handleDelete() {

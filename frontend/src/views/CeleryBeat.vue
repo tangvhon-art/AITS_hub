@@ -1,20 +1,19 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <h2>任务调度管理</h2>
-      <a-button type="primary" @click="openCreateModal">
+    <PageHeader title="任务调度管理">
+  <template #extra>
+    <a-button type="primary" @click="openCreateModal">
         <template #icon>
           <PlusOutlined />
         </template>
         新建定时任务
       </a-button>
-    </div>
-
-    <a-card>
+  </template>
+</PageHeader><a-card>
       <a-tabs v-model:activeKey="activeTab" @change="handleTabChange">
         <!-- Tab1 定时任务配置管理 -->
         <a-tab-pane key="tasks" tab="定时任务配置">
-          <a-form layout="inline" style="margin-bottom: 16px">
+          <SearchBar @search="handleTaskSearch" @reset="handleTaskReset">
             <a-form-item label="关键词">
               <a-input
                 v-model:value="taskKeyword"
@@ -24,24 +23,21 @@
                 @press-enter="handleTaskSearch"
               />
             </a-form-item>
-            <a-form-item>
-              <a-space>
-                <a-button type="primary" @click="handleTaskSearch">查询</a-button>
-                <a-button @click="handleTaskReset">重置</a-button>
-              </a-space>
-            </a-form-item>
-          </a-form>
+            
+          </SearchBar>
 
-          <a-table
+          <DataTable
             :columns="taskColumns"
             :data-source="tasks"
             :loading="taskLoading"
-            :pagination="taskPagination"
             @change="handleTaskTableChange"
             row-key="id"
             size="middle"
             :scroll="{ x: 1400 }"
           >
+        :page="taskPagination.current"
+        :page-size="taskPagination.pageSize"
+        :total="taskPagination.total"
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'task'">
                 <a-tooltip :title="record.task">
@@ -82,12 +78,12 @@
                 <a-button type="link" size="small" danger @click="deleteTask(record)">删除</a-button>
               </template>
             </template>
-          </a-table>
+          </DataTable>
         </a-tab-pane>
 
         <!-- Tab2 任务执行日志查询 -->
         <a-tab-pane key="logs" tab="任务执行日志">
-          <a-form layout="inline" style="margin-bottom: 16px">
+          <SearchBar @search="handleTaskSearch" @reset="handleTaskReset">
             <a-form-item label="时间范围">
               <a-range-picker
                 v-model:value="logFilterDateRange"
@@ -112,24 +108,21 @@
                 <a-select-option value="TIMEOUT">超时</a-select-option>
               </a-select>
             </a-form-item>
-            <a-form-item>
-              <a-space>
-                <a-button type="primary" @click="handleLogSearch">查询</a-button>
-                <a-button @click="handleLogReset">重置</a-button>
-              </a-space>
-            </a-form-item>
-          </a-form>
+            
+          </SearchBar>
 
-          <a-table
+          <DataTable
             :columns="logColumns"
             :data-source="logs"
             :loading="logLoading"
-            :pagination="logPagination"
             @change="handleLogTableChange"
             row-key="id"
             size="middle"
             :scroll="{ x: 1300 }"
           >
+        :page="logPagination.current"
+        :page-size="logPagination.pageSize"
+        :total="logPagination.total"
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'task_name'">
                 <a-tooltip :title="record.task_name">
@@ -161,21 +154,20 @@
                 <a-button type="link" size="small" @click="showLogDetail(record)">查看详情</a-button>
               </template>
             </template>
-          </a-table>
+          </DataTable>
         </a-tab-pane>
       </a-tabs>
     </a-card>
 
     <!-- 新增/编辑定时任务弹窗 -->
-    <a-modal
-      v-model:open="showTaskModal"
-      :title="editingTask ? '编辑定时任务' : '新建定时任务'"
-      @ok="saveTask"
-      :confirm-loading="taskSaving"
+    <FormModal
+      v-model:visible="showTaskModal"
+      title="editingTask ? '编辑定时任务' : '新建定时任务'"
+      :loading="taskSaving"
       width="640px"
+      @ok="saveTask"
     >
-      <a-form layout="vertical">
-        <a-form-item label="任务名称" required>
+      <a-form-item label="任务名称" required>
           <a-input v-model:value="taskForm.name" placeholder="例如：清理uploads目录" />
         </a-form-item>
         <a-form-item label="任务唯一标识" required>
@@ -215,8 +207,7 @@
         <a-form-item label="是否启用">
           <a-switch v-model:checked="taskForm.enabled" checked-children="启用" un-checked-children="禁用" />
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 执行日志详情弹窗 -->
     <a-modal v-model:open="showLogModal" title="执行日志详情" width="700px" :footer="null">
@@ -267,6 +258,10 @@ import {
   type BeatTask,
   type BeatTaskLog
 } from '@/api/celeryBeat'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import SearchBar from '@/components/SearchBar.vue'
 
 const activeTab = ref('tasks')
 

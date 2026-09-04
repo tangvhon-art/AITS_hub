@@ -1,9 +1,10 @@
 <template>
   <div class="workflow-config-page">
-    <div class="page-header">
-      <h2>Agent配置</h2>
-      <a-tag color="purple">系统级配置</a-tag>
-    </div>
+    <PageHeader title="Agent配置">
+  <template #extra>
+    <a-tag color="purple">系统级配置</a-tag>
+  </template>
+</PageHeader>
 
     <a-alert
       message="配置外部工作流平台接入：平台连接（凭证加密）→ Webhook 全局开关 → 模块后端配置。业务页面提交时可选择 local/workflow 执行后端。"
@@ -15,20 +16,20 @@
     <a-tabs v-model:activeKey="activeTab" type="card">
       <!-- ════════ Tab 1：平台连接 ════════ -->
       <a-tab-pane key="connectors" tab="平台连接">
+        <a-card>
         <div class="tab-toolbar">
           <a-button type="primary" @click="openConnectorModal()">
             <template #icon><PlusOutlined /></template>
             新建连接
           </a-button>
         </div>
-        <a-table
+        <DataTable
           :columns="connectorColumns"
           :data-source="connectors"
           :loading="connectorsLoading"
           row-key="id"
           size="middle"
-          :pagination="false"
-        >
+                  >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'platform_type'">
               <a-tag :color="WORKFLOW_PLATFORM_COLOR[record.platform_type] || 'default'">
@@ -48,7 +49,7 @@
               <a-button type="link" size="small" danger @click="deleteConnector(record)">删除</a-button>
             </template>
           </template>
-        </a-table>
+        </DataTable>
 
         <!-- 连接表单抽屉 -->
         <a-drawer
@@ -112,10 +113,12 @@
             </div>
           </template>
         </a-drawer>
+        </a-card>
       </a-tab-pane>
 
       <!-- ════════ Tab 2：Webhook 配置 ════════ -->
       <a-tab-pane key="webhook" tab="Webhook 配置">
+        <a-card>
         <a-spin :spinning="webhookLoading">
           <a-form layout="vertical" style="max-width: 560px">
             <a-form-item label="全局开关">
@@ -156,24 +159,25 @@
             </a-form-item>
           </a-form>
         </a-spin>
+        </a-card>
       </a-tab-pane>
 
       <!-- ════════ Tab 3：模块后端配置 ════════ -->
       <a-tab-pane key="modules" tab="模块后端">
+        <a-card>
         <div class="tab-toolbar">
           <a-button type="primary" @click="openModuleModal()">
             <template #icon><PlusOutlined /></template>
             配置模块后端
           </a-button>
         </div>
-        <a-table
+        <DataTable
           :columns="moduleColumns"
           :data-source="moduleConfigs"
           :loading="modulesLoading"
           row-key="id"
           size="middle"
-          :pagination="false"
-        >
+                  >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'module_id'">
               <a-tag color="blue">{{ WORKFLOW_MODULE_TEXT[record.module_id] || record.module_id }}</a-tag>
@@ -203,7 +207,7 @@
               <a-button type="link" size="small" danger @click="deleteModuleConfigRow(record)">删除</a-button>
             </template>
           </template>
-        </a-table>
+        </DataTable>
 
         <!-- 模块配置抽屉 -->
         <a-drawer
@@ -263,6 +267,7 @@
             </div>
           </template>
         </a-drawer>
+        </a-card>
       </a-tab-pane>
     </a-tabs>
   </div>
@@ -281,6 +286,8 @@ import {
   type AgentBackendConfig,
 } from '@/api/workflow'
 import { getProjects, type Project } from '@/api/projects'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
 import {
   WORKFLOW_PLATFORM_TEXT, WORKFLOW_PLATFORM_COLOR, WORKFLOW_PLATFORM_OPTIONS,
   WORKFLOW_MODULE_TEXT, WORKFLOW_MODULE_OPTIONS,

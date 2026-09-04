@@ -85,12 +85,11 @@
           </a-tag>
         </div>
       </template>
-      <a-table
+      <DataTable
         :columns="workerColumns"
         :data-source="workerList"
         :loading="loading"
-        :pagination="false"
-        size="middle"
+                size="middle"
         row-key="name"
       >
         <template #bodyCell="{ column, record }">
@@ -120,7 +119,7 @@
             <span class="load-text">{{ record.active }}/{{ record.concurrency }}</span>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 任务列表 -->
@@ -163,13 +162,16 @@
             </a-button>
         </div>
       </template>
-      <a-table
+      <DataTable
         :columns="taskColumns"
-        :data-source="filteredTasks"
+        :data-source="pagedTasks"
         :loading="loading"
-        :pagination="{ pageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条` }"
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         size="middle"
         row-key="id"
+        @change="handleTableChange"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'state'">
@@ -194,15 +196,7 @@
             <a-button type="link" size="small" @click="showTaskDetail(record)">
               详情
             </a-button>
-            <a-popconfirm
-              v-if="['running', 'pending'].includes(record.status)"
-              title="确定取消该任务吗？"
-              ok-text="取消任务"
-              cancel-text="再想想"
-              @confirm="handleCancel(record)"
-            >
-              <a-button type="link" danger size="small">取消</a-button>
-            </a-popconfirm>
+            <a-button v-if="['running', 'pending'].includes(record.status)" type="link" danger size="small" @click="confirmDelete(record, () => handleCancel(record))">取消</a-button>
           </template>
         </template>
         <template #expandedRowRender="{ record }">
@@ -227,7 +221,7 @@
             </a-descriptions-item>
           </a-descriptions>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 任务详情抽屉 -->
@@ -276,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   DatabaseOutlined,
@@ -290,6 +284,9 @@ import {
 } from '@ant-design/icons-vue'
 import { getAgentTaskMonitor, cancelAgentTask, type AgentTaskMonitor, type AgentTask } from '@/api/agentTasks'
 import { AI_BACKEND_TEXT, AI_BACKEND_COLOR } from '@/constants/enums'
+import DataTable from '@/components/DataTable.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('任务')
 
 // Flower API 基础路径（通过 Vite 代理，仅用于 Worker 节点在线状态展示）
 const FLOWER_API = '/flower/api'
@@ -378,9 +375,29 @@ const filteredTasks = computed(() => {
 })
 
 function handleSearch() {
+  pagination.current = 1
 }
 function handleReset() {
   statusFilter.value = undefined
+  pagination.current = 1
+}
+
+const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
+
+const pagedTasks = computed(() => {
+  const start = (pagination.current - 1) * pagination.pageSize
+  return filteredTasks.value.slice(start, start + pagination.pageSize)
+})
+
+watch(filteredTasks, (list) => {
+  pagination.total = list.length
+  const maxPage = Math.max(1, Math.ceil(list.length / pagination.pageSize))
+  if (pagination.current > maxPage) pagination.current = maxPage
+}, { immediate: true })
+
+function handleTableChange(pag: any) {
+  pagination.current = pag.current
+  pagination.pageSize = pag.pageSize
 }
 
 // 统计数据（执行中/排队中以 DB agent_tasks + Redis 队列积压为准，不依赖 Celery 事件流）

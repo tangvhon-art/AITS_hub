@@ -1,8 +1,8 @@
 <template>
   <div class="knowledge-page">
-    <div class="page-header">
-      <h2>知识库管理</h2>
-      <a-space>
+    <PageHeader title="知识库管理">
+  <template #extra>
+    <a-space>
         <a-button @click="showCreateModal">
           <template #icon><FileAddOutlined /></template>
           新建文档
@@ -14,9 +14,8 @@
           </a-button>
         </a-upload>
       </a-space>
-    </div>
-
-    <!-- 统计卡片 -->
+  </template>
+</PageHeader><!-- 统计卡片 -->
     <a-row :gutter="16" class="stats-row">
       <a-col :span="6">
         <a-card>
@@ -77,14 +76,16 @@
             </a-select>
             <a-button type="primary" @click="loadDocs">查询</a-button>
           </div>
-          <a-table
+          <DataTable
             :columns="docColumns"
             :data-source="docs"
             :loading="loading"
-            :pagination="docPagination"
             @change="handleDocTableChange"
             row-key="id"
           >
+        :page="docPagination.current"
+        :page-size="docPagination.pageSize"
+        :total="docPagination.total"
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'title'">
                 <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '500px' }">
@@ -113,13 +114,11 @@
                     @click="handleGenerateChunks(record)"
                   >生成切片</a-button>
                   <a-button type="link" size="small" @click="viewDoc(record)">查看</a-button>
-                  <a-popconfirm title="确定删除此文档？" @confirm="deleteDoc(record.id)">
-                    <a-button type="link" size="small" danger>删除</a-button>
-                  </a-popconfirm>
+                  <a-button type="link" size="small" danger @click="confirmDelete(record, () => deleteDoc(record.id))">删除</a-button>
                 </a-space>
               </template>
             </template>
-          </a-table>
+          </DataTable>
         </a-tab-pane>
 
         <!-- 知识内容（切片列表） -->
@@ -143,15 +142,17 @@
             <a-button type="primary" @click="loadChunks">查询</a-button>
             <a-button @click="resetChunkFilter">重置</a-button>
           </div>
-          <a-table
+          <DataTable
             :columns="chunkColumns"
             :data-source="chunks"
             :loading="chunksLoading"
-            :pagination="chunkPagination"
             @change="handleChunkTableChange"
             row-key="id"
             size="middle"
           >
+        :page="chunkPagination.current"
+        :page-size="chunkPagination.pageSize"
+        :total="chunkPagination.total"
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'doc_title'">
                 <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '400px' }">
@@ -173,22 +174,26 @@
                 <a-button type="link" size="small" @click="viewChunk(record)">查看全文</a-button>
               </template>
             </template>
-          </a-table>
+          </DataTable>
         </a-tab-pane>
       </a-tabs>
     </a-card>
 
     <!-- 新建文档弹窗 -->
-    <a-modal v-model:open="createVisible" title="新建知识库文档" @ok="handleCreate" :confirm-loading="creating">
-      <a-form layout="vertical">
-        <a-form-item label="文档标题" required>
+    <FormModal
+      v-model:visible="createVisible"
+      title="新建知识库文档"
+      :loading="creating"
+      width="600"
+      @ok="handleCreate"
+    >
+      <a-form-item label="文档标题" required>
           <a-input v-model:value="createForm.title" placeholder="请输入文档标题" />
         </a-form-item>
         <a-form-item label="文档内容" required>
           <a-textarea v-model:value="createForm.content" :rows="8" placeholder="请输入文档内容" />
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
 
     <!-- 文档详情弹窗 -->
     <a-modal v-model:open="detailVisible" title="文档详情" :footer="null" width="700px">
@@ -232,6 +237,11 @@ import {
   deleteKnowledgeDoc as deleteDocApi, generateChunks, searchKnowledge, getKnowledgeStats,
   type KnowledgeDoc, type KnowledgeChunk, type KnowledgeSearchResult,
 } from '@/api/knowledge'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('知识')
 
 const route = useRoute()
 const projectId = Number(route.params.id)

@@ -1,12 +1,13 @@
 <template>
   <div class="api-environments">
-    <div class="page-header">
-      <h2>环境变量</h2>
-      <a-button type="primary" @click="showCreateEnv = true">
+    <PageHeader title="环境变量">
+  <template #extra>
+    <a-button type="primary" @click="showCreateEnv = true">
         <template #icon><PlusOutlined /></template>
         新建环境
       </a-button>
-    </div>
+  </template>
+</PageHeader>
 
     <a-row :gutter="16">
       <!-- 左侧：环境列表 -->
@@ -46,9 +47,7 @@
               <span>{{ selectedEnv.name }} - 变量配置</span>
               <a-space>
                 <a-button size="small" @click="openEditEnv">编辑环境</a-button>
-                <a-popconfirm title="确定删除该环境？" @confirm="handleDeleteEnv">
-                  <a-button size="small" danger>删除</a-button>
-                </a-popconfirm>
+                <a-button size="small" danger @click="confirmDelete(selectedEnv, () => handleDeleteEnv())">删除</a-button>
               </a-space>
             </div>
           </template>
@@ -71,7 +70,7 @@
             :columns="varColumns"
             :row-key="(_r: any, index: number) => index"
             size="small"
-            pagination="false"
+            :pagination="false"
           >
             <template #bodyCell="{ column, record, index }">
               <template v-if="column.key === 'key'">
@@ -192,6 +191,10 @@ import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, CodeOutlined } from '@ant-design/icons-vue'
 import { environmentsApi } from '@/api/environments'
+import PageHeader from '@/components/PageHeader.vue'
+import DataTable from '@/components/DataTable.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+const { confirmDelete } = useConfirmDelete('环境')
 const route = useRoute()
 const projectId = Number(route.params.id)
 const environments = ref<any[]>([])

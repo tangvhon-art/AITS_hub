@@ -1,26 +1,33 @@
 <template>
   <div class="healing-page">
+    <PageHeader title="自愈记录" />
     <!-- 查询栏 -->
-    <div class="filter-bar">
-      <a-select v-model:value="filterLevel" placeholder="自愈等级" allow-clear style="width: 120px" @change="loadRecords">
+    <a-card>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+  <a-form layout="inline">
+    <a-form-item label="自愈等级">
+<a-select v-model:value="filterLevel" placeholder="自愈等级" allow-clear style="width: 120px" @change="loadRecords">
         <a-select-option value="L1">L1 属性回退</a-select-option>
         <a-select-option value="L2">L2 AI推理</a-select-option>
         <a-select-option value="L3">L3 视觉定位</a-select-option>
         <a-select-option value="L4">L4 修复失败</a-select-option>
       </a-select>
-      <a-select v-model:value="filterResult" placeholder="修复结果" allow-clear style="width: 120px" @change="loadRecords">
+</a-form-item>
+      <a-form-item label="修复结果">
+<a-select v-model:value="filterResult" placeholder="修复结果" allow-clear style="width: 120px" @change="loadRecords">
         <a-select-option value="success">成功</a-select-option>
         <a-select-option value="fail">失败</a-select-option>
         <a-select-option value="pending_review">待确认</a-select-option>
       </a-select>
-      <a-button @click="loadRecords"><SearchOutlined /> 查询</a-button>
-      <a-button @click="resetFilter">重置</a-button>
-      <a-button type="primary" @click="loadStats" style="margin-left: auto">
-        <ReloadOutlined /> 刷新统计
-      </a-button>
-    </div>
-
-    <!-- 统计卡片 -->
+</a-form-item>
+  </a-form>
+      <template #extra>
+        <a-button type="primary" @click="loadStats">
+          <template #icon><ReloadOutlined /></template>
+          刷新统计
+        </a-button>
+      </template>
+</SearchBar><!-- 统计卡片 -->
     <div class="stats-row" v-if="stats">
       <div class="stat-card">
         <div class="stat-value">{{ stats.total }}</div>
@@ -61,15 +68,17 @@
     </div>
 
     <!-- 记录列表 -->
-    <a-table
+    <DataTable
       :columns="columns"
       :data-source="records"
       :loading="loading"
-      :pagination="pagination"
       @change="handleTableChange"
       row-key="id"
       size="middle"
     >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'healing_level'">
           <a-tag :color="levelColor[record.healing_level]">{{ record.healing_level }}</a-tag>
@@ -91,27 +100,13 @@
         <template v-else-if="column.key === 'action'">
           <a-button type="link" size="small" @click="viewDetail(record)">详情</a-button>
           <template v-if="isPending(record) || isUnconfirmedSuccess(record)">
-            <a-popconfirm
-              title="确认该修复有效并回写到脚本？"
-              ok-text="确认回写"
-              cancel-text="取消"
-              @confirm="confirmRecord(record)"
-            >
-              <a-button type="link" size="small">确认</a-button>
-            </a-popconfirm>
-            <a-popconfirm
-              title="确认该修复无效？标记为失败"
-              ok-text="拒绝"
-              ok-type="danger"
-              cancel-text="取消"
-              @confirm="rejectRecord(record)"
-            >
-              <a-button type="link" size="small" danger>拒绝</a-button>
-            </a-popconfirm>
+            <a-button type="link" size="small" @click="confirmDelete(record, () => confirmRecord(record))">确认</a-button>
+            <a-button type="link" size="small" danger @click="confirmDelete(record, () => rejectRecord(record))">拒绝</a-button>
           </template>
         </template>
       </template>
-    </a-table>
+    </DataTable>
+    </a-card>
 
     <!-- 详情弹窗 -->
     <a-modal v-model:open="detailVisible" title="自愈记录详情" width="800px" :footer="null">
@@ -152,13 +147,13 @@
 
         <div v-if="currentRecord.candidates && currentRecord.candidates.length" class="detail-section">
           <h4>候选定位器</h4>
-          <a-table :data-source="currentRecord.candidates" :columns="candidateColumns" size="small" :pagination="false" row-key="selector">
+          <DataTable :data-source="currentRecord.candidates" :columns="candidateColumns" size="small" :pagination="false" row-key="selector">
             <template #bodyCell="{ column, record: c }">
               <template v-if="column.key === 'confidence'">
                 <a-progress :percent="Math.round((c.confidence || 0) * 100)" size="small" style="width: 100px" />
               </template>
             </template>
-          </a-table>
+          </DataTable>
         </div>
 
         <div v-if="currentRecord.ai_reasoning" class="detail-section">
@@ -175,10 +170,15 @@ import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useRoute } from 'vue-router'
+import DataTable from '@/components/DataTable.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import PageHeader from '@/components/PageHeader.vue'
+const { confirmDelete } = useConfirmDelete('自愈记录')
 import {
   listHealingRecords, getHealingRecord, confirmHealing, rejectHealing, getHealingStats,
   type HealingRecord, type HealingStats,
 } from '@/api/uiHealing'
+import SearchBar from '@/components/SearchBar.vue'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
@@ -312,6 +312,19 @@ onMounted(() => {
   loadRecords()
   loadStats()
 })
+
+function handleSearch() {
+  pagination.current = 1
+  loadRecords()
+}
+
+function handleReset() {
+  filterLevel.value = undefined
+  filterResult.value = undefined
+  filterScriptId.value = undefined
+  pagination.current = 1
+  loadRecords()
+}
 </script>
 
 <style scoped>

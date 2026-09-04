@@ -1,40 +1,38 @@
 <template>
   <div class="notification-rules-page">
+    <PageHeader title="通知规则">
+      <template #extra>
+        <a-button type="primary" @click="openCreateModal">
+          <template #icon><plus-outlined /></template>
+          新建规则
+        </a-button>
+      </template>
+    </PageHeader>
     <a-card :bordered="false" class="page-card">
-      <div class="page-header">
-        <div class="header-left">
-          <h2 class="page-title">通知规则</h2>
-          <span class="page-desc">配置事件触发条件与通知渠道的映射关系</span>
-        </div>
-        <div class="header-right">
-          <a-select
-            v-model:value="filterEvent"
-            placeholder="按事件类型筛选"
-            style="width: 200px; margin-right: 12px"
-            allow-clear
-          >
-            <a-select-option v-for="e in eventTypes" :key="e.code" :value="e.code">
-              {{ e.name }}
-            </a-select-option>
-          </a-select>
-          <a-button style="margin-right: 8px" type="primary" @click="handleSearch">查询</a-button>
-          <a-button style="margin-right: 8px" @click="handleReset">重置</a-button>
-          <a-button type="primary" @click="openCreateModal">
-            <template #icon><plus-outlined /></template>
-            新建规则
-          </a-button>
-        </div>
-      </div>
+      <SearchBar @search="handleSearch" @reset="handleReset">
+        <a-select
+          v-model:value="filterEvent"
+          placeholder="按事件类型筛选"
+          style="width: 200px"
+          allow-clear
+        >
+          <a-select-option v-for="e in eventTypes" :key="e.code" :value="e.code">
+            {{ e.name }}
+          </a-select-option>
+        </a-select>
+      </SearchBar>
 
-      <a-table
+      <DataTable
         :columns="columns"
         :data-source="rules"
         :loading="loading"
-        :pagination="pagination"
         row-key="id"
         size="middle"
         @change="handleTableChange"
       >
+        :page="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'">
             <span class="rule-name">{{ record.name }}</span>
@@ -65,32 +63,22 @@
           <template v-else-if="column.key === 'action'">
             <a-space>
               <a-button type="link" size="small" @click="openEditModal(record)">编辑</a-button>
-              <a-popconfirm
-                title="确定删除该规则吗？"
-                ok-text="确定"
-                cancel-text="取消"
-                @confirm="handleDelete(record)"
-              >
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+              <a-button type="link" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
             </a-space>
           </template>
         </template>
-      </a-table>
+      </DataTable>
     </a-card>
 
     <!-- 新建/编辑弹窗 -->
-    <a-modal
-      v-model:open="modalVisible"
-      :title="isEdit ? '编辑规则' : '新建规则'"
+    <FormModal
+      v-model:visible="modalVisible"
+      title="isEdit ? '编辑规则' : '新建规则'"
+      :loading="saving"
       width="600px"
-      :confirm-loading="saving"
-      ok-text="保存"
-      cancel-text="取消"
       @ok="handleSave"
     >
-      <a-form :model="formData" layout="vertical">
-        <a-form-item label="规则名称" required>
+      <a-form-item label="规则名称" required>
           <a-input v-model:value="formData.name" placeholder="请输入规则名称，如：测试失败通知" />
         </a-form-item>
         <a-form-item label="事件类型" required>
@@ -165,8 +153,7 @@
         <a-form-item label="启用规则">
           <a-switch v-model:checked="formData.enabled" />
         </a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
   </div>
 </template>
 
@@ -181,6 +168,12 @@ import {
   type EventTypeInfo,
 } from '@/api/notifications'
 import { getProjects } from '@/api/projects'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import PageHeader from '@/components/PageHeader.vue'
+import SearchBar from '@/components/SearchBar.vue'
+const { confirmDelete } = useConfirmDelete('通知规则')
 const loading = ref(false)
 const saving = ref(false)
 const rules = ref<NotificationRule[]>([])

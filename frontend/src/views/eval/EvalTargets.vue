@@ -1,23 +1,31 @@
 <template>
   <div>
     <a-card size="small">
-      <div class="toolbar">
-        <a-select v-model:value="filterType" style="width: 130px" allow-clear placeholder="全部类型">
+      <SearchBar @search="load" @reset="resetFilters">
+        <a-form layout="inline">
+<a-form-item label="类型">
+<a-select v-model:value="filterType" style="width: 130px" allow-clear placeholder="全部类型">
           <a-select-option value="llm">大模型</a-select-option>
           <a-select-option value="agent">内置Agent</a-select-option>
           <a-select-option value="external_agent">外部工作流</a-select-option>
           <a-select-option value="business">业务入口</a-select-option>
         </a-select>
-        <a-select v-model:value="filterStatus" style="width: 130px" allow-clear placeholder="全部状态">
+</a-form-item>
+        <a-form-item label="状态">
+<a-select v-model:value="filterStatus" style="width: 130px" allow-clear placeholder="全部状态">
           <a-select-option value="active">正常</a-select-option>
           <a-select-option value="inactive">已停用</a-select-option>
           <a-select-option value="deleted">已删除</a-select-option>
         </a-select>
-        <a-input v-model:value="keyword" placeholder="搜索名称" style="width: 200px" allow-clear />
-        <div style="flex: 1"></div>
-        <a-button type="primary" @click="openModal()"><PlusOutlined /> 新增被测对象</a-button>
-      </div>
-      <a-table :data-source="filteredList" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 10 }">
+</a-form-item>
+        <a-form-item label="名称">
+<a-input v-model:value="keyword" placeholder="搜索名称" style="width: 200px" allow-clear />
+</a-form-item>
+        </a-form>
+        <template #extra>
+          <a-button type="primary" @click="openModal()"><PlusOutlined /> 新增被测对象</a-button>
+        </template>
+      </SearchBar><DataTable :data-source="filteredList" row-key="id" :loading="loading" size="small">
         <a-table-column title="ID" data-index="id" width="60" />
         <a-table-column title="名称" data-index="name" />
         <a-table-column title="类型" data-index="target_type" width="110">
@@ -44,70 +52,84 @@
           <template #default="{ record }">
             <a-space>
               <a-button type="link" size="small" @click="openModal(record)">编辑</a-button>
-              <a-popconfirm
-                v-if="!record.is_deleted && record.status === 'active'"
-                title="确认停用该被测对象？"
-                @confirm="toggleStatus(record, 'inactive')"
-              >
-                <a-button type="link" danger size="small">停用</a-button>
-              </a-popconfirm>
+              <a-button v-if="!record.is_deleted && record.status === 'active'" type="link" danger size="small" @click="confirmDelete(record, () => toggleStatus(record, 'inactive'))">停用</a-button>
               <a-button
                 v-else-if="!record.is_deleted && record.status === 'inactive'"
                 type="link" size="small" @click="toggleStatus(record, 'active')"
               >启用</a-button>
-              <a-popconfirm
-                v-else-if="record.is_deleted"
-                title="确认恢复该被测对象？"
-                @confirm="restore(record)"
-              >
-                <a-button type="link" size="small">恢复</a-button>
-              </a-popconfirm>
+              <a-button v-if="record.is_deleted" type="link" size="small" @click="confirmDelete(record, () => restore(record))">恢复</a-button>
             </a-space>
           </template>
         </a-table-column>
-      </a-table>
+      </DataTable>
     </a-card>
 
-    <a-modal v-model:open="modalOpen" :title="form.id ? '编辑被测对象' : '新增被测对象'" @ok="save" :confirm-loading="saving" width="560">
-      <a-form :model="form" layout="vertical">
-        <a-form-item label="名称" required><a-input v-model:value="form.name" /></a-form-item>
+    <FormModal
+      v-model:visible="modalOpen"
+      title="form.id ? '编辑被测对象' : '新增被测对象'"
+      :loading="saving"
+      width="560"
+      @ok="save"
+    >
+      <a-form-item label="名称" required><a-form-item label="筛选">
+<a-input v-model:value="form.name" />
+</a-form-item></a-form-item>
         <a-form-item label="类型" required>
-          <a-select v-model:value="form.target_type">
+          <a-form-item label="筛选">
+<a-select v-model:value="form.target_type">
             <a-select-option value="llm">大模型（绑定 LLM 配置）</a-select-option>
             <a-select-option value="agent">内置 Agent</a-select-option>
             <a-select-option value="external_agent">外部工作流（填写服务地址与鉴权）</a-select-option>
             <a-select-option value="business">业务入口</a-select-option>
           </a-select>
+</a-form-item>
         </a-form-item>
         <a-form-item v-if="form.target_type === 'llm'" label="LLM 配置">
-          <a-select v-model:value="form.llm_config_id" allow-clear>
+          <a-form-item label="筛选">
+<a-select v-model:value="form.llm_config_id" allow-clear>
             <a-select-option v-for="c in llmConfigs" :key="c.id" :value="c.id">{{ c.name }}（{{ c.model_name }}）</a-select-option>
           </a-select>
+</a-form-item>
         </a-form-item>
         <a-form-item v-if="form.target_type === 'agent'" label="内置 Agent 类型">
-          <a-input v-model:value="form.agent_type" placeholder="如 case_generator / execution_agent" />
+          <a-form-item label="筛选">
+<a-input v-model:value="form.agent_type" placeholder="如 case_generator / execution_agent" />
+</a-form-item>
         </a-form-item>
         <a-form-item v-if="form.target_type === 'external_agent'" label="服务地址 / 调用路径 / 鉴权方式" required>
-          <a-input v-model:value="form.service_url" placeholder="服务地址，如 https://gateway.example.com" style="width: 100%" />
-          <a-input v-model:value="form.call_path" placeholder="调用路径，如 /api/workflow/run" style="width: 100%; margin-top: 8px" />
+          <a-form-item label="筛选">
+<a-input v-model:value="form.service_url" placeholder="服务地址，如 https://gateway.example.com" style="width: 100%" />
+</a-form-item>
+          <a-form-item label="筛选">
+<a-input v-model:value="form.call_path" placeholder="调用路径，如 /api/workflow/run" style="width: 100%; margin-top: 8px" />
+</a-form-item>
           <div style="display: flex; gap: 8px; margin-top: 8px">
-            <a-select v-model:value="form.auth_type" style="width: 140px" placeholder="鉴权方式">
+            <a-form-item label="筛选">
+<a-select v-model:value="form.auth_type" style="width: 140px" placeholder="鉴权方式">
               <a-select-option value="none">无鉴权</a-select-option>
               <a-select-option value="bearer">Bearer Token</a-select-option>
               <a-select-option value="apikey">API Key</a-select-option>
               <a-select-option value="custom">自定义 Header</a-select-option>
             </a-select>
-            <a-input v-model:value="form.auth_token" placeholder="鉴权凭证（Token / API Key）" style="flex: 1" />
-            <a-input v-if="form.auth_type === 'custom'" v-model:value="form.auth_header" placeholder="Header 名，如 X-Api-Key" style="width: 160px" />
+</a-form-item>
+            <a-form-item label="筛选">
+<a-input v-model:value="form.auth_token" placeholder="鉴权凭证（Token / API Key）" style="flex: 1" />
+</a-form-item>
+            <a-form-item label="筛选">
+<a-input v-if="form.auth_type === 'custom'" v-model:value="form.auth_header" placeholder="Header 名，如 X-Api-Key" style="width: 160px" />
+</a-form-item>
           </div>
         </a-form-item>
         <a-form-item v-if="form.target_type === 'business'" label="业务场景标识">
-          <a-input v-model:value="form.business_scene" placeholder="如 order_query / knowledge_qa" />
+          <a-form-item label="筛选">
+<a-input v-model:value="form.business_scene" placeholder="如 order_query / knowledge_qa" />
+</a-form-item>
         </a-form-item>
-        <a-form-item label="版本标识"><a-input v-model:value="form.version_tag" placeholder="如 v0.1 / 2026Q3" /></a-form-item>
+        <a-form-item label="版本标识"><a-form-item label="筛选">
+<a-input v-model:value="form.version_tag" placeholder="如 v0.1 / 2026Q3" />
+</a-form-item></a-form-item>
         <a-form-item label="描述"><a-textarea v-model:value="form.description" :rows="2" /></a-form-item>
-      </a-form>
-    </a-modal>
+    </FormModal>
   </div>
 </template>
 
@@ -117,6 +139,11 @@ import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { evalTargetApi, EVAL_TYPE_TEXT } from '@/api/eval'
 import { getLLMConfigs } from '@/api/llm'
+import DataTable from '@/components/DataTable.vue'
+import FormModal from '@/components/FormModal.vue'
+import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import SearchBar from '@/components/SearchBar.vue'
+const { confirmDelete } = useConfirmDelete('测评目标')
 
 const list = ref<any[]>([])
 const loading = ref(false)
@@ -146,6 +173,11 @@ const filteredList = computed(() => {
   return l
 })
 
+
+const resetFilters = () => {
+  filterType.value = ''; filterStatus.value = ''; keyword.value = ''
+  load()
+}
 
 const load = async () => {
   loading.value = true
