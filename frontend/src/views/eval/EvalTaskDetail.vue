@@ -96,7 +96,7 @@
         </a-space>
       </template>
       <h4 style="margin-top: 16px">被测模型输出</h4>
-      <div class="md-body" v-html="renderMd(currentResult?.model_output || '（无输出）')"></div>
+      <MdView class="md-body" :content="currentResult?.model_output || '（无输出）'" />
       <template v-if="currentResult?.business_result">
         <h4>业务判定</h4>
         <pre class="out-box">{{ JSON.stringify(currentResult.business_result, null, 2) }}</pre>
@@ -117,7 +117,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { marked } from 'marked'
+import MdView from '@/components/MdView.vue'
 import { evalTaskApi, evalResultApi, evalReportApi, EVAL_MODE_TEXT, EVAL_MODE_COLOR } from '@/api/eval'
 
 const route = useRoute()
@@ -156,10 +156,6 @@ const metricKeyText = (k: string | number) => ({
   jailbreak_success: '越狱成功', jailbreak_failed: '拦截成功',
   total: '总数', passed: '通过数', failed: '失败数', score: '得分',
 } as any)[k] || k
-const renderMd = (text?: string) => {
-  if (!text) return ''
-  try { return marked.parse(text) as string } catch { return text }
-}
 const modeOf = (record: any) => {
   const r = runs.value.find((x) => x.id === record.eval_run_id)
   return r ? modeText(r.mode) : '-'

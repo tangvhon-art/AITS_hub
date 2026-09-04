@@ -71,28 +71,29 @@ export const DEFECT_SEVERITY_OPTIONS = [
 ]
 
 // ─── 缺陷状态 ───
+// 与后端 app/models/defect.py 保持一致：open/confirmed/resolved/closed/reopened
 export const DEFECT_STATUS_COLOR: Record<string, string> = {
   open: 'red',
-  in_progress: 'orange',
+  confirmed: 'orange',
   resolved: 'green',
   closed: 'default',
   reopened: 'volcano',
 }
 
 export const DEFECT_STATUS_TEXT: Record<string, string> = {
-  open: '待处理',
-  in_progress: '处理中',
+  open: '新建',
+  confirmed: '已确认',
   resolved: '已解决',
   closed: '已关闭',
-  reopened: '已重开',
+  reopened: '重新打开',
 }
 
 export const DEFECT_STATUS_OPTIONS = [
-  { label: '待处理', value: 'open' },
-  { label: '处理中', value: 'in_progress' },
+  { label: '新建', value: 'open' },
+  { label: '已确认', value: 'confirmed' },
   { label: '已解决', value: 'resolved' },
   { label: '已关闭', value: 'closed' },
-  { label: '已重开', value: 'reopened' },
+  { label: '重新打开', value: 'reopened' },
 ]
 
 // ─── 测试计划状态 ───

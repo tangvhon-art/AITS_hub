@@ -27,11 +27,7 @@
         <a-select-option value="P3">P3</a-select-option>
       </a-select>
       <a-select v-model:value="filterStatus" placeholder="状态" allow-clear style="width: 120px">
-        <a-select-option value="open">新建</a-select-option>
-        <a-select-option value="confirmed">已确认</a-select-option>
-        <a-select-option value="resolved">已解决</a-select-option>
-        <a-select-option value="closed">已关闭</a-select-option>
-        <a-select-option value="reopened">重新打开</a-select-option>
+        <a-select-option v-for="opt in DEFECT_STATUS_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
       </a-select>
       <a-select v-model:value="filterRootCauseCategory" placeholder="根因分类" allow-clear style="width: 120px">
         <a-select-option value="frontend">前端</a-select-option>
@@ -129,11 +125,7 @@
           <a-col :span="8">
             <a-form-item label="状态">
               <a-select v-model:value="formData.status">
-                <a-select-option value="open">新建</a-select-option>
-                <a-select-option value="confirmed">已确认</a-select-option>
-                <a-select-option value="resolved">已解决</a-select-option>
-                <a-select-option value="closed">已关闭</a-select-option>
-                <a-select-option value="reopened">重新打开</a-select-option>
+                <a-select-option v-for="opt in DEFECT_STATUS_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
@@ -202,16 +194,14 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { getDefects, createDefect, updateDefect, deleteDefect as deleteDefectApi, type Defect } from '@/api/defects'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
+import { DEFECT_STATUS_COLOR, DEFECT_STATUS_TEXT, DEFECT_STATUS_OPTIONS } from '@/constants/enums'
 
 const route = useRoute()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const defects = ref<Defect[]>([])
 const filterTitle = ref('')
@@ -260,7 +250,6 @@ function getVersionName(versionId?: number | null) {
 }
 
 async function loadDefects() {
-  syncToUrl({ title: filterTitle.value, status: filterStatus.value, severity: filterSeverity.value, priority: filterPriority.value, root_cause_category: filterRootCauseCategory.value, version_id: filterVersionId.value })
   loading.value = true
   if (!projectId) {
     loading.value = false
@@ -374,12 +363,10 @@ function severityText(s?: string) {
   return map[s || ''] || s
 }
 function statusColor(s?: string) {
-  const map: Record<string, string> = { open: 'red', confirmed: 'orange', resolved: 'green', closed: 'default', reopened: 'orange' }
-  return map[s || ''] || 'default'
+  return DEFECT_STATUS_COLOR[s || ''] || 'default'
 }
 function statusText(s?: string) {
-  const map: Record<string, string> = { open: '新建', confirmed: '已确认', resolved: '已解决', closed: '已关闭', reopened: '重新打开' }
-  return map[s || ''] || s
+  return DEFECT_STATUS_TEXT[s || ''] || s
 }
 
 async function loadVersions() {
@@ -392,7 +379,7 @@ async function loadVersions() {
 
 onMounted(() => {
   if (projectId) {
-    const params = loadFromUrl({ title: '', status: undefined, severity: undefined, priority: undefined, root_cause_category: undefined, version_id: undefined as number | undefined })
+    const params = { title: '', status: undefined, severity: undefined, priority: undefined, root_cause_category: undefined, version_id: undefined as number | undefined }
     filterTitle.value = params.title || ''
     filterStatus.value = params.status
     filterSeverity.value = params.severity

@@ -225,7 +225,6 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { FileAddOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import {
@@ -235,7 +234,6 @@ import {
 } from '@/api/knowledge'
 
 const route = useRoute()
-const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = Number(route.params.id)
 
 const activeTab = ref('docs')
@@ -370,7 +368,6 @@ function viewChunk(record: KnowledgeChunk) {
 
 // === 语义检索 ===
 async function handleSearch() {
-  syncToUrl({ q: searchQuery.value })
   if (!searchQuery.value.trim()) {
     searchResults.value = []
     return
@@ -386,7 +383,6 @@ async function handleSearch() {
 function handleReset() {
   searchQuery.value = ''
   searchResults.value = []
-  syncToUrl({ q: searchQuery.value })
 }
 
 // === 文档 CRUD ===
@@ -495,7 +491,7 @@ function sourceTypeColor(t?: string) {
 }
 
 onMounted(async () => {
-  const params = loadFromUrl({ q: '' })
+  const params = { q: '' }
   searchQuery.value = params.q
   if (projectId) {
     await loadDocs()

@@ -3,6 +3,7 @@
 发送调试请求 + 历史记录
 """
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -18,6 +19,8 @@ from app.schemas.api_test import (
 from app.services.http_client import HttpClient
 from app.services.variable_engine import VariableEngine
 from app.services.script_engine import ScriptEngine
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-debug", tags=["接口测试-调试"])
 
@@ -109,12 +112,10 @@ async def send_debug_request(
 
     # 第二遍：从原始数据重新替换所有变量（静态 + 脚本生成的），
     # 不使用第一遍的结果，确保 {{signature}} 等占位符始终是未解析状态
-    import logging as _log
-    _logger = _log.getLogger(__name__)
     _orig_sig_headers = [h.get('value') for h in (data.headers or []) if h.get('key') == 'XP-Signature']
-    _logger.info(f"[DEBUG] Original XP-Signature header value: {_orig_sig_headers}")
-    _logger.info(f"[DEBUG] env_vars keys before 2nd pass: {list(var_engine.environment_vars.keys())}")
-    _logger.info(f"[DEBUG] signature in env_vars: {var_engine.get('signature')}")
+    logger.info(f"[DEBUG] Original XP-Signature header value: {_orig_sig_headers}")
+    logger.info(f"[DEBUG] env_vars keys before 2nd pass: {list(var_engine.environment_vars.keys())}")
+    logger.info(f"[DEBUG] signature in env_vars: {var_engine.get('signature')}")
     url = var_engine.replace(raw_url)
     headers = var_engine.replace_headers(data.headers)
     params = var_engine.replace_params(data.query_params)
@@ -123,7 +124,7 @@ async def send_debug_request(
     if var_engine.script_header_patches:
         headers = var_engine.apply_header_patches(headers)
     _sig_val = [h.get('value') for h in (headers or []) if h.get('key') == 'XP-Signature']
-    _logger.info(f"[DEBUG] XP-Signature after 2nd pass: {_sig_val}")
+    logger.info(f"[DEBUG] XP-Signature after 2nd pass: {_sig_val}")
 
     # 发送请求
     http_client = HttpClient(timeout=data.timeout or 30)

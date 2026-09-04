@@ -5,7 +5,7 @@ import json
 import logging
 
 from app.celery_app import celery_app
-from app.database import SessionLocal
+from app.core.task_base import BaseTask
 from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
 from app.models.test_case import TestCase
@@ -27,18 +27,19 @@ SPLIT_MODULE_ID = "requirement.split_features"
 CASE_MODULE_ID = "case.generate"
 
 
-@celery_app.task(bind=True, name="split_requirement_features", max_retries=1, queue="ai")
-def split_features_task(self, requirement_id: int, page_backend=None, llm_config_id=None):
-    """异步拆分需求功能点（page_backend 为页面选择的执行后端，优先级高于系统默认）"""
-    db = SessionLocal()
-    try:
+class SplitFeaturesTask(BaseTask):
+    """需求功能点拆分任务"""
+
+    task_name = "split_requirement_features"
+
+    def execute(self, db, requirement_id: int, page_backend=None, llm_config_id=None) -> dict:
         req = db.query(TestRequirement).filter(
             TestRequirement.id == requirement_id,
             TestRequirement.is_deleted == False,
         ).first()
         if not req:
             logger.error(f"需求不存在: {requirement_id}")
-            return
+            return {"status": "aborted", "reason": "requirement_not_found"}
 
         # ── 执行后端分发：页面选择优先 → 模块配置 → local ──
         backend = resolve_backend(db, SPLIT_MODULE_ID, req.project_id, page_choice=page_backend)
@@ -68,7 +69,7 @@ def split_features_task(self, requirement_id: int, page_backend=None, llm_config
                 logger.info(
                     f"功能点拆分走 workflow 后端: req={requirement_id}, task={task.id}"
                 )
-                return
+                return {"status": "pending_workflow", "agent_task_id": task.id}
             except Exception as e:
                 logger.warning(
                     f"功能点拆分 workflow 派发失败，降级 local: req={requirement_id}, error={e}"
@@ -86,7 +87,7 @@ def split_features_task(self, requirement_id: int, page_backend=None, llm_config
             req.feature_split_status = "failed"
             db.commit()
             logger.warning(f"功能点拆分结果为空: requirement_id={requirement_id}")
-            return
+            return {"status": "failed", "reason": "empty_modules", "project_id": req.project_id, "source_name": req.title}
 
         # 软删除旧功能点
         db.query(RequirementFeature).filter(
@@ -118,22 +119,33 @@ def split_features_task(self, requirement_id: int, page_backend=None, llm_config
 
         logger.info(f"功能点拆分完成: requirement_id={requirement_id}, 模块={len(modules)}, 功能点={feature_count}")
 
+        return {
+            "status": "success",
+            "project_id": req.project_id,
+            "source_name": req.title,
+            "module_count": len(modules),
+            "feature_count": feature_count,
+        }
+
+    def on_success(self, db, result: dict, requirement_id: int, page_backend=None, llm_config_id=None) -> None:
+        if result.get("status") != "success":
+            return
         # 发送通知
         try:
             notify_event(
-                req.project_id,
+                result.get("project_id"),
                 "requirement.features_split",
                 {
-                    "source_name": req.title,
-                    "module_count": len(modules),
-                    "feature_count": feature_count,
+                    "source_name": result.get("source_name"),
+                    "module_count": result.get("module_count", 0),
+                    "feature_count": result.get("feature_count", 0),
                 },
             )
         except Exception as ne:
             logger.warning(f"发送功能点拆分通知失败: {ne}")
 
-    except Exception as e:
-        logger.error(f"功能点拆分失败: requirement_id={requirement_id}, error={e}", exc_info=True)
+    def on_failure(self, db, error: Exception, requirement_id: int, page_backend=None, llm_config_id=None) -> None:
+        logger.error(f"功能点拆分失败: requirement_id={requirement_id}, error={error}", exc_info=True)
         try:
             req = db.query(TestRequirement).filter(TestRequirement.id == requirement_id).first()
             if req:
@@ -141,8 +153,6 @@ def split_features_task(self, requirement_id: int, page_backend=None, llm_config
                 db.commit()
         except Exception:
             pass
-    finally:
-        db.close()
 
 
 def _update_progress(db, task, done: int, total: int, feat_name: str, case_count: int):
@@ -158,15 +168,16 @@ def _update_progress(db, task, done: int, total: int, feat_name: str, case_count
         db.rollback()
 
 
-@celery_app.task(bind=True, name="generate_cases", max_retries=2, queue="ai")
-def generate_cases_task(self, task_id: int):
+class GenerateCasesTask(BaseTask):
     """AI 生成测试用例任务"""
-    db = SessionLocal()
-    try:
+
+    task_name = "generate_cases"
+
+    def execute(self, db, task_id: int) -> dict:
         task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
         if not task:
             logger.error(f"AgentTask not found: {task_id}")
-            raise ValueError(f"AgentTask not found: {task_id}")
+            return {"status": "aborted", "reason": "agent_task_not_found"}
 
         # ── 执行后端分发：页面选择优先 → 模块配置 → local ──
         page_choice = (task.input_params or {}).get("page_backend")
@@ -178,7 +189,7 @@ def generate_cases_task(self, task_id: int):
             try:
                 workflow_run(db, task, CASE_MODULE_ID)
                 # 受理成功：任务挂起，等待 Webhook 回调（不执行本地 LLM）
-                return
+                return {"status": "pending_workflow"}
             except WorkflowInvokeError as e:
                 logger.warning(f"用例生成 workflow 调用失败，降级 local: {e}")
                 task.backend = "local"
@@ -194,7 +205,7 @@ def generate_cases_task(self, task_id: int):
         if not mark_running(db, task):
             db.commit()
             logger.info(f"用例生成任务已被取消，中止执行: task_id={task_id}")
-            return
+            return {"status": "aborted", "reason": "cancelled"}
 
         input_params = task.input_params or {}
         project_id = task.project_id
@@ -333,44 +344,69 @@ def generate_cases_task(self, task_id: int):
 
         logger.info(f"用例生成任务完成: task_id={task_id}, saved={len(created_cases)}")
 
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "project_id": project_id,
+            "created_by": task.created_by,
+            "source_name": requirement_title or "需求",
+            "strategy": input_params.get("strategy", "comprehensive"),
+            "success_count": len(created_cases),
+            "failed_count": len(cases) - len(created_cases),
+        }
+
+    def on_success(self, db, result: dict, task_id: int) -> None:
+        if result.get("status") != "success":
+            return
+
         # 发送AI用例生成完成通知
         try:
+            task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
+            if not task:
+                return
             duration = 0.0
             if task.created_at and task.completed_at:
                 duration = round((task.completed_at - task.created_at).total_seconds(), 2)
-            source_name = requirement_title or "需求"
             notify_event(
-                project_id,
+                result.get("project_id"),
                 "ai.case.generated",
                 {
-                    "source_name": source_name,
-                    "strategy": input_params.get("strategy", "comprehensive"),
-                    "success_count": len(created_cases),
-                    "failed_count": len(cases) - len(created_cases),
+                    "source_name": result.get("source_name") or "需求",
+                    "strategy": result.get("strategy", "comprehensive"),
+                    "success_count": result.get("success_count", 0),
+                    "failed_count": result.get("failed_count", 0),
                     "duration": duration,
                 },
-                triggered_by=task.created_by,
+                triggered_by=result.get("created_by"),
             )
         except Exception as notify_e:
             logger.warning(f"发送用例生成通知失败: {notify_e}")
 
-    except Exception as e:
-        logger.error(f"用例生成任务失败: task_id={task_id}, error={e}", exc_info=True)
+    def on_failure(self, db, error: Exception, task_id: int) -> None:
+        logger.error(f"用例生成任务失败: task_id={task_id}, error={error}", exc_info=True)
         try:
             task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
             if task:
-                finalize_agent_task(db, task, "failed", str(e))
+                finalize_agent_task(db, task, "failed", str(error))
                 db.commit()
                 notify_ai_task_failed(
                     task.project_id,
                     task_type="功能用例生成",
-                    error=str(e),
+                    error=str(error),
                     related_object="测试用例生成",
                     triggered_by=task.created_by,
                 )
         except Exception:
             pass
-        # 必须 re-raise，否则 Celery 会误标记为 SUCCESS
-        raise
-    finally:
-        db.close()
+
+
+@celery_app.task(bind=True, name="split_requirement_features", max_retries=1, queue="ai")
+def split_features_task(self, requirement_id: int, page_backend=None, llm_config_id=None):
+    """异步拆分需求功能点（page_backend 为页面选择的执行后端，优先级高于系统默认）"""
+    return SplitFeaturesTask().run(requirement_id, page_backend=page_backend, llm_config_id=llm_config_id)
+
+
+@celery_app.task(bind=True, name="generate_cases", max_retries=2, queue="ai")
+def generate_cases_task(self, task_id: int):
+    """AI 生成测试用例任务"""
+    return GenerateCasesTask().run(task_id)

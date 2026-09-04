@@ -174,7 +174,6 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import { getAgentTasks, getTokenUsage, type AgentTask, type TokenUsageStats } from '@/api/agentTasks'
@@ -182,7 +181,6 @@ import { listCallLogs, type WorkflowCallLog } from '@/api/workflow'
 import { AI_BACKEND_COLOR, AI_BACKEND_TEXT, AI_BACKEND_OPTIONS, WORKFLOW_PHASE_TEXT, WORKFLOW_PHASE_COLOR, WORKFLOW_CALL_STATUS_TEXT, WORKFLOW_CALL_STATUS_COLOR } from '@/constants/enums'
 
 const route = useRoute()
-const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = computed(() => {
   const p = route.params.id ?? route.params.projectId
   const n = Number(p)
@@ -229,7 +227,6 @@ const columns = [
 ]
 
 async function loadTasks() {
-  syncToUrl({ agent_type: filterAgentType.value, status: filterStatus.value, backend: filterBackend.value })
   loading.value = true
   try {
     const params: any = {
@@ -345,7 +342,7 @@ function statusText(s: string) {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ agent_type: undefined, status: undefined, backend: undefined })
+  const params = { agent_type: undefined, status: undefined, backend: undefined }
   filterAgentType.value = params.agent_type
   filterStatus.value = params.status
   filterBackend.value = params.backend

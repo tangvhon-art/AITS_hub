@@ -1,6 +1,7 @@
 """
 接口定义管理 API
 """
+import logging
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -14,6 +15,8 @@ from app.schemas.api_test import (
     ApiDefinitionCreate, ApiDefinitionUpdate, ApiDefinitionResponse,
     PaginatedResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-definitions", tags=["接口测试-接口定义"])
 
@@ -226,8 +229,7 @@ def ai_generate_doc(
         from app.tasks.api_doc_tasks import generate_api_doc_task
         generate_api_doc_task.delay(task.id)
     except Exception:
-        import logging
-        logging.getLogger(__name__).warning("Celery 不可用，使用后台线程回退")
+        logger.warning("Celery 不可用，使用后台线程回退")
         import threading
 
         def _run():

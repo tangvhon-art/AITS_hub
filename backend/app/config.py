@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     ALGORITHM: str = "HS256"
 
+    # LLM API Key 独立加密密钥（32 字节 urlsafe base64）。
+    # 生产环境必须配置，避免与 JWT 共用一个密钥源；留空时从 SECRET_KEY 哈希派生（向后兼容）。
+    FERNET_KEY: str = ""
+
     DB_HOST: str = "localhost"
     DB_PORT: int = 3306
     DB_USER: str = "root"

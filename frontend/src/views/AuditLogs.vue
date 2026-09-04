@@ -112,11 +112,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { getAuditLogs, type AuditLog } from '@/api/auditLogs'
-
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const logs = ref<AuditLog[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
@@ -216,7 +212,6 @@ function showDetail(record: AuditLog) {
 }
 
 async function loadLogs() {
-  syncToUrl({ action: filterAction.value, resource_type: filterResourceType.value, status: filterStatus.value })
   loading.value = true
   try {
     const res = await getAuditLogs({
@@ -249,7 +244,7 @@ function handleReset() {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ action: undefined, resource_type: undefined, status: undefined })
+  const params = { action: undefined, resource_type: undefined, status: undefined }
   filterAction.value = params.action
   filterResourceType.value = params.resource_type
   filterStatus.value = params.status

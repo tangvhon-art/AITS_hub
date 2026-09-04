@@ -47,21 +47,17 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { dataPoolsApi, type TestDataPool } from '@/api/dataPools'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { useList } from '@/composables/useList'
 
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const keyword = ref('')
 const typeFilter = ref<string | undefined>(undefined)
 
 // 使用 useList 封装分页列表逻辑
 const { loading, list, total, pagination, loadData, handleTableChange } = useList<TestDataPool>(
   async (params) => {
-    syncToUrl({ keyword: keyword.value, type: typeFilter.value })
     return dataPoolsApi.list(projectId, {
       ...params,
       keyword: keyword.value || undefined,
@@ -104,11 +100,11 @@ function handleReset() {
 }
 
 function handleCreate() {
-  router.push(`/projects/${projectId}/data-pools/new`)
+  router.push(`/projects/${projectId}/data-factory/pools/new`)
 }
 
 function handleEdit(record: TestDataPool) {
-  router.push(`/projects/${projectId}/data-pools/${record.id}`)
+  router.push(`/projects/${projectId}/data-factory/pools/${record.id}`)
 }
 
 async function handlePreview(record: TestDataPool) {
@@ -131,7 +127,7 @@ async function handleDelete(record: TestDataPool) {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', type: undefined })
+  const params = { keyword: '', type: undefined }
   keyword.value = params.keyword
   typeFilter.value = params.type
   loadData()

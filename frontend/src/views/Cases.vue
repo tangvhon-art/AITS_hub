@@ -249,7 +249,6 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, reactive, onMounted, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, generateCasesStatus, getRequirements, getFeatures, splitFeatures, batchUpdateStatus, type FeatureModuleGroup } from '@/api/cases'
@@ -264,8 +263,6 @@ const caseBackend = ref('local')
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const saving = ref(false)
 const cases = ref<any[]>([])
@@ -402,7 +399,6 @@ function getReqTitle(reqId: number | null | undefined) {
 }
 
 async function fetchCases() {
-  syncToUrl({ priority: filterPriority.value, module: filterModule.value, title: filterTitle.value, case_type: filterCaseType.value, status: filterStatus.value, req_id: filterReqId.value })
   loading.value = true
   try {
     const params: any = {}
@@ -622,7 +618,7 @@ async function doGenerate() {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ priority: undefined, module: '', title: '', case_type: undefined, status: undefined, req_id: undefined })
+  const params = { priority: undefined, module: '', title: '', case_type: undefined, status: undefined, req_id: undefined }
   filterPriority.value = params.priority
   filterModule.value = params.module || ''
   filterTitle.value = params.title || ''

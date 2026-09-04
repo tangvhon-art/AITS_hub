@@ -47,7 +47,7 @@
     </a-card>
 
     <a-modal v-model:open="detailOpen" :title="current?.title || '报告'" width="900" footer="null">
-      <div v-if="current?.content" class="markdown" v-html="renderedContent"></div>
+      <MdView v-if="current?.content" :content="current.content" />
       <a-empty v-else description="暂无内容" />
     </a-modal>
   </div>
@@ -55,7 +55,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { marked } from 'marked'
+import MdView from '@/components/MdView.vue'
 import { evalReportApi, evalTaskApi } from '@/api/eval'
 
 const list = ref<any[]>([])
@@ -68,11 +68,6 @@ const filterConclusion = ref<string>()
 const filterStatus = ref<string>()
 const detailOpen = ref(false)
 const current = ref<any>()
-
-const renderedContent = computed(() => {
-  if (!current.value?.content) return ''
-  try { return marked.parse(current.value.content) as string } catch { return current.value.content }
-})
 
 const typeText = (t: string) => ({ overall: '总报告', ai_judge: 'AI裁判', manual: '人工', agent: 'Agent', business: '业务', redteam: '红队' } as any)[t] || t
 const typeColor = (t: string) => ({ overall: 'blue', redteam: 'red', manual: 'purple', agent: 'cyan', business: 'green' } as any)[t] || 'default'

@@ -378,7 +378,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined, SearchOutlined, PlayCircleOutlined, ReloadOutlined, EditOutlined, HistoryOutlined, MedicineBoxOutlined
@@ -394,7 +393,6 @@ import { getLLMConfigs } from '@/api/llm'
 
 const route = useRoute()
 const router = useRouter()
-const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = Number(route.params.id)
 
 function goHealingRecords() {
@@ -503,13 +501,11 @@ const pagedScripts = computed(() => {
 watch([searchKeyword, filterStatus], () => { scriptPageCurrent.value = 1 })
 
 function handleSearch() {
-  syncToUrl({ keyword: searchKeyword.value, status: filterStatus.value })
 }
 
 function handleReset() {
   searchKeyword.value = ''
   filterStatus.value = undefined
-  syncToUrl({ keyword: searchKeyword.value, status: filterStatus.value })
 }
 
 async function loadScripts() {
@@ -839,7 +835,7 @@ function getStatusText(status?: string) {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', status: undefined })
+  const params = { keyword: '', status: undefined }
   searchKeyword.value = params.keyword
   filterStatus.value = params.status
   loadScripts()

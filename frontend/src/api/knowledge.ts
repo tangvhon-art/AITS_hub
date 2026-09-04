@@ -1,4 +1,5 @@
 import request from './request'
+import { BaseAPI } from './base'
 
 export interface KnowledgeDoc {
   id?: number
@@ -65,8 +66,11 @@ export interface KnowledgeStats {
   total_chunks: number
 }
 
+/** 知识库文档标准 CRUD（list 因路径 /docs/search 非标准，保留自定义） */
+const knowledgeApi = new BaseAPI<KnowledgeDoc>('/knowledge')
+
 export function getKnowledgeDocs(projectId: number, params?: { page?: number; page_size?: number; keyword?: string; source_type?: string }) {
-  return request.post<KnowledgeDocListResponse>(`/projects/${projectId}/knowledge/docs/search`, params)
+  return knowledgeApi.post<KnowledgeDocListResponse>(`/projects/${projectId}/knowledge/docs/search`, params)
 }
 
 export function getKnowledgeChunks(projectId: number, params: { page?: number; page_size?: number; keyword?: string; doc_id?: number }) {
@@ -81,11 +85,11 @@ export function syncRequirementsToKnowledge(projectId: number, requirementIds?: 
 }
 
 export function getKnowledgeDoc(projectId: number, docId: number) {
-  return request.get<KnowledgeDoc>(`/projects/${projectId}/knowledge/${docId}`)
+  return knowledgeApi.get(projectId, docId)
 }
 
 export function createKnowledgeDoc(projectId: number, data: { title: string; content: string; file_type?: string }) {
-  return request.post<KnowledgeDoc>(`/projects/${projectId}/knowledge`, data)
+  return knowledgeApi.create(projectId, data)
 }
 
 export function uploadKnowledgeDoc(projectId: number, file: File) {
@@ -97,7 +101,7 @@ export function uploadKnowledgeDoc(projectId: number, file: File) {
 }
 
 export function deleteKnowledgeDoc(projectId: number, docId: number) {
-  return request.delete(`/projects/${projectId}/knowledge/${docId}`)
+  return knowledgeApi.remove(projectId, docId)
 }
 
 export function generateChunks(projectId: number, docId: number) {

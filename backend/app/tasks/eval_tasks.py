@@ -1,15 +1,16 @@
 """AI 模型五维综合测评 Celery 任务（全部路由 eval 队列）
 
-- run_eval_task: 编排入口，group 并行调度五维模式子任务，完成后汇总并触发报告/建单/通知
-- run_ai_judge_eval / run_agent_eval / run_business_eval / run_redteam_eval: 模式执行
-- generate_eval_report / auto_create_eval_issues: 报告与问题闭环
+- RunEvalTask: 编排入口，group 并行调度五维模式子任务，完成后汇总并触发报告/建单/通知
+- EvalModeTask: 模式执行（ai_judge/agent/business/redteam 四个薄封装共用）
+- RunEvalAggregateTask: 聚合任务（chord body）
+- GenerateEvalReportTask / AutoCreateEvalIssuesTask: 报告与问题闭环
 """
 import logging
 
 from celery import group
 
 from app.celery_app import celery_app
-from app.database import SessionLocal
+from app.core.task_base import BaseTask
 from app.core.timezone import china_now_naive
 from app.core.tasks import dispatch_task
 from app.models.eval import EvalTask, EvalRun, EvalDataset, EvalReport
@@ -47,13 +48,16 @@ def _notify(db, task: EvalTask):
 # ---------------------------------------------------------------------------
 # 模式执行子任务
 # ---------------------------------------------------------------------------
-def _execute_mode(run_id: int, mode: str, task_id: int):
-    db = SessionLocal()
-    try:
+class EvalModeTask(BaseTask):
+    """单模式测评执行"""
+
+    task_name = "eval_mode"
+
+    def execute(self, db, run_id: int, mode: str, task_id: int) -> dict:
         run = _get_run(db, run_id)
         if not run:
             logger.error(f"[eval][{mode}] run 不存在: {run_id}")
-            return
+            return {"status": "aborted", "reason": "run_not_found", "mode": mode, "run_id": run_id}
         task = _get_task(db, task_id)
         dataset = _get_dataset(db, run.dataset_id)
         if mode == "ai_judge":
@@ -67,7 +71,9 @@ def _execute_mode(run_id: int, mode: str, task_id: int):
         else:
             logger.warning(f"[eval][{mode}] 未支持的模式，跳过")
             run.status = "completed"; run.completed_at = china_now_naive(); db.commit()
-    except Exception as e:
+        return {"mode": mode, "run_id": run_id}
+
+    def on_failure(self, db, error: Exception, run_id: int, mode: str, task_id: int) -> None:
         logger.exception(f"[eval][{mode}] 执行失败 run={run_id}")
         try:
             run = _get_run(db, run_id)
@@ -75,42 +81,41 @@ def _execute_mode(run_id: int, mode: str, task_id: int):
                 run.status = "failed"; db.commit()
         except Exception:
             pass
-    finally:
-        db.close()
+
+
+def _execute_mode(run_id: int, mode: str, task_id: int):
+    return EvalModeTask().run(run_id, mode, task_id)
 
 
 @celery_app.task(bind=True, name="run_ai_judge_eval", max_retries=0, queue="eval")
 def run_ai_judge_eval(self, eval_run_id: int, eval_task_id: int, **kw):
-    _execute_mode(eval_run_id, "ai_judge", eval_task_id)
-    return {"mode": "ai_judge", "run_id": eval_run_id}
+    return _execute_mode(eval_run_id, "ai_judge", eval_task_id)
 
 
 @celery_app.task(bind=True, name="run_agent_eval", max_retries=0, queue="eval")
 def run_agent_eval(self, eval_run_id: int, eval_task_id: int, **kw):
-    _execute_mode(eval_run_id, "agent", eval_task_id)
-    return {"mode": "agent", "run_id": eval_run_id}
+    return _execute_mode(eval_run_id, "agent", eval_task_id)
 
 
 @celery_app.task(bind=True, name="run_business_eval", max_retries=0, queue="eval")
 def run_business_eval(self, eval_run_id: int, eval_task_id: int, **kw):
-    _execute_mode(eval_run_id, "business", eval_task_id)
-    return {"mode": "business", "run_id": eval_run_id}
+    return _execute_mode(eval_run_id, "business", eval_task_id)
 
 
 @celery_app.task(bind=True, name="run_redteam_eval", max_retries=0, queue="eval")
 def run_redteam_eval(self, eval_run_id: int, eval_task_id: int, **kw):
-    _execute_mode(eval_run_id, "redteam", eval_task_id)
-    return {"mode": "redteam", "run_id": eval_run_id}
+    return _execute_mode(eval_run_id, "redteam", eval_task_id)
 
 
 # ---------------------------------------------------------------------------
 # 任务编排入口
 # ---------------------------------------------------------------------------
-@celery_app.task(bind=True, name="run_eval_task", max_retries=0, queue="eval")
-def run_eval_task(self, eval_task_id: int, **kw):
-    """编排：为任务创建各模式 run，chord 并行调度子任务，完成后由聚合任务汇总"""
-    db = SessionLocal()
-    try:
+class RunEvalTask(BaseTask):
+    """测评任务编排：创建各模式 run，chord 并行调度子任务"""
+
+    task_name = "run_eval_task"
+
+    def execute(self, db, eval_task_id: int) -> dict:
         task = _get_task(db, eval_task_id)
         if not task:
             logger.error(f"[eval] 任务不存在: {eval_task_id}")
@@ -145,7 +150,8 @@ def run_eval_task(self, eval_task_id: int, **kw):
         # 无任何模式子任务时直接聚合
         run_eval_aggregate(task.id)
         return {"task_id": task.id, "dispatched": 0}
-    except Exception as e:
+
+    def on_failure(self, db, error: Exception, eval_task_id: int) -> None:
         logger.exception(f"[eval] run_eval_task 编排失败: {eval_task_id}")
         try:
             task = _get_task(db, eval_task_id)
@@ -155,19 +161,20 @@ def run_eval_task(self, eval_task_id: int, **kw):
                 db.commit()
         except Exception:
             pass
-        return {"error": str(e)}
-    finally:
-        db.close()
 
 
-@celery_app.task(bind=True, name="run_eval_aggregate", max_retries=0, queue="eval")
-def run_eval_aggregate(self, header_results: list = None, eval_task_id: int = 0, *args, **kw):
-    """聚合任务：汇总五维结果 → 结论 → 报告 → 自动建单 → 通知
+@celery_app.task(bind=True, name="run_eval_task", max_retries=0, queue="eval")
+def run_eval_task(self, eval_task_id: int, **kw):
+    """编排：为任务创建各模式 run，chord 并行调度子任务，完成后由聚合任务汇总"""
+    return RunEvalTask().run(eval_task_id)
 
-    chord body：第一个位置参数为 header 子任务结果列表，第二个为 eval_task_id。
-    """
-    db = SessionLocal()
-    try:
+
+class RunEvalAggregateTask(BaseTask):
+    """聚合任务：汇总五维结果 → 结论 → 报告 → 自动建单 → 通知"""
+
+    task_name = "run_eval_aggregate"
+
+    def execute(self, db, header_results: list = None, eval_task_id: int = 0) -> dict:
         task = _get_task(db, eval_task_id)
         if not task:
             return {"error": "task not found"}
@@ -189,7 +196,8 @@ def run_eval_aggregate(self, header_results: list = None, eval_task_id: int = 0,
         db.commit()
         _notify(db, task)
         return {"task_id": task.id, "conclusion": task.conclusion, "issues": len(issues)}
-    except Exception as e:
+
+    def on_failure(self, db, error: Exception, header_results: list = None, eval_task_id: int = 0) -> None:
         logger.exception(f"[eval] run_eval_aggregate 聚合失败: {eval_task_id}")
         try:
             task = _get_task(db, eval_task_id)
@@ -199,18 +207,26 @@ def run_eval_aggregate(self, header_results: list = None, eval_task_id: int = 0,
                 db.commit()
         except Exception:
             pass
-        return {"error": str(e)}
-    finally:
-        db.close()
+
+
+@celery_app.task(bind=True, name="run_eval_aggregate", max_retries=0, queue="eval")
+def run_eval_aggregate(self, header_results: list = None, eval_task_id: int = 0, *args, **kw):
+    """聚合任务：汇总五维结果 → 结论 → 报告 → 自动建单 → 通知
+
+    chord body：第一个位置参数为 header 子任务结果列表，第二个为 eval_task_id。
+    """
+    return RunEvalAggregateTask().run(header_results, eval_task_id)
 
 
 # ---------------------------------------------------------------------------
 # 报告生成（独立触发，可委派外部工作流 M5）
 # ---------------------------------------------------------------------------
-@celery_app.task(bind=True, name="generate_eval_report", max_retries=0, queue="eval")
-def generate_eval_report(self, eval_task_id: int, report_type: str = "overall", **kw):
-    db = SessionLocal()
-    try:
+class GenerateEvalReportTask(BaseTask):
+    """生成测评报告"""
+
+    task_name = "generate_eval_report"
+
+    def execute(self, db, eval_task_id: int, report_type: str = "overall") -> dict:
         task = _get_task(db, eval_task_id)
         if not task:
             return {"error": "task not found"}
@@ -230,18 +246,26 @@ def generate_eval_report(self, eval_task_id: int, report_type: str = "overall", 
         report.status = "completed"
         db.commit()
         return {"report_id": report.id, "conclusion": content["conclusion"]}
-    finally:
-        db.close()
 
 
-@celery_app.task(bind=True, name="auto_create_eval_issues", max_retries=0, queue="eval")
-def auto_create_eval_issues(self, eval_task_id: int, **kw):
-    db = SessionLocal()
-    try:
+@celery_app.task(bind=True, name="generate_eval_report", max_retries=0, queue="eval")
+def generate_eval_report(self, eval_task_id: int, report_type: str = "overall", **kw):
+    return GenerateEvalReportTask().run(eval_task_id, report_type=report_type)
+
+
+class AutoCreateEvalIssuesTask(BaseTask):
+    """测评问题自动建单"""
+
+    task_name = "auto_create_eval_issues"
+
+    def execute(self, db, eval_task_id: int) -> dict:
         task = _get_task(db, eval_task_id)
         if not task:
             return {"error": "task not found"}
         issues = eval_service.auto_create_issues(db, task)
         return {"task_id": task.id, "issues": [i.id for i in issues]}
-    finally:
-        db.close()
+
+
+@celery_app.task(bind=True, name="auto_create_eval_issues", max_retries=0, queue="eval")
+def auto_create_eval_issues(self, eval_task_id: int, **kw):
+    return AutoCreateEvalIssuesTask().run(eval_task_id)

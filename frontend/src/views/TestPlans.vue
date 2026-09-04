@@ -180,7 +180,6 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined, EnvironmentOutlined
@@ -195,8 +194,6 @@ import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const plans = ref<TestPlan[]>([])
 const pagination = ref({ current: 1, pageSize: 20, total: 0 })
@@ -285,7 +282,6 @@ function getPriorityColor(priority?: string) {
 }
 
 async function loadPlans() {
-  syncToUrl({ keyword: filterName.value, status: filterStatus.value, priority: filterPriority.value, version_id: filterVersionId.value })
   loading.value = true
   try {
     const res = await testPlansApi.list(projectId, {
@@ -453,7 +449,7 @@ async function loadVersions() {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', status: undefined, priority: undefined, version_id: undefined as number | undefined })
+  const params = { keyword: '', status: undefined, priority: undefined, version_id: undefined as number | undefined }
   filterName.value = params.keyword || ''
   filterStatus.value = params.status
   filterPriority.value = params.priority

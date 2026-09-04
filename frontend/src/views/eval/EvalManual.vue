@@ -28,7 +28,7 @@
     <a-drawer v-model:open="drawer" title="人工打分复核" width="720">
       <template v-if="current">
         <h4>被测模型输出</h4>
-        <div class="md-body" v-html="renderMd(current.model_output || '（无输出）')"></div>
+        <MdView class="md-body" :content="current.model_output || '（无输出）'" />
         <template v-if="current.judge_scores?.length">
           <h4>AI 裁判原始打分</h4>
           <pre class="out-box">{{ JSON.stringify(current.judge_scores, null, 2) }}</pre>
@@ -46,7 +46,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { marked } from 'marked'
+import MdView from '@/components/MdView.vue'
 import { evalResultApi } from '@/api/eval'
 
 const queue = ref<any[]>([])
@@ -55,11 +55,6 @@ const drawer = ref(false)
 const current = ref<any>()
 const score = ref(3)
 const comment = ref('')
-
-const renderMd = (text?: string) => {
-  if (!text) return ''
-  try { return marked.parse(text) as string } catch { return text }
-}
 
 const resText = (s: string) => ({ passed: '通过', failed: '失败', flagged: '分歧', blocked: '高危' } as any)[s] || s
 const resColor = (s: string) => ({ passed: 'success', failed: 'error', flagged: 'warning', blocked: 'red' } as any)[s] || 'default'

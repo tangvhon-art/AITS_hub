@@ -8,7 +8,7 @@ import re
 from typing import Optional
 
 from app.celery_app import celery_app
-from app.database import SessionLocal
+from app.core.task_base import BaseTask
 from app.models.report import TestReport
 from app.models.agent_task import AgentTask
 from app.agents.report_generator import ReportGeneratorAgent, REPORT_PROMPT
@@ -24,20 +24,22 @@ logger = logging.getLogger(__name__)
 REPORT_MODULE_ID = "report.generate"
 
 
-@celery_app.task(bind=True, name="generate_test_report", max_retries=0, queue="ai")
-def generate_test_report_task(
-    self,
-    report_id: int,
-    project_id: int,
-    report_type: str,
-    version_id: int,
-    title: str,
-    llm_config_id: Optional[int] = None,
-    agent_task_id: Optional[int] = None,
-):
-    """Celery 任务：生成测试报告 — 直接使用 call_with_fallback"""
-    db = SessionLocal()
-    try:
+class ReportTask(BaseTask):
+    """测试报告生成任务（模板方法模式：统一 session 与异常处理）"""
+
+    task_name = "generate_test_report"
+
+    def execute(
+        self,
+        db,
+        report_id: int,
+        project_id: int,
+        report_type: str,
+        version_id: int,
+        title: str,
+        llm_config_id: Optional[int] = None,
+        agent_task_id: Optional[int] = None,
+    ) -> dict:
         report = db.query(TestReport).filter(TestReport.id == report_id).first()
         if not report:
             logger.error(f"报告记录不存在: report_id={report_id}")
@@ -172,8 +174,32 @@ def generate_test_report_task(
         db.commit()
         logger.info(f"[report] 测试报告生成成功: report_id={report_id}, pass_rate={report.pass_rate}%")
 
-        # 发送AI报告生成完成通知
+        return {
+            "status": "success",
+            "report_id": report_id,
+            "total_cases": report.total_cases,
+            "pass_rate": report.pass_rate,
+        }
+
+    def on_success(
+        self,
+        db,
+        result: dict,
+        report_id: int,
+        project_id: int,
+        report_type: str,
+        version_id: int,
+        title: str,
+        llm_config_id: Optional[int] = None,
+        agent_task_id: Optional[int] = None,
+    ) -> None:
+        """发送 AI 报告生成完成通知（workflow 挂起/失败不发）"""
+        if result.get("status") != "success":
+            return
         try:
+            report = db.query(TestReport).filter(TestReport.id == report_id).first()
+            if not report:
+                return
             version_name = "-"
             if version_id:
                 from app.models.project_version import ProjectVersion
@@ -203,35 +229,54 @@ def generate_test_report_task(
         except Exception as notify_e:
             logger.warning(f"[report] 发送报告生成通知失败: {notify_e}")
 
-        return {
-            "status": "success",
-            "report_id": report_id,
-            "total_cases": report.total_cases,
-            "pass_rate": report.pass_rate,
-        }
-
-    except Exception as e:
-        logger.error(f"[report] 生成测试报告异常: report_id={report_id}, error={e}", exc_info=True)
+    def on_failure(
+        self,
+        db,
+        error: Exception,
+        report_id: int,
+        project_id: int,
+        report_type: str,
+        version_id: int,
+        title: str,
+        llm_config_id: Optional[int] = None,
+        agent_task_id: Optional[int] = None,
+    ) -> None:
+        """异常处理：报告与 AgentTask 置 failed，发送失败通知"""
         try:
             report = db.query(TestReport).filter(TestReport.id == report_id).first()
             if report:
                 report.status = "failed"
-                report.content = f"报告生成失败: {str(e)}"
+                report.content = f"报告生成失败: {str(error)}"
                 report.updated_at = china_now_naive()
             if agent_task_id:
                 agent_task = db.query(AgentTask).filter(AgentTask.id == agent_task_id).first()
                 if agent_task:
-                    finalize_agent_task(db, agent_task, "failed", str(e))
+                    finalize_agent_task(db, agent_task, "failed", str(error))
                     notify_ai_task_failed(
                         project_id,
                         task_type="测试报告生成",
-                        error=str(e),
+                        error=str(error),
                         related_object=title,
                         triggered_by=agent_task.created_by,
                     )
             db.commit()
         except Exception:
             pass
-        return {"status": "failed", "report_id": report_id, "error": str(e)}
-    finally:
-        db.close()
+
+
+@celery_app.task(bind=True, name="generate_test_report", max_retries=0, queue="ai")
+def generate_test_report_task(
+    self,
+    report_id: int,
+    project_id: int,
+    report_type: str,
+    version_id: int,
+    title: str,
+    llm_config_id: Optional[int] = None,
+    agent_task_id: Optional[int] = None,
+):
+    """Celery 任务：生成测试报告 — 直接使用 call_with_fallback"""
+    return ReportTask().run(
+        report_id, project_id, report_type, version_id, title,
+        llm_config_id=llm_config_id, agent_task_id=agent_task_id,
+    )

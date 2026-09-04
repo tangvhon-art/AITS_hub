@@ -277,7 +277,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import {
   DatabaseOutlined,
@@ -294,9 +293,6 @@ import { AI_BACKEND_TEXT, AI_BACKEND_COLOR } from '@/constants/enums'
 
 // Flower API 基础路径（通过 Vite 代理，仅用于 Worker 节点在线状态展示）
 const FLOWER_API = '/flower/api'
-
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const flowerOnline = ref(false)
 const autoRefresh = ref(true)
@@ -382,11 +378,9 @@ const filteredTasks = computed(() => {
 })
 
 function handleSearch() {
-  syncToUrl({ status: statusFilter.value })
 }
 function handleReset() {
   statusFilter.value = undefined
-  syncToUrl({ status: statusFilter.value })
 }
 
 // 统计数据（执行中/排队中以 DB agent_tasks + Redis 队列积压为准，不依赖 Celery 事件流）
@@ -499,7 +493,7 @@ function formatTime(timestamp?: string | null): string {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ status: undefined })
+  const params = { status: undefined }
   statusFilter.value = params.status
   fetchAll()
   refreshTimer = window.setInterval(() => {

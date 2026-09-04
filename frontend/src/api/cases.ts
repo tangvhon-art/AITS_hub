@@ -1,4 +1,5 @@
 import request from './request'
+import { BaseAPI } from './base'
 
 export interface TestCase {
   id: number
@@ -16,12 +17,15 @@ export interface TestCase {
   created_at: string
 }
 
+/** 用例标准 CRUD 统一走 BaseAPI（search 返回数组非分页对象，list 保留自定义） */
+const caseApi = new BaseAPI<TestCase>('/cases')
+
 export function getCases(projectId: number, params?: { module?: string; priority?: string; status?: string }) {
   return request.post<TestCase[]>(`/projects/${projectId}/cases/search`, params)
 }
 
 export function createCase(projectId: number, data: Partial<TestCase>) {
-  return request.post<TestCase>(`/projects/${projectId}/cases`, data)
+  return caseApi.create(projectId, data)
 }
 
 export function batchCreateCases(projectId: number, cases: any[]) {
@@ -33,11 +37,11 @@ export function batchUpdateStatus(projectId: number, caseIds: number[], status: 
 }
 
 export function updateCase(projectId: number, caseId: number, data: Partial<TestCase>) {
-  return request.put<TestCase>(`/projects/${projectId}/cases/${caseId}`, data)
+  return caseApi.update(projectId, caseId, data)
 }
 
 export function deleteCase(projectId: number, caseId: number) {
-  return request.delete(`/projects/${projectId}/cases/${caseId}`)
+  return caseApi.remove(projectId, caseId)
 }
 
 export function generateCases(projectId: number, data: { requirement_id?: number; content?: string; count?: number; feature_ids?: number[]; version_id?: number; llm_config_id?: number; prompt_id?: number; backend?: string }) {

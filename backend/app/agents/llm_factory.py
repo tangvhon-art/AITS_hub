@@ -14,18 +14,39 @@
 - API Key 加密存储
 """
 import base64
+import hashlib
 import json
 import logging
 from typing import Optional, List, Dict, Any
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 加密密钥（生产环境应从环境变量读取）
-_fernet = Fernet(base64.urlsafe_b64encode(settings.SECRET_KEY[:32].encode().ljust(32, b'0')))
+
+def _build_fernet() -> Fernet:
+    """构建 API Key 加密器（当前生效密钥）。
+
+    优先使用独立配置的 ``FERNET_KEY``（生产推荐，与 JWT 密钥隔离）；
+    未配置时从 ``SECRET_KEY`` 做 SHA-256 哈希派生（替代旧 ljust 弱化派生）。
+    """
+    if settings.FERNET_KEY:
+        try:
+            return Fernet(settings.FERNET_KEY.encode())
+        except Exception as e:  # 非法配置则回退，并告警
+            logger.warning("FERNET_KEY 配置非法（需 32 字节 urlsafe base64），回退到 SECRET_KEY 派生: %s", e)
+    digest = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def _legacy_fernet() -> Fernet:
+    """历史兼容密钥：旧版 SECRET_KEY[:32].ljust(32) 派生，仅用于解密存量数据。"""
+    return Fernet(base64.urlsafe_b64encode(settings.SECRET_KEY[:32].encode().ljust(32, b'0')))
+
+
+_fernet = _build_fernet()
 
 
 def encrypt_api_key(api_key: str) -> str:
@@ -36,11 +57,20 @@ def encrypt_api_key(api_key: str) -> str:
 
 
 def decrypt_api_key(encrypted_key: str) -> str:
-    """解密 API Key"""
+    """解密 API Key。
+
+    先使用当前生效密钥解密；失败时尝试历史兼容密钥（旧 ljust 派生），
+    以兼容存量已加密数据。均失败则原样返回（由调用方按明文/异常处理）。
+    """
     if not encrypted_key:
         return ""
     try:
         return _fernet.decrypt(encrypted_key.encode()).decode()
+    except InvalidToken:
+        try:
+            return _legacy_fernet().decrypt(encrypted_key.encode()).decode()
+        except Exception:
+            return encrypted_key
     except Exception:
         return encrypted_key
 
@@ -252,6 +282,50 @@ class LLMFactory:
             "api_format": first.api_format,
         }), first.id
 
+    @staticmethod
+    def _is_garbage_output(raw: str, completion_tokens: int) -> bool:
+        """检测 LLM 输出是否疑似垃圾（token 异常高但内容极短，或大量重复字符）"""
+        if completion_tokens > 5000 and len(raw.strip()) < 100:
+            return True
+        if len(raw) > 200:
+            stripped = raw.strip()
+            unique_chars = len(set(stripped[:500]))
+            if unique_chars < 15 and len(stripped) > 100:
+                return True
+        return False
+
+    def _ordered_active_configs(self, db_session, preferred_config_id: Optional[int]):
+        """加载 active 配置并按优先级排序，preferred/default 置顶。返回配置对象列表。"""
+        from app.models.llm_config import LLMConfig
+
+        configs = db_session.query(LLMConfig).filter(
+            LLMConfig.status == "active"
+        ).order_by(LLMConfig.priority.asc()).all()
+
+        if preferred_config_id:
+            preferred = next((c for c in configs if c.id == preferred_config_id), None)
+            if preferred:
+                configs.remove(preferred)
+                configs.insert(0, preferred)
+        else:
+            default_config = next((c for c in configs if c.is_default), None)
+            if default_config:
+                configs.remove(default_config)
+                configs.insert(0, default_config)
+        return configs
+
+    def _build_config_params(self, config, temperature=None, max_tokens=None) -> dict:
+        """由配置对象构造 create_llm 参数字典，支持运行时覆盖 temperature/max_tokens"""
+        return {
+            "provider": config.provider,
+            "model_name": config.model_name,
+            "base_url": config.base_url,
+            "api_key": config.api_key,
+            "max_tokens": max_tokens if max_tokens is not None else config.max_tokens,
+            "temperature": temperature if temperature is not None else config.temperature,
+            "streaming": config.streaming,
+        }
+
     def call_with_fallback(
         self,
         db_session,
@@ -269,25 +343,10 @@ class LLMFactory:
             temperature: 可选，覆盖配置中的 temperature 值
             max_tokens: 可选，覆盖配置中的 max_tokens 值（用于需要长输出的场景如用例生成）
         """
-        from app.models.llm_config import LLMConfig
-
-        configs = db_session.query(LLMConfig).filter(
-            LLMConfig.status == "active"
-        ).order_by(LLMConfig.priority.asc()).all()
-
-        if preferred_config_id:
-            preferred = next((c for c in configs if c.id == preferred_config_id), None)
-            if preferred:
-                configs.remove(preferred)
-                configs.insert(0, preferred)
-        else:
-            default_config = next((c for c in configs if c.is_default), None)
-            if default_config:
-                configs.remove(default_config)
-                configs.insert(0, default_config)
+        configs = self._ordered_active_configs(db_session, preferred_config_id)
 
         if not configs:
-            # 使用默认配置
+            # 没有数据库配置，使用默认环境变量
             llm = self.get_default_llm()
             response = llm.invoke(messages)
             usage = self._extract_token_usage(response)
@@ -297,39 +356,20 @@ class LLMFactory:
         for config in configs:
             for attempt in range(max_retries):
                 try:
-                    llm = self.get_llm_from_config({
-                        "provider": config.provider,
-                        "model_name": config.model_name,
-                        "base_url": config.base_url,
-                        "api_key": config.api_key,
-                        "max_tokens": max_tokens if max_tokens is not None else config.max_tokens,
-                        "temperature": temperature if temperature is not None else config.temperature,
-                        "streaming": config.streaming,
-                    })
+                    llm = self.get_llm_from_config(
+                        self._build_config_params(config, temperature, max_tokens)
+                    )
                     response = llm.invoke(messages)
                     usage = self._extract_token_usage(response)
 
                     # 检测垃圾输出：completion_tokens 异常高但内容极短或无意义
                     raw = response.content if hasattr(response, "content") else str(response)
-                    completion_tokens = usage.get("completion_tokens", 0)
-                    if completion_tokens > 5000 and len(raw.strip()) < 100:
+                    if self._is_garbage_output(raw, usage.get("completion_tokens", 0)):
                         logger.warning(
-                            f"LLM 输出疑似垃圾 (config={config.name}, tokens={completion_tokens}, len={len(raw)}), 跳过此配置"
+                            f"LLM 输出疑似垃圾 (config={config.name}, tokens={usage.get('completion_tokens', 0)}, len={len(raw)}), 跳过此配置"
                         )
-                        last_error = RuntimeError(f"垃圾输出: tokens={completion_tokens}, content_len={len(raw)}")
+                        last_error = RuntimeError(f"垃圾输出: tokens={usage.get('completion_tokens', 0)}, content_len={len(raw)}")
                         break  # 跳过此 config，不重试
-
-                    # 检测重复字符垃圾（如无限空格）
-                    if len(raw) > 200:
-                        stripped = raw.strip()
-                        # 检查是否大量重复同一字符
-                        unique_chars = len(set(stripped[:500]))
-                        if unique_chars < 15 and len(stripped) > 100:
-                            logger.warning(
-                                f"LLM 输出疑似垃圾 (config={config.name}, unique_chars={unique_chars}), 跳过此配置"
-                            )
-                            last_error = RuntimeError(f"重复字符垃圾: unique_chars={unique_chars}")
-                            break
 
                     logger.info(f"LLM 调用成功: config={config.name}, model={config.model_name}, tokens={usage}")
                     return response, usage, config.id
@@ -348,31 +388,19 @@ class LLMFactory:
         messages: List[BaseMessage],
         preferred_config_id: Optional[int] = None,
         max_retries: int = 2,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
     ) -> tuple[Any, Dict[str, int], Optional[int]]:
         """
         带降级和重试的 LLM 异步调用（不阻塞事件循环）。
         返回 (response, token_usage, used_config_id)
         """
         import asyncio
-        from app.models.llm_config import LLMConfig
 
-        configs = db_session.query(LLMConfig).filter(
-            LLMConfig.status == "active"
-        ).order_by(LLMConfig.priority.asc()).all()
-
-        if preferred_config_id:
-            preferred = next((c for c in configs if c.id == preferred_config_id), None)
-            if preferred:
-                configs.remove(preferred)
-                configs.insert(0, preferred)
-        else:
-            default_config = next((c for c in configs if c.is_default), None)
-            if default_config:
-                configs.remove(default_config)
-                configs.insert(0, default_config)
+        configs = self._ordered_active_configs(db_session, preferred_config_id)
 
         if not configs:
-            # 使用默认配置
+            # 没有数据库配置，使用默认环境变量
             llm = self.get_default_llm()
             response = await llm.ainvoke(messages)
             usage = self._extract_token_usage(response)
@@ -382,17 +410,21 @@ class LLMFactory:
         for config in configs:
             for attempt in range(max_retries):
                 try:
-                    llm = self.get_llm_from_config({
-                        "provider": config.provider,
-                        "model_name": config.model_name,
-                        "base_url": config.base_url,
-                        "api_key": config.api_key,
-                        "max_tokens": config.max_tokens,
-                        "temperature": config.temperature,
-                        "streaming": config.streaming,
-                    })
+                    llm = self.get_llm_from_config(
+                        self._build_config_params(config, temperature, max_tokens)
+                    )
                     response = await llm.ainvoke(messages)
                     usage = self._extract_token_usage(response)
+
+                    # 检测垃圾输出（与同步版本一致）
+                    raw = response.content if hasattr(response, "content") else str(response)
+                    if self._is_garbage_output(raw, usage.get("completion_tokens", 0)):
+                        logger.warning(
+                            f"LLM 异步输出疑似垃圾 (config={config.name}, tokens={usage.get('completion_tokens', 0)}), 跳过此配置"
+                        )
+                        last_error = RuntimeError(f"垃圾输出: tokens={usage.get('completion_tokens', 0)}")
+                        break
+
                     logger.info(f"LLM 异步调用成功: config={config.name}, model={config.model_name}")
                     return response, usage, config.id
                 except Exception as e:
@@ -402,6 +434,8 @@ class LLMFactory:
                     )
                     await asyncio.sleep(1)  # 异步等待，不阻塞事件循环
                     continue
+
+        raise RuntimeError(f"所有 LLM 配置均调用失败: {last_error}")
 
         raise RuntimeError(f"所有 LLM 配置均调用失败: {last_error}")
 

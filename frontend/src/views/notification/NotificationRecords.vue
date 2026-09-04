@@ -140,10 +140,6 @@ import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import { notificationApi, type NotificationRecord, type EventTypeInfo } from '@/api/notifications'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const records = ref<NotificationRecord[]>([])
 const eventTypes = ref<EventTypeInfo[]>([])
@@ -213,15 +209,6 @@ function formatJson(text?: string): string {
 }
 
 async function loadRecords() {
-  const syncParams: Record<string, any> = {
-    event: filterEvent.value,
-    status: filterStatus.value,
-  }
-  if (dateRange.value && dateRange.value.length === 2) {
-    syncParams.start_date = dateRange.value[0].format('YYYY-MM-DD')
-    syncParams.end_date = dateRange.value[1].format('YYYY-MM-DD')
-  }
-  syncToUrl(syncParams)
   loading.value = true
   try {
     const params: any = {
@@ -302,7 +289,7 @@ function toggleAutoRefresh(checked: boolean) {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ event: undefined, status: undefined, start_date: undefined, end_date: undefined })
+  const params = { event: undefined, status: undefined, start_date: undefined, end_date: undefined }
   filterEvent.value = params.event
   filterStatus.value = params.status
   if (params.start_date && params.end_date) {

@@ -1,3 +1,5 @@
+from app.schemas.common import PaginatedResponse
+
 from typing import Optional, List, Any, Union
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -81,8 +83,4 @@ class PerformanceTestRunResponse(BaseModel):
         from_attributes = True
 
 
-class PaginatedResponse(BaseModel):
-    total: int = 0
-    page: int = 1
-    page_size: int = 20
-    items: List[Any] = []
+

@@ -1,3 +1,5 @@
+from app.schemas.common import PaginatedResponse
+
 from typing import Optional, List, Any
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
@@ -71,8 +73,4 @@ class EnvironmentVariableResponse(EnvironmentVariableBase):
         from_attributes = True
 
 
-class PaginatedResponse(BaseModel):
-    total: int = 0
-    page: int = 1
-    page_size: int = 20
-    items: List[Any] = []
+

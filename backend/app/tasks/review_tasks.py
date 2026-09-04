@@ -4,7 +4,7 @@
 import logging
 
 from app.celery_app import celery_app
-from app.database import SessionLocal
+from app.core.task_base import BaseTask
 from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
 from app.agents.case_reviewer import REVIEW_SYSTEM_PROMPT
@@ -20,15 +20,16 @@ logger = logging.getLogger(__name__)
 MODULE_ID = "case.review"
 
 
-@celery_app.task(bind=True, name="review_cases", max_retries=2, queue="ai")
-def review_cases_task(self, task_id: int):
+class ReviewCasesTask(BaseTask):
     """AI 用例评审任务 — 直接使用 call_with_fallback，不经过 CaseReviewerAgent"""
-    db = SessionLocal()
-    try:
+
+    task_name = "review_cases"
+
+    def execute(self, db, task_id: int) -> dict:
         task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
         if not task:
             logger.error(f"AgentTask not found: {task_id}")
-            return
+            return {"status": "aborted", "reason": "agent_task_not_found"}
 
         # ── 执行后端分发：页面选择优先 → 模块配置 → local ──
         page_choice = (task.input_params or {}).get("page_backend")
@@ -40,7 +41,7 @@ def review_cases_task(self, task_id: int):
             try:
                 workflow_run(db, task, MODULE_ID)
                 # 受理成功：任务挂起，等待 Webhook 回调（不执行本地 LLM）
-                return
+                return {"status": "pending_workflow"}
             except WorkflowInvokeError as e:
                 logger.warning(f"用例评审 workflow 调用失败，降级 local: {e}")
                 task.backend = "local"
@@ -56,7 +57,7 @@ def review_cases_task(self, task_id: int):
         if not mark_running(db, task):
             db.commit()
             logger.info(f"用例评审任务已被取消，中止执行: task_id={task_id}")
-            return
+            return {"status": "aborted", "reason": "cancelled"}
 
         input_params = task.input_params or {}
         cases = input_params.get("cases", [])
@@ -195,44 +196,58 @@ def review_cases_task(self, task_id: int):
 
         logger.info(f"用例评审任务完成: task_id={task_id}, score={result.get('score')}")
 
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "project_id": task.project_id,
+            "created_by": task.created_by,
+            "score": result.get("score"),
+            "passed": result.get("passed"),
+            "case_count": len(cases),
+        }
+
+    def on_success(self, db, result: dict, task_id: int) -> None:
+        if result.get("status") != "success":
+            return
+
         # 发送评审完成通知
         try:
+            task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
+            if not task:
+                return
             duration = 0.0
             if task.created_at and task.completed_at:
                 duration = round((task.completed_at - task.created_at).total_seconds(), 2)
             notify_event(
-                task.project_id,
+                result.get("project_id"),
                 "ai.case_review.completed",
                 {
                     "score": result.get("score"),
                     "passed": result.get("passed"),
-                    "case_count": len(cases),
+                    "case_count": result.get("case_count", 0),
                     "duration": duration,
                 },
-                triggered_by=task.created_by,
+                triggered_by=result.get("created_by"),
             )
         except Exception as notify_e:
             logger.warning(f"发送用例评审通知失败: {notify_e}")
 
-    except Exception as e:
-        logger.error(f"用例评审任务失败: task_id={task_id}, error={e}", exc_info=True)
+    def on_failure(self, db, error: Exception, task_id: int) -> None:
+        logger.error(f"用例评审任务失败: task_id={task_id}, error={error}", exc_info=True)
         try:
             task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
             if task:
-                finalize_agent_task(db, task, "failed", str(e))
+                finalize_agent_task(db, task, "failed", str(error))
                 db.commit()
                 notify_ai_task_failed(
                     task.project_id,
                     task_type="用例评审",
-                    error=str(e),
+                    error=str(error),
                     related_object="用例评审",
                     triggered_by=task.created_by,
                 )
         except Exception:
             pass
-        raise
-    finally:
-        db.close()
 
 
 def _build_review_human_text(cases, requirement, groups, req_title_map=None):
@@ -355,19 +370,16 @@ OPTIMIZE_CASES_USER_PROMPT = """## 原始需求
 请根据以上评审结果输出两个 Markdown 表格：优化用例表格和补充用例表格。"""
 
 
-@celery_app.task(bind=True, name="optimize_cases_from_review", max_retries=0, queue="ai")
-def optimize_cases_from_review_task(
-    self,
-    review_task_id: int,
-    optimize_task_id: int,
-):
+class OptimizeCasesFromReviewTask(BaseTask):
     """基于评审结果优化/补充用例的异步任务"""
-    db = SessionLocal()
-    try:
+
+    task_name = "optimize_cases_from_review"
+
+    def execute(self, db, review_task_id: int, optimize_task_id: int) -> dict:
         opt_task = db.query(AgentTask).filter(AgentTask.id == optimize_task_id).first()
         if not opt_task:
             logger.error(f"优化任务不存在: {optimize_task_id}")
-            return
+            return {"status": "aborted", "reason": "opt_task_not_found"}
 
         opt_task.status = "running"
         db.commit()
@@ -376,7 +388,7 @@ def optimize_cases_from_review_task(
         if not mark_running(db, opt_task):
             db.commit()
             logger.info(f"用例优化任务已被取消，中止执行: task_id={optimize_task_id}")
-            return
+            return {"status": "aborted", "reason": "cancelled"}
 
         # 加载评审任务
         review_task = db.query(AgentTask).filter(AgentTask.id == review_task_id).first()
@@ -650,41 +662,71 @@ def optimize_cases_from_review_task(
             f"updated={updated_count}, created={len(created_cases)}"
         )
 
+        return {
+            "status": "success",
+            "task_id": optimize_task_id,
+            "project_id": project_id,
+            "created_by": opt_task.created_by,
+            "optimize_mode": optimize_mode,
+            "total_count": updated_count + len(created_cases),
+        }
+
+    def on_success(self, db, result: dict, review_task_id: int, optimize_task_id: int) -> None:
+        if result.get("status") != "success":
+            return
+
         # 发送通知
         try:
+            opt_task = db.query(AgentTask).filter(AgentTask.id == optimize_task_id).first()
+            if not opt_task:
+                return
             duration = 0.0
             if opt_task.created_at and opt_task.completed_at:
                 duration = round((opt_task.completed_at - opt_task.created_at).total_seconds(), 2)
             notify_event(
-                project_id,
+                result.get("project_id"),
                 "ai.case.generated",
                 {
                     "source_name": "评审优化",
-                    "strategy": optimize_mode,
-                    "success_count": updated_count + len(created_cases),
+                    "strategy": result.get("optimize_mode"),
+                    "success_count": result.get("total_count", 0),
                     "failed_count": 0,
                     "duration": duration,
                 },
-                triggered_by=opt_task.created_by,
+                triggered_by=result.get("created_by"),
             )
         except Exception as notify_e:
             logger.warning(f"发送评审优化通知失败: {notify_e}")
 
-    except Exception as e:
-        logger.error(f"评审优化用例任务失败: {e}", exc_info=True)
+    def on_failure(self, db, error: Exception, review_task_id: int, optimize_task_id: int) -> None:
+        logger.error(f"评审优化用例任务失败: {error}", exc_info=True)
         try:
             opt_task = db.query(AgentTask).filter(AgentTask.id == optimize_task_id).first()
             if opt_task:
-                finalize_agent_task(db, opt_task, "failed", str(e))
+                finalize_agent_task(db, opt_task, "failed", str(error))
                 db.commit()
                 notify_ai_task_failed(
                     opt_task.project_id,
                     task_type="评审优化用例",
-                    error=str(e),
+                    error=str(error),
                     related_object="评审报告优化",
                     triggered_by=opt_task.created_by,
                 )
         except Exception:
             pass
-    finally:
-        db.close()
+
+
+@celery_app.task(bind=True, name="review_cases", max_retries=2, queue="ai")
+def review_cases_task(self, task_id: int):
+    """AI 用例评审任务 — 直接使用 call_with_fallback，不经过 CaseReviewerAgent"""
+    return ReviewCasesTask().run(task_id)
+
+
+@celery_app.task(bind=True, name="optimize_cases_from_review", max_retries=0, queue="ai")
+def optimize_cases_from_review_task(
+    self,
+    review_task_id: int,
+    optimize_task_id: int,
+):
+    """基于评审结果优化/补充用例的异步任务"""
+    return OptimizeCasesFromReviewTask().run(review_task_id, optimize_task_id)

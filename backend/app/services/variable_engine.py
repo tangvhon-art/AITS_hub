@@ -2,10 +2,13 @@
 变量替换引擎
 支持 {{var_name}} 语法，优先级: Mock函数 > local > scenario > environment > global
 """
+import logging
 import re
 import json
 from typing import Any, Dict, Optional
 from app.services.mock_data_generator import mock_generator
+
+logger = logging.getLogger(__name__)
 
 
 class VariableEngine:
@@ -144,14 +147,12 @@ class VariableEngine:
         if not self._script_vars:
             return ""
         from app.services.script_engine import ScriptEngine
-        import logging
-        _logger = logging.getLogger(__name__)
         engine = ScriptEngine()
         console_output = ""
         input_headers = (request or {}).get("headers") or []
 
         for v in self._script_vars:
-            _logger.info(f"[SCRIPT] Executing env script: key={v.get('key')}")
+            logger.info(f"[SCRIPT] Executing env script: key={v.get('key')}")
             pre_env_snapshot = dict(self.environment_vars)
             result = engine.execute(
                 script=v["script"],
@@ -160,7 +161,7 @@ class VariableEngine:
                 request=request or {},
             )
             if result.success:
-                _logger.info(f"[SCRIPT] Success. result.variables keys: {list(result.variables.keys())}")
+                logger.info(f"[SCRIPT] Success. result.variables keys: {list(result.variables.keys())}")
                 if result.variables:
                     for k, new_val in result.variables.items():
                         if k not in pre_env_snapshot:
@@ -170,17 +171,17 @@ class VariableEngine:
                             if k not in self._script_original_values:
                                 self._script_original_values[k] = pre_env_snapshot[k]
                     self.environment_vars.update(result.variables)
-                _logger.info(f"[SCRIPT] After update, env_vars keys: {list(self.environment_vars.keys())}")
+                logger.info(f"[SCRIPT] After update, env_vars keys: {list(self.environment_vars.keys())}")
                 for _k in ["signature"]:
                     if _k in self.environment_vars:
-                        _logger.info(f"[SCRIPT] env_vars[{_k}] = {str(self.environment_vars[_k])[:80]}")
+                        logger.info(f"[SCRIPT] env_vars[{_k}] = {str(self.environment_vars[_k])[:80]}")
                 # 收集脚本对 pm.request.headers 的修改（如签名头注入/占位符覆盖）
                 if result.request_headers:
                     self.collect_header_patches(result.request_headers, input_headers)
-                    _logger.info(f"[SCRIPT] header patches: {self.script_header_patches}")
+                    logger.info(f"[SCRIPT] header patches: {self.script_header_patches}")
                 console_output += result.output
             else:
-                _logger.warning(f"[SCRIPT] Failed [{v.get('key')}]: {result.error}")
+                logger.warning(f"[SCRIPT] Failed [{v.get('key')}]: {result.error}")
                 console_output += f"[ERROR] 脚本 {v.get('key')} 执行失败: {result.error}\n"
         return console_output
 

@@ -46,13 +46,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { apiScenariosApi, type ApiScenario } from '@/api/apiTest'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const keyword = ref('')
 const dataSource = ref<ApiScenario[]>([])
@@ -66,7 +62,6 @@ const columns = [
 ]
 
 const loadData = async () => {
-  syncToUrl({ keyword: keyword.value })
   loading.value = true
   try {
     const res = await apiScenariosApi.list(projectId, {
@@ -118,7 +113,7 @@ const handleDelete = async (record: ApiScenario) => {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '' })
+  const params = { keyword: '' }
   keyword.value = params.keyword
   loadData()
 })

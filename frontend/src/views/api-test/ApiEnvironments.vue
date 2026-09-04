@@ -192,12 +192,8 @@ import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, CodeOutlined } from '@ant-design/icons-vue'
 import { environmentsApi } from '@/api/environments'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
 const route = useRoute()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const environments = ref<any[]>([])
 const keyword = ref('')
 const appliedKeyword = ref('')
@@ -338,17 +334,15 @@ const handleDeleteEnv = async () => {
 
 function handleSearch() {
   appliedKeyword.value = keyword.value
-  syncToUrl({ keyword: keyword.value })
 }
 
 function handleReset() {
   keyword.value = ''
   appliedKeyword.value = ''
-  syncToUrl({ keyword: '' })
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '' })
+  const params = { keyword: '' }
   keyword.value = params.keyword
   appliedKeyword.value = params.keyword
   loadEnvironments()

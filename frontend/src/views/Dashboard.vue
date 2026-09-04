@@ -152,7 +152,7 @@
               <span></span><span></span><span></span>
             </div>
             <!-- 回答内容 -->
-            <div v-if="msg.content" class="message-content" v-html="formatContent(msg.content)"></div>
+            <MdView v-if="msg.content" class="message-content" :content="msg.content" />
             <!-- 知识库引用 -->
             <div v-if="msg.knowledge_results && msg.knowledge_results.length" class="knowledge-refs">
               <div class="refs-header" @click="msg._refsCollapsed = !msg._refsCollapsed">
@@ -208,7 +208,7 @@ import { getProjects, type Project } from '@/api/projects'
 import { getLLMConfigs, type LLMConfig } from '@/api/llm'
 import { llmCapabilitiesApi, type ModelCapabilities } from '@/api/llmCapabilities'
 import ChatProgress, { type ProgressNode } from '@/components/ChatProgress.vue'
-import { marked } from 'marked'
+import MdView from '@/components/MdView.vue'
 
 interface DisplayMessage extends ChatMessage {
   knowledge_results?: KnowledgeResult[]
@@ -463,15 +463,6 @@ function formatTime(dt?: string): string {
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
-}
-
-function formatContent(content: string): string {
-  if (!content) return ''
-  try {
-    return marked.parse(content) as string
-  } catch {
-    return content
-  }
 }
 
 function getToolDisplayName(name: string): string {

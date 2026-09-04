@@ -141,7 +141,7 @@
           <a-descriptions-item label="平均耗时">{{ currentReport.avg_duration }}s</a-descriptions-item>
           <a-descriptions-item label="类型">{{ reportTypeText(currentReport.report_type) }}</a-descriptions-item>
         </a-descriptions>
-        <div class="report-content" v-html="renderedContent"></div>
+        <MdView :content="currentReport?.content" />
       </div>
     </a-modal>
   </div>
@@ -151,14 +151,13 @@
 import { formatDateTime } from '@/utils/date'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { FileTextOutlined } from '@ant-design/icons-vue'
 import { getReports, generateReport, deleteReport as deleteReportApi, type TestReport } from '@/api/reports'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import { getLLMConfigs } from '@/api/llm'
-import { marked } from 'marked'
+import MdView from '@/components/MdView.vue'
 import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
 import { AI_BACKEND_OPTIONS } from '@/constants/enums'
 
@@ -167,8 +166,6 @@ const reportBackend = ref('local')
 
 const route = useRoute()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const generating = ref(false)
 const reports = ref<TestReport[]>([])
@@ -186,15 +183,6 @@ const detailVisible = ref(false)
 const currentReport = ref<TestReport | null>(null)
 
 const generateForm = ref({ title: '', report_type: 'full', version_id: undefined as number | undefined, prompt_id: undefined as number | undefined, llm_config_id: undefined as number | undefined })
-
-const renderedContent = computed(() => {
-  if (!currentReport.value?.content) return ''
-  try {
-    return marked.parse(currentReport.value.content) as string
-  } catch {
-    return currentReport.value.content.replace(/\n/g, '<br>')
-  }
-})
 
 const perfSummary = computed(() => {
   const s = currentReport.value?.summary
@@ -224,7 +212,6 @@ const columns = [
 ]
 
 async function loadReports() {
-  syncToUrl({ title: filterTitle.value, report_type: filterType.value, status: filterStatus.value, version_id: filterVersionId.value })
   loading.value = true
   if (!projectId) {
     loading.value = false
@@ -325,7 +312,7 @@ function getPerfSuccessRate(record: any) {
 
 onMounted(() => {
   if (projectId) {
-    const params = loadFromUrl({ title: '', report_type: undefined, status: undefined, version_id: undefined as number | undefined })
+    const params = { title: '', report_type: undefined, status: undefined, version_id: undefined as number | undefined }
     filterTitle.value = params.title || ''
     filterType.value = params.report_type
     filterStatus.value = params.status

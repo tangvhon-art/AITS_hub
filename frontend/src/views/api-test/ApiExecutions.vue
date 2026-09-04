@@ -51,13 +51,9 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiExecutionsApi, type ApiExecution } from '@/api/apiTest'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const typeFilter = ref<string | undefined>(undefined)
 const statusFilter = ref<string | undefined>(undefined)
@@ -95,7 +91,6 @@ const getStatusName = (status: string) => {
 }
 
 const loadData = async () => {
-  syncToUrl({ type: typeFilter.value, status: statusFilter.value })
   loading.value = true
   try {
     const res = await apiExecutionsApi.list(projectId, {
@@ -129,7 +124,7 @@ const handleView = (record: ApiExecution) => {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ type: undefined, status: undefined })
+  const params = { type: undefined, status: undefined }
   typeFilter.value = params.type || undefined
   statusFilter.value = params.status || undefined
   loadData()

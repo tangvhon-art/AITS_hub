@@ -54,13 +54,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { performanceTestsApi, type PerformanceTest } from '@/api/performanceTests'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const keyword = ref('')
 const statusFilter = ref<string | undefined>(undefined)
@@ -84,7 +80,6 @@ const statusText = (s: string) => ({ draft: '草稿', running: '运行中', comp
 const targetTypeText = (t: string) => ({ api_definition: '接口定义', api_case: '接口用例', api_scenario: '接口场景' })[t] || t
 
 async function loadData() {
-  syncToUrl({ keyword: keyword.value, status: statusFilter.value })
   loading.value = true
   try {
     const res = await performanceTestsApi.list(projectId, {
@@ -172,7 +167,7 @@ async function handleDelete(record: PerformanceTest) {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', status: undefined })
+  const params = { keyword: '', status: undefined }
   keyword.value = params.keyword
   statusFilter.value = params.status
   loadData()

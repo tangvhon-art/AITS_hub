@@ -117,12 +117,8 @@ import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { apiMockApi, type ApiMockExpectation } from '@/api/apiTest'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
 const route = useRoute()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const mockServiceUrl = computed(() => `${window.location.origin}/mock/${projectId}/{path}`)
 
 const loading = ref(false)
@@ -168,7 +164,6 @@ const getMethodColor = (method: string) => {
 }
 
 const loadData = async () => {
-  syncToUrl({ keyword: keyword.value, enabled: enabledFilter.value })
   loading.value = true
   try {
     const res = await apiMockApi.list(projectId, {
@@ -247,7 +242,7 @@ const handleToggle = async (record: ApiMockExpectation, checked: boolean) => {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', enabled: undefined as any })
+  const params = { keyword: '', enabled: undefined as any }
   keyword.value = params.keyword
   if (params.enabled === 'true') enabledFilter.value = true
   else if (params.enabled === 'false') enabledFilter.value = false

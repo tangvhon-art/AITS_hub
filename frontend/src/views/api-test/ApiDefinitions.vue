@@ -158,13 +158,9 @@ import {
   EditOutlined, DeleteOutlined, MoreOutlined,
 } from '@ant-design/icons-vue'
 import { apiDefinitionsApi, apiModulesApi, apiImportApi, type ApiDefinition, type ApiModule } from '@/api/apiTest'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 // ====== 接口列表 ======
 const loading = ref(false)
 const keyword = ref('')
@@ -237,7 +233,6 @@ const getStatusInfo = (status: string) => {
 
 // ====== 数据加载 ======
 const loadData = async () => {
-  syncToUrl({ keyword: keyword.value, method: methodFilter.value })
   loading.value = true
   try {
     const res = await apiDefinitionsApi.list(projectId, {
@@ -490,7 +485,7 @@ const ModuleTreeNode = defineComponent({
 })
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', method: undefined })
+  const params = { keyword: '', method: undefined }
   keyword.value = params.keyword
   methodFilter.value = params.method || undefined
   loadModules()

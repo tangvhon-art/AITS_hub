@@ -195,17 +195,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '执行结果', hideInMenu: true }
       },
       {
-        path: 'projects/:id/data-pools',
-        name: 'DataPools',
-        component: () => import('@/views/data/DataPools.vue'),
-        meta: { title: '数据池', icon: 'DatabaseOutlined' }
+        path: 'projects/:id/data-factory',
+        component: () => import('@/views/data/DataFactory.vue'),
+        meta: { title: '造数工厂', icon: 'DatabaseOutlined' },
+        children: [
+          { path: '', redirect: { name: 'DataPools' } },
+          { path: 'pools', name: 'DataPools', component: () => import('@/views/data/DataPools.vue'), meta: { title: 'Mock 数据池', activeMenu: 'pools' } },
+          { path: 'pools/:poolId', name: 'DataPoolEdit', component: () => import('@/views/data/DataPoolEdit.vue'), meta: { title: '数据池编辑', activeMenu: 'pools' } },
+          { path: 'tools', name: 'DataTools', component: () => import('@/views/data/DataTools.vue'), meta: { title: '通用造数工具', activeMenu: 'tools' } },
+        ]
       },
-      {
-        path: 'projects/:id/data-pools/:poolId',
-        name: 'DataPoolEdit',
-        component: () => import('@/views/data/DataPoolEdit.vue'),
-        meta: { title: '数据池编辑', hideInMenu: true }
-      },
+      // 旧路由兼容：/data-pools → /data-factory
+      { path: 'projects/:id/data-pools', redirect: to => `/projects/${to.params.id}/data-factory/pools` },
+      { path: 'projects/:id/data-pools/:poolId', redirect: to => `/projects/${to.params.id}/data-factory/pools/${to.params.poolId}` },
       {
         path: 'projects/:id/import-export',
         name: 'ImportExport',

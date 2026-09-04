@@ -132,10 +132,6 @@ import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, LoadingOutlined } from '@ant-design/icons-vue'
 import { notificationApi, type NotificationChannel } from '@/api/notifications'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const saving = ref(false)
 const channels = ref<NotificationChannel[]>([])
@@ -185,7 +181,6 @@ function typeLabel(type: string): string {
 }
 
 async function loadChannels() {
-  syncToUrl({ keyword: searchKeyword.value })
   loading.value = true
   try {
     const params: any = {}
@@ -314,7 +309,7 @@ function handleReset() {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '' })
+  const params = { keyword: '' }
   searchKeyword.value = params.keyword
   loadChannels()
 })

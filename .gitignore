@@ -80,3 +80,4 @@ dist-ssr/
 /backend/celerybeat-schedule-shm
 /backend/celerybeat-schedule-wal
 /backend/celerybeat.pid
+/backend/tests/

@@ -1,6 +1,7 @@
 import axios, { AxiosRequestConfig } from 'axios'
 import { message } from 'ant-design-vue'
 import router from '@/router'
+import { useUserStore } from '@/stores/user'
 
 const instance = axios.create({
   baseURL: '/api',
@@ -24,11 +25,17 @@ instance.interceptors.response.use(
   (response) => response.data,
   (error) => {
     const status = error.response?.status
-    const errorMsg = error.response?.data?.detail || error.message
+    const detail = error.response?.data?.detail
+    // detail 可能是对象（如造数工厂 {code, message, detail}），取 message 字段
+    const errorMsg =
+      typeof detail === 'object' && detail !== null && detail.message
+        ? detail.message
+        : (detail ?? error.message)
 
     if (status === 401) {
       localStorage.removeItem('token')
-      import('@/stores/user').then(({ useUserStore }) => useUserStore().logout())
+      // 同步注销，避免与路由跳转产生时序竞态
+      useUserStore().logout()
       message.error('登录已过期，请重新登录')
       router.push('/login')
     } else if (status === 403) {

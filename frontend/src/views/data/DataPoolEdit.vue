@@ -179,7 +179,7 @@ async function handleSave() {
       await dataPoolsApi.create(projectId, form.value)
     }
     message.success('保存成功')
-    router.push(`/projects/${projectId}/data-pools`)
+    router.push(`/projects/${projectId}/data-factory/pools`)
   } catch (e: any) {
     if (e instanceof SyntaxError) {
       message.error('静态数据 JSON 格式错误')

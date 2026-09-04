@@ -47,7 +47,7 @@
       <template v-if="current">
         <h4>攻击载荷用例 #{{ current.case_id }}</h4>
         <h4>模型输出</h4>
-        <div class="md-body" v-html="renderMd(current.model_output || '（无输出）')"></div>
+        <MdView class="md-body" :content="current.model_output || '（无输出）'" />
         <h4>判定</h4>
         <pre class="out-box">{{ JSON.stringify({ result: current.redteam_result, risk_level: current.risk_level }, null, 2) }}</pre>
       </template>
@@ -58,7 +58,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { marked } from 'marked'
+import MdView from '@/components/MdView.vue'
 import { evalRedteamApi, evalTargetApi, evalDatasetApi } from '@/api/eval'
 
 const datasets = ref<any[]>([])
@@ -73,11 +73,6 @@ const drawer = ref(false)
 const current = ref<any>()
 
 const riskColor = (l: string) => ({ P0: 'red', P1: 'orange', P2: 'gold', P3: 'default' } as any)[l] || 'default'
-const renderMd = (text?: string) => {
-  if (!text) return ''
-  try { return marked.parse(text) as string } catch { return text }
-}
-
 const run = async () => {
   if (!dataset_id.value) { message.warning('请选择攻击数据集'); return }
   running.value = true

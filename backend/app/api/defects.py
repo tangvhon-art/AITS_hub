@@ -1,14 +1,16 @@
 """
 缺陷管理 API
 """
+import logging
 from datetime import datetime
 from app.core.timezone import china_now_naive
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body
+from fastapi import APIRouter, Depends, Query, Request, Body
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.deps import get_current_user, get_project
+from app.core.exceptions import NotFoundException, ValidationException
 from app.core.audit import log_audit
 from app.models.user import User
 from app.models.defect import Defect
@@ -21,6 +23,7 @@ from app.schemas.defect import (
 )
 from app.services.notification_service import notify_event
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/projects/{project_id}/defects", tags=["缺陷管理"])
 
 
@@ -85,7 +88,7 @@ def get_defect(
     get_project(project_id, db, current_user)
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
-        raise HTTPException(status_code=404, detail="缺陷不存在")
+        raise NotFoundException("缺陷不存在")
     return DefectResponse.model_validate(defect)
 
 @router.post("", response_model=DefectResponse)
@@ -154,8 +157,7 @@ def create_defect(
             triggered_by=current_user.id,
         )
     except Exception as notify_e:
-        import logging
-        logging.getLogger(__name__).warning(f"发送缺陷创建通知失败: {notify_e}")
+        logger.warning(f"发送缺陷创建通知失败: {notify_e}")
 
     return DefectResponse.model_validate(defect)
 
@@ -172,7 +174,7 @@ def update_defect(
     get_project(project_id, db, current_user)
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
-        raise HTTPException(status_code=404, detail="缺陷不存在")
+        raise NotFoundException("缺陷不存在")
 
     old_data = {"title": defect.title, "status": defect.status, "severity": defect.severity, "assignee_id": defect.assignee_id}
     old_assignee_id = defect.assignee_id
@@ -206,8 +208,7 @@ def update_defect(
                 triggered_by=current_user.id,
             )
     except Exception as notify_e:
-        import logging
-        logging.getLogger(__name__).warning(f"发送缺陷分配通知失败: {notify_e}")
+        logger.warning(f"发送缺陷分配通知失败: {notify_e}")
 
     return DefectResponse.model_validate(defect)
 
@@ -223,7 +224,7 @@ def delete_defect(
     get_project(project_id, db, current_user)
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
-        raise HTTPException(status_code=404, detail="缺陷不存在")
+        raise NotFoundException("缺陷不存在")
     defect_name = defect.title
     defect.soft_delete()
     log_audit(
@@ -248,12 +249,12 @@ def update_defect_status(
     """更新缺陷状态"""
     valid_statuses = ["open", "confirmed", "resolved", "closed", "reopened"]
     if status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"无效状态，可选: {valid_statuses}")
+        raise ValidationException(f"无效状态，可选: {valid_statuses}")
 
     get_project(project_id, db, current_user)
     defect = db.query(Defect).filter(Defect.id == defect_id, Defect.project_id == project_id).first()
     if not defect:
-        raise HTTPException(status_code=404, detail="缺陷不存在")
+        raise NotFoundException("缺陷不存在")
 
     old_status = defect.status
     defect.status = status
@@ -293,7 +294,6 @@ def update_defect_status(
                 triggered_by=current_user.id,
             )
     except Exception as notify_e:
-        import logging
-        logging.getLogger(__name__).warning(f"发送缺陷状态变更通知失败: {notify_e}")
+        logger.warning(f"发送缺陷状态变更通知失败: {notify_e}")
 
     return DefectResponse.model_validate(defect)

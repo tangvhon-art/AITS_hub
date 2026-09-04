@@ -3,6 +3,7 @@
 五种格式导入 + 预览
 """
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -15,6 +16,8 @@ from app.models.api_test import ApiDefinition, ApiModule
 from app.schemas.api_test import ApiImportRequest, ApiImportPreviewResponse
 from app.services.importers import get_importer, get_supported_formats
 from app.services.notification_service import notify_event
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/api-import", tags=["接口测试-导入"])
 
@@ -163,7 +166,6 @@ async def import_apis(
             triggered_by=current_user.id,
         )
     except Exception as notify_e:
-        import logging
-        logging.getLogger(__name__).warning(f"发送接口导入通知失败: {notify_e}")
+        logger.warning(f"发送接口导入通知失败: {notify_e}")
 
     return {"success": True, "imported_count": imported_count, "total": len(imported_apis)}

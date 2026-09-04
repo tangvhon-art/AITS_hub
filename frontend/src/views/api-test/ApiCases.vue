@@ -117,13 +117,9 @@ import { PlusOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import { apiCasesApi, type ApiTestCase } from '@/api/apiTest'
 import { environmentsApi, type TestEnvironment } from '@/api/environments'
 import AiGenerateCasesModal from './AiGenerateCasesModal.vue'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
 const route = useRoute()
 const router = useRouter()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const keyword = ref('')
 const priorityFilter = ref<string | undefined>(undefined)
@@ -164,7 +160,6 @@ const getPriorityColor = (priority: string) => {
 }
 
 const loadData = async () => {
-  syncToUrl({ keyword: keyword.value, priority: priorityFilter.value })
   loading.value = true
   try {
     const res = await apiCasesApi.list(projectId, {
@@ -267,7 +262,7 @@ const handleDelete = async (record: ApiTestCase) => {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '', priority: undefined })
+  const params = { keyword: '', priority: undefined }
   keyword.value = params.keyword
   priorityFilter.value = params.priority || undefined
   loadData()

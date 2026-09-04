@@ -6,7 +6,7 @@ import logging
 import threading
 
 from app.celery_app import celery_app
-from app.database import SessionLocal
+from app.core.task_base import BaseTask
 from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
 from app.models.api_test import ApiDefinition
@@ -35,15 +35,16 @@ def _api_definition_to_dict(api: ApiDefinition) -> dict:
     }
 
 
-@celery_app.task(bind=True, name="generate_api_doc", max_retries=2, queue="ai")
-def generate_api_doc_task(self, task_id: int):
-    """AI 生成接口文档任务"""
-    db = SessionLocal()
-    try:
+class ApiDocTask(BaseTask):
+    """接口文档 AI 生成任务"""
+
+    task_name = "generate_api_doc"
+
+    def execute(self, db, task_id: int) -> dict:
         task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
         if not task:
             logger.error(f"AgentTask not found: {task_id}")
-            return
+            return {"status": "aborted", "reason": "agent_task_not_found"}
 
         task.status = "running"
         db.commit()
@@ -52,7 +53,7 @@ def generate_api_doc_task(self, task_id: int):
         if not mark_running(db, task):
             db.commit()
             logger.info(f"接口文档生成任务已被取消，中止执行: task_id={task_id}")
-            return
+            return {"status": "aborted", "reason": "cancelled"}
 
         input_params = task.input_params or {}
         api_id = input_params.get("api_id")
@@ -63,7 +64,7 @@ def generate_api_doc_task(self, task_id: int):
         if not api_def:
             finalize_agent_task(db, task, "failed", "接口定义不存在")
             db.commit()
-            return
+            return {"status": "failed", "reason": "api_def_not_found"}
 
         # 获取自定义 Prompt
         system_prompt = ""
@@ -122,42 +123,63 @@ def generate_api_doc_task(self, task_id: int):
 
         logger.info(f"AI生成接口文档任务完成: task_id={task_id}, desc_len={len(markdown_content)}, saved_desc={api_def.description is not None}")
 
-        # 发送AI接口文档生成完成通知
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "api_id": api_def.id,
+            "api_name": api_def.name,
+            "method": (api_def.method or "").upper(),
+            "path": api_def.path or "",
+            "project_id": task.project_id,
+            "created_by": task.created_by,
+        }
+
+    def on_success(self, db, result: dict, task_id: int) -> None:
+        if result.get("status") != "success":
+            return
+
         try:
+            task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
+            if not task:
+                return
             duration = 0.0
             if task.created_at and task.completed_at:
                 duration = round((task.completed_at - task.created_at).total_seconds(), 2)
             notify_event(
-                task.project_id,
+                result.get("project_id"),
                 "ai.api_doc.generated",
                 {
-                    "api_id": api_def.id if api_def else None,
-                    "api_name": api_def.name if api_def else "接口",
-                    "method": (api_def.method or "").upper() if api_def else "",
-                    "path": api_def.path if api_def else "",
+                    "api_id": result.get("api_id"),
+                    "api_name": result.get("api_name") or "接口",
+                    "method": result.get("method") or "",
+                    "path": result.get("path") or "",
                     "success": True,
                     "duration": duration,
                 },
-                triggered_by=task.created_by,
+                triggered_by=result.get("created_by"),
             )
         except Exception as notify_e:
             logger.warning(f"发送接口文档生成通知失败: {notify_e}")
 
-    except Exception as e:
-        logger.error(f"AI生成接口文档任务失败: task_id={task_id}, error={e}", exc_info=True)
+    def on_failure(self, db, error: Exception, task_id: int) -> None:
+        logger.error(f"AI生成接口文档任务失败: task_id={task_id}, error={error}", exc_info=True)
         try:
             task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
             if task:
-                finalize_agent_task(db, task, "failed", str(e))
+                finalize_agent_task(db, task, "failed", str(error))
                 db.commit()
                 notify_ai_task_failed(
                     task.project_id,
                     task_type="接口文档生成",
-                    error=str(e),
+                    error=str(error),
                     related_object="接口文档生成",
                     triggered_by=task.created_by,
                 )
         except Exception:
             pass
-    finally:
-        db.close()
+
+
+@celery_app.task(bind=True, name="generate_api_doc", max_retries=2, queue="ai")
+def generate_api_doc_task(self, task_id: int):
+    """AI 生成接口文档任务"""
+    return ApiDocTask().run(task_id)

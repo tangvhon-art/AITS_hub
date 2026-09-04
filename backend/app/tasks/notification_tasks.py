@@ -1,8 +1,9 @@
 """
 通知异步发送任务
 
-核心逻辑抽取为 _send_notification_sync，供 Celery 任务与线程降级共用。
+核心逻辑放于 NotificationTask（BaseTask），统一 Session 管理。
 发送失败自动重试 2 次（间隔 10s、30s）。
+``_send_notification_sync`` 保留为公共同步入口，供线程降级路径（notification_service）复用。
 """
 import json
 import logging
@@ -10,8 +11,8 @@ import time
 from typing import Any, Dict
 
 from app.celery_app import celery_app
+from app.core.task_base import BaseTask
 from app.core.timezone import china_now_naive
-from app.database import SessionLocal
 from app.models.notification import NotificationChannel, NotificationRecord
 
 logger = logging.getLogger(__name__)
@@ -58,21 +59,16 @@ def _do_send(channel: NotificationChannel, card: Dict[str, Any]) -> Dict[str, An
     return client.send_card(card)
 
 
-def _send_notification_sync(record_id: int):
-    """
-    发送通知的核心同步逻辑（含重试）。
+class NotificationTask(BaseTask):
+    """通知异步发送任务（含重试）"""
 
-    - 查询记录与渠道
-    - 解析卡片 JSON
-    - 最多尝试 3 次（首次 + 2次重试，间隔 10s/30s）
-    - 更新记录状态、响应码、响应体、错误信息、重试次数、发送时间
-    """
-    db = SessionLocal()
-    try:
+    task_name = "send_notification"
+
+    def execute(self, db, record_id: int) -> dict:
         record = db.query(NotificationRecord).filter(NotificationRecord.id == record_id).first()
         if not record:
             logger.error(f"通知记录不存在: {record_id}")
-            return
+            return {"status": "aborted", "reason": "record_not_found"}
 
         channel = db.query(NotificationChannel).filter(
             NotificationChannel.id == record.channel_id
@@ -82,14 +78,14 @@ def _send_notification_sync(record_id: int):
             record.error_message = "通知渠道不存在或已删除"
             record.sent_at = china_now_naive()
             db.commit()
-            return
+            return {"status": "failed", "reason": "channel_not_found"}
 
         if not channel.enabled:
             record.status = "failed"
             record.error_message = "通知渠道已禁用"
             record.sent_at = china_now_naive()
             db.commit()
-            return
+            return {"status": "failed", "reason": "channel_disabled"}
 
         # 解析卡片内容
         try:
@@ -99,7 +95,7 @@ def _send_notification_sync(record_id: int):
             record.error_message = "卡片内容解析失败"
             record.sent_at = china_now_naive()
             db.commit()
-            return
+            return {"status": "failed", "reason": "card_parse_error"}
 
         # 标记为发送中
         record.status = "pending"
@@ -124,7 +120,7 @@ def _send_notification_sync(record_id: int):
                     record.sent_at = china_now_naive()
                     db.commit()
                     logger.info(f"通知发送成功: record_id={record_id}, attempt={attempt + 1}")
-                    return
+                    return {"status": "success", "record_id": record_id}
                 else:
                     last_error = result.get("error") or "发送失败"
                     logger.warning(
@@ -148,24 +144,29 @@ def _send_notification_sync(record_id: int):
         record.sent_at = china_now_naive()
         db.commit()
         logger.error(f"通知最终发送失败: record_id={record_id}, error={last_error}")
+        return {"status": "failed", "reason": "all_retries_failed", "record_id": record_id}
 
-    except Exception as e:
-        logger.exception(f"通知任务执行异常: record_id={record_id}, error={e}")
+    def on_failure(self, db, error: Exception, record_id: int) -> None:
+        logger.exception(f"通知任务执行异常: record_id={record_id}, error={error}")
         try:
-            db.rollback()
             record = db.query(NotificationRecord).filter(NotificationRecord.id == record_id).first()
             if record and record.status == "pending":
                 record.status = "failed"
-                record.error_message = f"任务异常: {str(e)[:400]}"
+                record.error_message = f"任务异常: {str(error)[:400]}"
                 record.sent_at = china_now_naive()
                 db.commit()
         except Exception:
             pass
-    finally:
-        db.close()
+
+
+def _send_notification_sync(record_id: int):
+    """
+    发送通知的核心同步入口（供 Celery 任务与线程降级共用）。
+    """
+    NotificationTask().run(record_id)
 
 
 @celery_app.task(bind=True, name="send_notification")
 def send_notification_task(self, record_id: int):
     """Celery 任务入口：异步发送通知"""
-    _send_notification_sync(record_id)
+    return NotificationTask().run(record_id)

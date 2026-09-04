@@ -1,6 +1,8 @@
 """
 通知模块 Pydantic Schemas
 """
+from app.schemas.common import PaginatedResponse
+
 import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -165,13 +167,6 @@ class NotificationRecordResponse(BaseModel):
 
 
 # ==================== 通用 ====================
-
-class PaginatedResponse(BaseModel):
-    total: int = 0
-    page: int = 1
-    page_size: int = 20
-    items: List[Any] = []
-
 
 class TestSendResult(BaseModel):
     """测试发送结果"""

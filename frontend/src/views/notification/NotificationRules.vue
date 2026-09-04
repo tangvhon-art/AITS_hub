@@ -181,10 +181,6 @@ import {
   type EventTypeInfo,
 } from '@/api/notifications'
 import { getProjects } from '@/api/projects'
-import { useUrlSearch } from '@/composables/useUrlSearch'
-
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const saving = ref(false)
 const rules = ref<NotificationRule[]>([])
@@ -277,7 +273,6 @@ function conditionsSummary(conditions: any): string {
 }
 
 async function loadRules() {
-  syncToUrl({ event: filterEvent.value })
   loading.value = true
   try {
     const params: any = {
@@ -443,7 +438,7 @@ async function handleDelete(record: NotificationRule) {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ event: undefined })
+  const params = { event: undefined }
   filterEvent.value = params.event
   loadEvents()
   loadChannels()

@@ -67,7 +67,7 @@
             </a-radio-group>
           </div>
           <a-textarea v-if="descEditMode === 'edit'" v-model:value="form.description" :rows="6" placeholder="支持 Markdown 格式，可点击上方「AI 生成文档」自动生成" />
-          <div v-else class="md-preview" v-html="renderedDesc"></div>
+          <MdView v-else :content="form.value.description" />
         </a-form-item>
       </a-card>
 
@@ -270,7 +270,7 @@ import { ArrowLeftOutlined, RobotOutlined, EyeOutlined, EditOutlined } from '@an
 import { apiDefinitionsApi, apiModulesApi, type ApiDefinition, type ApiModule } from '@/api/apiTest'
 import { getLLMConfigs } from '@/api/llm'
 import { promptsApi, type Prompt } from '@/api/prompts'
-import { marked } from 'marked'
+import MdView from '@/components/MdView.vue'
 import BatchEditModal from '@/components/BatchEditModal.vue'
 
 const route = useRoute()
@@ -283,11 +283,6 @@ const formRef = ref()
 const saving = ref(false)
 const activeTab = ref('headers')
 const descEditMode = ref<'edit' | 'preview'>('edit')
-const renderedDesc = computed(() => {
-  if (!form.value.description) return '<p style="color:#999">暂无描述内容</p>'
-  try { return marked.parse(form.value.description) as string }
-  catch { return form.value.description.replace(/\n/g, '<br>') }
-})
 const moduleTree = ref<any[]>([])
 const showAiDocModal = ref(false)
 const aiGenerating = ref(false)

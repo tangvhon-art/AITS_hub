@@ -458,7 +458,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message } from 'ant-design-vue'
 import { AuditOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 import { listCaseReviews, getCaseReviewDetail, reviewCases, optimizeCasesFromReview, type CaseReviewItem } from '@/api/caseReviews'
@@ -479,7 +478,6 @@ const reviewBackend = ref('local')
 
 const route = useRoute()
 const router = useRouter()
-const { loadFromUrl, syncToUrl } = useUrlSearch()
 const projectId = Number(route.params.id)
 
 const loading = ref(false)
@@ -555,7 +553,6 @@ function severityColor(severity: string) {
 
 async function loadReviews() {
   loading.value = true
-  syncToUrl({ status: filterStatus.value })
   try {
     const params: any = { page: pagination.value.current, page_size: pagination.value.pageSize }
     if (filterStatus.value) params.status = filterStatus.value
@@ -829,7 +826,7 @@ function goToCases() {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ status: undefined })
+  const params = { status: undefined }
   filterStatus.value = params.status
   loadReviews()
   loadRequirements()

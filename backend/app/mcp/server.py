@@ -45,15 +45,18 @@ def handle_mcp_request(payload: Dict[str, Any]) -> Dict[str, Any]:
         if not tool:
             return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Tool not found: {tool_name}"}}
         # 同步执行（MCP Server 端点不传入 db，工具内部自行获取）
+        # 注意：端点可能在线程池中运行（无当前事件循环），须用 new_event_loop
         try:
             import asyncio
             from app.database import SessionLocal
             db = SessionLocal()
+            loop = asyncio.new_event_loop()
             try:
-                result = asyncio.get_event_loop().run_until_complete(
+                result = loop.run_until_complete(
                     tool.execute(arguments, db, project_id=None, user_id=None)
                 )
             finally:
+                loop.close()
                 db.close()
             return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}}
         except Exception as e:

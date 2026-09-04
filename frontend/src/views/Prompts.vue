@@ -53,7 +53,7 @@
         <template v-else-if="column.key === 'system_prompt'">
           <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '800px' }">
             <template #title>
-              <div class="md-tooltip" v-html="renderMarkdown(record.system_prompt)"></div>
+              <MdView :content="record.system_prompt" />
             </template>
             <span class="prompt-preview">{{ record.system_prompt.slice(0, 80) }}{{ record.system_prompt.length > 80 ? '...' : '' }}</span>
           </a-tooltip>
@@ -108,7 +108,7 @@
             :rows="8"
             placeholder="作为 system 角色的提示词，定义 AI 的行为和输出要求"
           />
-          <div v-else class="md-preview" v-html="renderMarkdown(formData.system_prompt)"></div>
+          <MdView v-else :content="formData.system_prompt" />
         </a-form-item>
         <a-form-item label="设为默认">
           <a-switch v-model:checked="formData.is_default" />
@@ -123,32 +123,19 @@
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
-import { marked } from 'marked'
-import { useUrlSearch } from '@/composables/useUrlSearch'
+import MdView from '@/components/MdView.vue'
 import { useCRUD } from '@/composables/useCRUD'
 import { promptsApi, type Prompt, type PromptCreate } from '@/api/prompts'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.userInfo?.is_admin === true)
-
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const loading = ref(false)
 const dataSource = ref<Prompt[]>([])
 const filterCategory = ref<string>()
 const searchKeyword = ref('')
 const seeding = ref(false)
 const previewMode = ref(false)
-
-function renderMarkdown(text: string): string {
-  if (!text) return '<span style="color:#999">（空）</span>'
-  try {
-    return marked.parse(text) as string
-  } catch {
-    return text.replace(/\n/g, '<br>')
-  }
-}
 
 // 新建时的默认表单值
 const defaultForm: PromptCreate = {
@@ -227,13 +214,11 @@ const filteredPrompts = computed(() => {
 })
 
 function handleSearch() {
-  syncToUrl({ category: filterCategory.value, keyword: searchKeyword.value })
 }
 
 function handleReset() {
   filterCategory.value = undefined
   searchKeyword.value = ''
-  syncToUrl({ category: filterCategory.value, keyword: searchKeyword.value })
 }
 
 async function loadData() {
@@ -261,7 +246,7 @@ async function handleSeedDefaults() {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ category: undefined, keyword: '' })
+  const params = { category: undefined, keyword: '' }
   filterCategory.value = params.category
   searchKeyword.value = params.keyword
   loadData()

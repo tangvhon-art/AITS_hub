@@ -138,7 +138,7 @@
             <a-tag :color="statusColor(viewingReq.status)">{{ statusLabel(viewingReq.status) }}</a-tag>
           </a-descriptions-item>
         </a-descriptions>
-        <div class="md-content" v-html="renderedContent"></div>
+        <MdView :content="viewingReq?.content" />
       </div>
     </a-modal>
 
@@ -265,7 +265,7 @@ import { syncRequirementsToKnowledge } from '@/api/knowledge'
 import { getLLMConfigs } from '@/api/llm'
 import { getVersions, type ProjectVersion } from '@/api/projectVersions'
 import { promptsApi, type Prompt } from '@/api/prompts'
-import { marked } from 'marked'
+import MdView from '@/components/MdView.vue'
 import FeatureSelectModal from '@/components/FeatureSelectModal.vue'
 import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
 import { AI_BACKEND_OPTIONS } from '@/constants/enums'
@@ -293,11 +293,6 @@ const showCreateModal = ref(false)
 const showUploadModal = ref(false)
 const showViewModal = ref(false)
 const viewingReq = ref<any>(null)
-const renderedContent = computed(() => {
-  if (!viewingReq.value?.content) return '<p style="color:#999">暂无内容</p>'
-  try { return marked.parse(viewingReq.value.content) as string }
-  catch { return viewingReq.value.content.replace(/\n/g, '<br>') }
-})
 
 const pagination = reactive({
   current: 1,

@@ -163,3 +163,62 @@ a:hover {
   background: #fafafa;
   border-color: #d9d9d9;
 }
+
+/* =====================================================================
+ * 全局确认弹窗按钮统一（Modal.confirm / Popconfirm）
+ * 1. 按钮始终水平并排，禁止换行/堆叠
+ * 2. 按钮最小宽度统一，文字不换行
+ * 3. loading 转圈时图标绝对居中覆盖、原文字透明：
+ *    按钮与弹窗宽度保持零变化，杜绝抖动
+ * ===================================================================== */
+.ant-modal-confirm-btns,
+.ant-popconfirm-buttons {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  column-gap: 8px !important;
+  row-gap: 0 !important;
+}
+
+.ant-modal-confirm-btns .ant-btn,
+.ant-popconfirm-buttons .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 64px;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* 确认弹窗最小宽度，避免窄容器挤压导致按钮换行 */
+.ant-popconfirm {
+  min-width: 160px;
+}
+
+/* loading：按钮保持相对定位，供图标绝对居中 */
+.ant-modal-confirm-btns .ant-btn-loading,
+.ant-popconfirm-buttons .ant-btn-loading {
+  position: relative !important;
+}
+
+/* loading 图标绝对居中覆盖，不参与布局 → 宽度零变化 */
+.ant-modal-confirm-btns .ant-btn-loading .ant-btn-loading-icon,
+.ant-popconfirm-buttons .ant-btn-loading .ant-btn-loading-icon {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  margin-inline-end: 0 !important;
+  z-index: 1;
+}
+
+/* loading 时隐藏原文字，避免与转圈图标重叠 */
+.ant-modal-confirm-btns .ant-btn-loading .ant-btn-icon + span,
+.ant-modal-confirm-btns .ant-btn-loading > span:not(.ant-btn-loading-icon),
+.ant-popconfirm-buttons .ant-btn-loading .ant-btn-icon + span,
+.ant-popconfirm-buttons .ant-btn-loading > span:not(.ant-btn-loading-icon) {
+  opacity: 0 !important;
+}

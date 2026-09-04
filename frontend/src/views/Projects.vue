@@ -100,14 +100,12 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, FolderOutlined, CalendarOutlined, FileTextOutlined, UnorderedListOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
 import { getProjects, createProject, updateProject, deleteProject as deleteProjectApi, Project } from '@/api/projects'
 import { formatDate } from '@/utils/date'
 
 const router = useRouter()
-const { loadFromUrl, syncToUrl } = useUrlSearch()
 const loading = ref(false)
 const saving = ref(false)
 const projects = ref<Project[]>([])
@@ -142,12 +140,10 @@ watch(searchKeyword, () => {
 })
 
 function handleSearch() {
-  syncToUrl({ keyword: searchKeyword.value })
 }
 
 function handleReset() {
   searchKeyword.value = ''
-  syncToUrl({ keyword: searchKeyword.value })
 }
 
 async function fetchProjects() {
@@ -216,7 +212,7 @@ function deleteProject(project: Project) {
 }
 
 onMounted(() => {
-  const params = loadFromUrl({ keyword: '' })
+  const params = { keyword: '' }
   searchKeyword.value = params.keyword
   fetchProjects()
 })

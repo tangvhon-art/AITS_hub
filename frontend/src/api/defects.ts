@@ -1,4 +1,5 @@
 import request from './request'
+import { BaseAPI } from './base'
 
 export interface Defect {
   id?: number
@@ -24,31 +25,27 @@ export interface Defect {
   updated_at?: string
 }
 
-export interface DefectListResponse {
-  total: number
-  page: number
-  page_size: number
-  items: Defect[]
-}
+/** 缺陷标准 CRUD 统一走 BaseAPI（URL 拼接样板消除） */
+const defectApi = new BaseAPI<Defect>('/defects')
 
 export function getDefects(projectId: number, params?: { status?: string; severity?: string; version_id?: number; title?: string; priority?: string; root_cause_category?: string; page?: number; page_size?: number }) {
-  return request.post<DefectListResponse>(`/projects/${projectId}/defects/search`, params)
+  return defectApi.list(projectId, params)
 }
 
 export function getDefect(projectId: number, defectId: number) {
-  return request.get<Defect>(`/projects/${projectId}/defects/${defectId}`)
+  return defectApi.get(projectId, defectId)
 }
 
 export function createDefect(projectId: number, data: Partial<Defect>) {
-  return request.post<Defect>(`/projects/${projectId}/defects`, data)
+  return defectApi.create(projectId, data)
 }
 
 export function updateDefect(projectId: number, defectId: number, data: Partial<Defect>) {
-  return request.put<Defect>(`/projects/${projectId}/defects/${defectId}`, data)
+  return defectApi.update(projectId, defectId, data)
 }
 
 export function deleteDefect(projectId: number, defectId: number) {
-  return request.delete(`/projects/${projectId}/defects/${defectId}`)
+  return defectApi.remove(projectId, defectId)
 }
 
 export function updateDefectStatus(projectId: number, defectId: number, status: string) {

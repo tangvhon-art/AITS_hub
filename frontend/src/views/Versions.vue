@@ -103,7 +103,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useUrlSearch } from '@/composables/useUrlSearch'
 import { useList } from '@/composables/useList'
 import { useCRUD } from '@/composables/useCRUD'
 import { message } from 'ant-design-vue'
@@ -117,8 +116,6 @@ import {
 
 const route = useRoute()
 const projectId = Number(route.params.id)
-const { loadFromUrl, syncToUrl } = useUrlSearch()
-
 const filterStatus = ref<string | undefined>(undefined)
 const filterName = ref<string | undefined>(undefined)
 const filterDateRange = ref<[dayjs.Dayjs, dayjs.Dayjs] | undefined>(undefined)
@@ -126,7 +123,6 @@ const filterDateRange = ref<[dayjs.Dayjs, dayjs.Dayjs] | undefined>(undefined)
 // 使用 useList 封装分页列表逻辑
 const { loading, list, total, pagination, loadData: loadVersions, handleTableChange } = useList<ProjectVersion>(
   async (params) => {
-    syncToUrl({ status: filterStatus.value, name: filterName.value })
     return getVersions(projectId, {
       status: filterStatus.value,
       name: filterName.value || undefined,
@@ -213,7 +209,7 @@ const {
 
 onMounted(() => {
   if (projectId) {
-    const params = loadFromUrl({ status: undefined, name: undefined })
+    const params = { status: undefined, name: undefined }
     filterStatus.value = params.status
     filterName.value = params.name
     loadVersions()

@@ -4,7 +4,7 @@
 import logging
 
 from app.celery_app import celery_app
-from app.database import SessionLocal
+from app.core.task_base import BaseTask
 from app.core.timezone import china_now_naive
 from app.models.agent_task import AgentTask
 from app.models.requirement import TestRequirement
@@ -23,15 +23,16 @@ logger = logging.getLogger(__name__)
 MODULE_ID = "requirement.generate"
 
 
-@celery_app.task(bind=True, name="generate_requirement", max_retries=2, queue="ai")
-def generate_requirement_task(self, task_id: int):
-    """AI 生成需求文档任务"""
-    db = SessionLocal()
-    try:
+class RequirementTask(BaseTask):
+    """需求文档 AI 生成任务"""
+
+    task_name = "generate_requirement"
+
+    def execute(self, db, task_id: int) -> dict:
         task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
         if not task:
             logger.error(f"AgentTask not found: {task_id}")
-            return
+            return {"status": "aborted", "reason": "agent_task_not_found"}
 
         # ── 执行后端分发：页面选择优先 → 模块配置 → local ──
         page_choice = (task.input_params or {}).get("page_backend")
@@ -43,7 +44,7 @@ def generate_requirement_task(self, task_id: int):
             try:
                 workflow_run(db, task, MODULE_ID)
                 # 受理成功：任务挂起，等待 Webhook 回调（不执行本地 LLM）
-                return
+                return {"status": "pending_workflow"}
             except WorkflowInvokeError as e:
                 logger.warning(f"需求生成 workflow 调用失败，降级 local: {e}")
                 task.backend = "local"
@@ -59,7 +60,7 @@ def generate_requirement_task(self, task_id: int):
         if not mark_running(db, task):
             db.commit()
             logger.info(f"需求生成任务已被取消，中止执行: task_id={task_id}")
-            return
+            return {"status": "aborted", "reason": "cancelled"}
 
         input_params = task.input_params or {}
         project_id = task.project_id
@@ -112,48 +113,69 @@ def generate_requirement_task(self, task_id: int):
 
         logger.info(f"需求生成任务完成: task_id={task_id}, requirement_id={requirement.id}")
 
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "project_id": project_id,
+            "created_by": task.created_by,
+            "requirement_id": requirement.id,
+            "requirement_title": requirement.title,
+            "version_id": version_id,
+        }
+
+    def on_success(self, db, result: dict, task_id: int) -> None:
+        if result.get("status") != "success":
+            return
+
         # 发送AI需求生成完成通知
         try:
+            task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
+            if not task:
+                return
             duration = 0.0
             if task.created_at and task.completed_at:
                 duration = round((task.completed_at - task.created_at).total_seconds(), 2)
             version_name = "-"
-            if version_id:
+            if result.get("version_id"):
                 from app.models.project_version import ProjectVersion
-                ver = db.query(ProjectVersion).filter(ProjectVersion.id == version_id).first()
+                ver = db.query(ProjectVersion).filter(ProjectVersion.id == result.get("version_id")).first()
                 if ver:
                     version_name = ver.name
             notify_event(
-                project_id,
+                result.get("project_id"),
                 "ai.requirement.generated",
                 {
-                    "requirement_id": requirement.id,
-                    "requirement_title": requirement.title,
+                    "requirement_id": result.get("requirement_id"),
+                    "requirement_title": result.get("requirement_title"),
                     "version_name": version_name,
                     "success": True,
                     "duration": duration,
                 },
-                triggered_by=task.created_by,
+                triggered_by=result.get("created_by"),
             )
         except Exception as notify_e:
             logger.warning(f"发送需求生成通知失败: {notify_e}")
 
-    except Exception as e:
-        logger.error(f"需求生成任务失败: task_id={task_id}, error={e}", exc_info=True)
+    def on_failure(self, db, error: Exception, task_id: int) -> None:
+        logger.error(f"需求生成任务失败: task_id={task_id}, error={error}", exc_info=True)
         try:
             task = db.query(AgentTask).filter(AgentTask.id == task_id).first()
             if task:
-                finalize_agent_task(db, task, "failed", str(e))
+                finalize_agent_task(db, task, "failed", str(error))
                 db.commit()
                 # 发送AI任务失败通知
                 notify_ai_task_failed(
                     task.project_id,
                     task_type="需求生成",
-                    error=str(e),
+                    error=str(error),
                     related_object="需求文档生成",
                     triggered_by=task.created_by,
                 )
         except Exception:
             pass
-    finally:
-        db.close()
+
+
+@celery_app.task(bind=True, name="generate_requirement", max_retries=2, queue="ai")
+def generate_requirement_task(self, task_id: int):
+    """AI 生成需求文档任务"""
+    return RequirementTask().run(task_id)

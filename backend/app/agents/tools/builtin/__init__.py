@@ -10,6 +10,7 @@ from app.agents.tools.builtin.project_tools import (
     ListProjectsTool, ListTestPlansTool, ListScriptsTool, ListVersionsTool, ListRequirementsTool,
     ListReportsTool, QueryQualityMetricsTool,
 )
+from app.agents.tools.builtin.data_factory_tools import DATA_FACTORY_TOOLS
 
 # 所有内置工具类
 BUILTIN_TOOLS = [
@@ -19,7 +20,7 @@ BUILTIN_TOOLS = [
     ListApiCasesTool(), ListApiDefinitionsTool(), ListApiScenariosTool(), ListApiExecutionsTool(),
     ListProjectsTool(), ListTestPlansTool(), ListScriptsTool(), ListVersionsTool(), ListRequirementsTool(),
     ListReportsTool(), QueryQualityMetricsTool(),
-]
+] + DATA_FACTORY_TOOLS
 
 
 def register_builtin_tools():
