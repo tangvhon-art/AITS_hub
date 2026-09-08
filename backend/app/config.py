@@ -16,11 +16,19 @@ class Settings(BaseSettings):
     # 生产环境必须配置，避免与 JWT 共用一个密钥源；留空时从 SECRET_KEY 哈希派生（向后兼容）。
     FERNET_KEY: str = ""
 
+    # 数据库类型：mysql 或 sqlite。sqlite 适合本地开发/单机部署，无需外部服务
+    DB_TYPE: str = "mysql"
+
+    # MySQL 配置（DB_TYPE=mysql 时使用）
     DB_HOST: str = "localhost"
     DB_PORT: int = 3306
     DB_USER: str = "root"
     DB_PASSWORD: str = "root"
     DB_NAME: str = "aits_platform"
+
+    # SQLite 配置（DB_TYPE=sqlite 时使用）
+    # 相对路径以 backend 目录为根；推荐放在 data/ 下便于持久化
+    DB_PATH: str = "data/aits.db"
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
@@ -48,8 +56,23 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
+        db_type = (self.DB_TYPE or "mysql").strip().lower()
+        if db_type == "sqlite":
+            # SQLite URL 形式：sqlite:///<相对路径> 或 sqlite:////<绝对路径>
+            # 内存库可用 DB_PATH=:memory: 表示
+            path = self.DB_PATH or "data/aits.db"
+            if path == ":memory:":
+                return "sqlite://"
+            if path.startswith("/"):
+                return f"sqlite:///{path}"
+            return f"sqlite:///{path}"
+        # 默认 MySQL
         encoded_password = quote_plus(self.DB_PASSWORD)
         return f"mysql+pymysql://{self.DB_USER}:{encoded_password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset=utf8mb4"
+
+    @property
+    def is_sqlite(self) -> bool:
+        return (self.DB_TYPE or "").strip().lower() == "sqlite"
 
     @property
     def cors_origins_list(self) -> List[str]:

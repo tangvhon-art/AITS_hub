@@ -3,12 +3,25 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import settings
 from app.core.timezone import china_now_naive
 
-engine = create_engine(
-    settings.database_url,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    echo=settings.DEBUG,
-)
+# SQLite 与 MySQL 引擎参数差异：SQLite 需关闭线程检查以适配 FastAPI/线程池
+if settings.is_sqlite:
+    # 确保数据库文件所在目录存在，避免连接失败（相对路径以 cwd 为根）
+    import os as _os
+    _db_path = settings.DB_PATH or "data/aits.db"
+    _db_dir = _os.path.dirname(_os.path.abspath(_db_path))
+    _os.makedirs(_db_dir, exist_ok=True)
+    engine = create_engine(
+        settings.database_url,
+        echo=settings.DEBUG,
+        connect_args={"check_same_thread": False},
+    )
+else:
+    engine = create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        echo=settings.DEBUG,
+    )
 
 redis_client = None
 try:
@@ -19,12 +32,20 @@ except Exception:
     redis_client = None
 
 
-@event.listens_for(engine, "connect")
-def set_mysql_timezone(dbapi_connection, connection_record):
-    """设置数据库连接时区为中国时间 UTC+8"""
-    cursor = dbapi_connection.cursor()
-    cursor.execute("SET time_zone = '+08:00'")
-    cursor.close()
+if not settings.is_sqlite:
+    @event.listens_for(engine, "connect")
+    def set_mysql_timezone(dbapi_connection, connection_record):
+        """设置数据库连接时区为中国时间 UTC+8（仅 MySQL 需要）"""
+        cursor = dbapi_connection.cursor()
+        cursor.execute("SET time_zone = '+08:00'")
+        cursor.close()
+else:
+    # SQLite：启用外键约束（默认关闭），让 ForeignKey 行为与 MySQL 对齐
+    @event.listens_for(engine, "connect")
+    def _sqlite_enable_fk(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

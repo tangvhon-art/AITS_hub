@@ -7,6 +7,7 @@
 - migrate_project_members：存量项目 owner 迁移到 project_members
 
 说明：当前为保持行为一致的前置收敛步骤，长期建议迁移至 Alembic 统一管理。
+兼容 MySQL 与 SQLite：DDL 与元数据查询按方言分支处理。
 """
 import logging
 
@@ -15,9 +16,30 @@ from sqlalchemy import text, inspect
 logger = logging.getLogger(__name__)
 
 
+def _is_sqlite(engine) -> bool:
+    return engine.dialect.name == "sqlite"
+
+
+def _ddl_for_dialect(ddl: str, sqlite: bool) -> str:
+    """将 MySQL 风格 DDL 转为当前方言可执行的形式。
+
+    SQLite 策略：
+    - `TINYINT` -> `INTEGER`（SQLite 无 TINYINT，靠类型亲和也行，但显式更清晰）
+    - `JSON` -> `TEXT`（SQLite 3.38 前无原生 JSON 类型，TEXT 存储更通用）
+    - 其余类型（BOOLEAN/VARCHAR/DATETIME/INTEGER/TEXT）在 SQLite 下均通过类型亲和正常工作
+    """
+    if not sqlite:
+        return ddl
+    out = ddl
+    out = out.replace("TINYINT", "INTEGER")
+    out = out.replace("JSON", "TEXT")
+    return out
+
+
 def auto_migrate(engine):
     """轻量级自动迁移：为已有表补充新增列（create_all 不会修改已有表结构）"""
     inspector = inspect(engine)
+    sqlite = _is_sqlite(engine)
     migrations = [
         ("test_cases", "needs_update", "BOOLEAN DEFAULT 0"),
         ("performance_tests", "data_pool_id", "INTEGER"),
@@ -59,13 +81,19 @@ def auto_migrate(engine):
                 continue
             existing_cols = [c["name"] for c in inspector.get_columns(table)]
             if column not in existing_cols:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+                final_ddl = _ddl_for_dialect(ddl, sqlite)
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {final_ddl}"))
                 logger.info(f"自动迁移：{table}.{column} 已添加")
 
 
 def drop_eval_project_columns(engine):
-    """AI 测评系统级化：移除 eval_* 表中 project_id 列（先删外键约束再删列）"""
+    """AI 测评系统级化：移除 eval_* 表中 project_id 列
+
+    MySQL：先删外键约束（information_schema 查询）再删列
+    SQLite：直接 DROP COLUMN（3.35+ 支持，且默认不强制外键，无需先删约束）
+    """
     inspector = inspect(engine)
+    sqlite = _is_sqlite(engine)
     tables = ["eval_targets", "eval_datasets", "eval_cases", "eval_tasks",
               "eval_reports", "eval_issues", "eval_baselines"]
     with engine.begin() as conn:
@@ -75,6 +103,12 @@ def drop_eval_project_columns(engine):
             cols = [c["name"] for c in inspector.get_columns(t)]
             if "project_id" not in cols:
                 continue
+            if sqlite:
+                # SQLite 3.35+ 支持 DROP COLUMN；SQLite 不强制外键，直接删列
+                conn.execute(text(f"ALTER TABLE {t} DROP COLUMN project_id"))
+                logger.info(f"系统级迁移：{t}.project_id 已移除（SQLite）")
+                continue
+            # MySQL：先查并删外键约束，再删列
             fks = conn.execute(text(
                 "SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE "
                 "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t "
