@@ -189,6 +189,7 @@ def run_test(
                         status_code=400,
                         detail=f"接口场景「{target_info.get('name', '')}」没有可压测的接口步骤，请先在场景中添加 API 步骤",
                     )
+                scenario_group = f"scenario_{t['target_id']}"
                 for st in expanded:
                     targets.append({
                         "method": st.get("method", "GET"),
@@ -197,6 +198,8 @@ def run_test(
                         "weight": int(t.get("weight", 1)),
                         "body": st.get("body"),
                         "headers": st.get("headers"),
+                        "extract_vars": st.get("extract_vars", []),
+                        "_scenario_group": scenario_group,
                     })
                 continue
 
@@ -215,7 +218,20 @@ def run_test(
             expanded = runner.get_scenario_targets(test.target_id, base_url)
             if not expanded:
                 raise HTTPException(status_code=400, detail="接口场景没有可压测的接口步骤，请先在场景中添加 API 步骤")
-            targets = expanded
+            scenario_group = f"scenario_{test.target_id}"
+            targets = [
+                {
+                    "method": st.get("method", "GET"),
+                    "url": st.get("url", "/"),
+                    "name": st.get("name", "接口"),
+                    "weight": 1,
+                    "body": st.get("body"),
+                    "headers": st.get("headers"),
+                    "extract_vars": st.get("extract_vars", []),
+                    "_scenario_group": scenario_group,
+                }
+                for st in expanded
+            ]
         else:
             target_info = runner.get_target_info(test.target_type, test.target_id)
             if not target_info and not test.target_url:

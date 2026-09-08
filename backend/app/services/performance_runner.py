@@ -12,6 +12,126 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
+SCENARIO_SCRIPT_TEMPLATE = '''"""Locust 性能测试脚本 - 场景顺序执行（步骤间响应提取变量传递参数）"""
+import json
+import re
+import itertools
+from locust import HttpUser, task, between
+
+HEADERS = __HEADERS_JSON__
+TEST_DATA = __TEST_DATA_JSON__
+_data_cycle = itertools.cycle(TEST_DATA) if TEST_DATA else None
+
+# 场景步骤定义（按执行顺序），每步含 method/url/name/body/headers/extract_vars
+SCENARIO_STEPS = __SCENARIO_STEPS_JSON__
+
+
+def _substitute(text, vars_dict):
+    """替换文本中的 {{var_name}} 和 ${var_name} 变量"""
+    if not text:
+        return text
+    result = str(text)
+    for k, v in vars_dict.items():
+        result = result.replace("{{" + str(k) + "}}", str(v))
+        result = result.replace("${" + str(k) + "}", str(v))
+    return result
+
+
+def _build_body(template, vars_dict):
+    """构建请求体：先替换场景变量，再从数据池循环取值替换 {{var}}/${var}"""
+    if not template:
+        return None
+    body = _substitute(template, vars_dict)
+    if _data_cycle:
+        row = next(_data_cycle)
+        for k, v in row.items():
+            body = body.replace("{{" + str(k) + "}}", str(v))
+            body = body.replace("${" + str(k) + "}", str(v))
+    return body
+
+
+def _extract_vars(response, extract_configs, vars_dict):
+    """从响应中提取变量，写入 vars_dict（支持 jsonpath/regex/header/cookie）"""
+    if not extract_configs:
+        return
+    for cfg in extract_configs:
+        var_name = cfg.get("var_name")
+        if not var_name:
+            continue
+        extract_type = cfg.get("extract_type", "")
+        expr = cfg.get("extract_expr", "")
+        default = cfg.get("default_value")
+        try:
+            if extract_type == "jsonpath":
+                try:
+                    from jsonpath_ng import parse as _jp_parse
+                    data = response.json()
+                    if data is not None:
+                        matches = [m.value for m in _jp_parse(expr).find(data)]
+                        value = matches[0] if matches else default
+                    else:
+                        value = default
+                except ImportError:
+                    value = default
+            elif extract_type == "regex":
+                m = re.search(expr, response.text or "")
+                value = m.group(1) if m else default
+            elif extract_type == "header":
+                value = response.headers.get(expr, default)
+            elif extract_type == "cookie":
+                cookies = response.headers.get("set-cookie", "")
+                value = cookies if cookies else default
+            else:
+                value = default
+            if value is not None:
+                vars_dict[var_name] = value
+        except Exception:
+            if default is not None:
+                vars_dict[var_name] = default
+
+
+class PerformanceTestUser(HttpUser):
+    """模拟用户行为：每个用户按顺序执行完整场景链路"""
+    wait_time = between(0.5, 2.0)
+
+    def on_start(self):
+        # 每个虚拟用户独立的场景变量存储（步骤间传递参数）
+        self.scenario_vars = {}
+
+    @task
+    def run_scenario(self):
+        for step in SCENARIO_STEPS:
+            # 1. 用已提取的场景变量替换 URL / Headers / Body
+            url = _substitute(step.get("url", "/"), self.scenario_vars)
+            step_headers = dict(HEADERS)
+            step_headers.update(step.get("headers") or {})
+            step_headers = {k: _substitute(v, self.scenario_vars) for k, v in step_headers.items()}
+            body = _build_body(step.get("body"), self.scenario_vars)
+            method = (step.get("method") or "GET").upper()
+            name = method + " " + (step.get("name") or "接口")
+
+            # 2. 发起请求
+            try:
+                if method == "GET":
+                    resp = self.client.get(url, headers=step_headers, name=name)
+                elif method == "POST":
+                    resp = self.client.post(url, headers=step_headers, data=body, name=name)
+                elif method == "PUT":
+                    resp = self.client.put(url, headers=step_headers, data=body, name=name)
+                elif method == "DELETE":
+                    resp = self.client.delete(url, headers=step_headers, name=name)
+                elif method == "PATCH":
+                    resp = self.client.patch(url, headers=step_headers, data=body, name=name)
+                else:
+                    resp = self.client.request(method, url, headers=step_headers, data=body, name=name)
+
+                # 3. 从响应提取变量，供后续步骤使用
+                _extract_vars(resp, step.get("extract_vars", []), self.scenario_vars)
+            except Exception as e:
+                print(f"Request error: {e}")
+'''
+
+
 class PerformanceRunner:
     """Locust 性能测试执行器"""
 
@@ -94,6 +214,30 @@ class PerformanceTestUser(HttpUser):
 '''
         return script
 
+    def generate_scenario_locust_script(
+        self,
+        scenario_steps: list,
+        headers: dict,
+        users: int,
+        spawn_rate: int,
+        duration: int,
+        test_data: Optional[list] = None,
+    ) -> str:
+        """生成场景顺序执行的 Locust 脚本（步骤间通过响应提取变量传递参数）
+
+        scenario_steps: [{method, url, name, body, headers, extract_vars}]
+        每个虚拟用户按顺序执行所有步骤，上一步响应中提取的变量可在后续步骤的 URL/Body/Header 中引用。
+        """
+        headers_json = json.dumps(headers or {}, ensure_ascii=False)
+        test_data_json = json.dumps(test_data, ensure_ascii=False) if test_data else "[]"
+        steps_json = json.dumps(scenario_steps, ensure_ascii=False)
+
+        script = SCENARIO_SCRIPT_TEMPLATE
+        script = script.replace("__HEADERS_JSON__", headers_json)
+        script = script.replace("__TEST_DATA_JSON__", test_data_json)
+        script = script.replace("__SCENARIO_STEPS_JSON__", steps_json)
+        return script
+
     def run(
         self,
         run_id: int,
@@ -120,14 +264,50 @@ class PerformanceTestUser(HttpUser):
         self.db.commit()
 
         try:
-            script = self.generate_locust_script(
-                targets=targets,
-                headers=headers or {},
-                users=test_config.get("users", 10),
-                spawn_rate=test_config.get("spawn_rate", 1),
-                duration=test_config.get("duration", 60),
-                test_data=test_data,
+            # 判断是否为场景顺序执行模式：所有 target 属于同一个 _scenario_group
+            scenario_groups = {t.get("_scenario_group") for t in targets if t.get("_scenario_group")}
+            is_scenario_mode = (
+                len(targets) > 0
+                and len(scenario_groups) == 1
+                and all(t.get("_scenario_group") for t in targets)
             )
+
+            if is_scenario_mode:
+                # 场景顺序执行：步骤间通过响应提取变量传递参数
+                scenario_steps = [
+                    {
+                        "method": t.get("method", "GET"),
+                        "url": t.get("url", "/"),
+                        "name": t.get("name", "接口"),
+                        "body": t.get("body"),
+                        "headers": t.get("headers") or {},
+                        "extract_vars": t.get("extract_vars", []),
+                    }
+                    for t in targets
+                ]
+                script = self.generate_scenario_locust_script(
+                    scenario_steps=scenario_steps,
+                    headers=headers or {},
+                    users=test_config.get("users", 10),
+                    spawn_rate=test_config.get("spawn_rate", 1),
+                    duration=test_config.get("duration", 60),
+                    test_data=test_data,
+                )
+                logger.info(f"性能测试使用场景顺序执行模式，共 {len(scenario_steps)} 个步骤")
+            else:
+                # 多接口独立任务模式（剥离场景内部字段）
+                standalone_targets = [
+                    {k: v for k, v in t.items() if k not in ("_scenario_group", "extract_vars")}
+                    for t in targets
+                ]
+                script = self.generate_locust_script(
+                    targets=standalone_targets,
+                    headers=headers or {},
+                    users=test_config.get("users", 10),
+                    spawn_rate=test_config.get("spawn_rate", 1),
+                    duration=test_config.get("duration", 60),
+                    test_data=test_data,
+                )
 
             with tempfile.NamedTemporaryFile(mode="w", suffix="_locust.py", delete=False) as f:
                 f.write(script)
@@ -639,6 +819,10 @@ class PerformanceTestUser(HttpUser):
 
             if not method or not path:
                 continue
+
+            # 加载该步骤的响应变量提取配置（jsonpath/regex/header/cookie）
+            extract_vars = self._load_step_extract_vars(step.id)
+
             targets.append({
                 "method": method.upper(),
                 "url": f"{base_url}{path}",
@@ -646,6 +830,30 @@ class PerformanceTestUser(HttpUser):
                 "weight": 1,
                 "body": body,
                 "headers": self._convert_headers(headers),
+                "extract_vars": extract_vars,
             })
 
         return targets
+
+    def _load_step_extract_vars(self, step_id: Optional[int]) -> list:
+        """加载场景步骤的响应变量提取配置（供 Locust 脚本步骤间传参使用）"""
+        if not step_id:
+            return []
+        try:
+            from app.models.api_test import ApiScenarioVariable
+            variables = self.db.query(ApiScenarioVariable).filter(
+                ApiScenarioVariable.step_id == step_id,
+                ApiScenarioVariable.is_deleted == False,  # noqa: E712
+            ).all()
+            return [
+                {
+                    "var_name": v.var_name,
+                    "extract_type": v.extract_type,
+                    "extract_expr": v.extract_expr,
+                    "default_value": v.default_value,
+                }
+                for v in variables
+            ]
+        except Exception as e:
+            logger.warning(f"加载步骤 {step_id} 变量提取配置失败: {e}")
+            return []

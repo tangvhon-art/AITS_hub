@@ -612,16 +612,52 @@ class ScenarioExecutor:
         if script_result.output:
             result.console_log += script_result.output
 
+        # 捕获 pm.test 断言结果，写入 result.assertions 供前端展示
+        if script_result.tests:
+            result.assertions = [
+                {
+                    "passed": bool(t.get("passed", False)),
+                    "assert_type": "script",
+                    "type": "script",
+                    "assert_target": t.get("name", ""),
+                    "target": t.get("name", ""),
+                    "operator": "",
+                    "expected_value": "",
+                    "expected": "",
+                    "actual_value": t.get("error", ""),
+                    "actual": t.get("error", ""),
+                    "message": t.get("name", "") + (f": {t['error']}" if t.get("error") else ""),
+                }
+                for t in script_result.tests
+            ]
+
     def _run_assertions(self, assertions: List[Dict], response: HttpResponse,
                         result: StepExecutionResult):
-        """执行断言并落结果"""
+        """执行断言并落结果（同时兼容后置脚本 pm.test 产生的断言）"""
+        # pm.test 断言已由 _run_post_script 写入 result.assertions
+        pm_assertions = result.assertions or []
+
         if assertions:
             assertion_results = self.assertion_engine.run_all(assertions, response)
-            result.assertions = [a.to_dict() for a in assertion_results]
-            all_passed = all(a.passed for a in assertion_results) if assertion_results else True
+            structured_dicts = [a.to_dict() for a in assertion_results]
+            # 合并：pm.test 断言 + 结构化断言
+            result.assertions = pm_assertions + structured_dicts
+            structured_passed = all(a.passed for a in assertion_results) if assertion_results else True
+            pm_passed = all(a.get("passed", True) for a in pm_assertions)
+            all_passed = structured_passed and pm_passed
             result.status = "passed" if all_passed else "failed"
             if not all_passed:
-                failed = [a for a in assertion_results if not a.passed]
+                failed_count = (
+                    sum(1 for a in assertion_results if not a.passed)
+                    + sum(1 for a in pm_assertions if not a.get("passed", True))
+                )
+                result.error_message = f"{failed_count}个断言失败"
+        elif pm_assertions:
+            # 仅有 pm.test 断言，按其结果判断状态
+            all_passed = all(a.get("passed", True) for a in pm_assertions)
+            result.status = "passed" if all_passed else "failed"
+            if not all_passed:
+                failed = [a for a in pm_assertions if not a.get("passed", True)]
                 result.error_message = f"{len(failed)}个断言失败"
         else:
             result.status = "passed" if response.status_code < 400 else "failed"
