@@ -84,6 +84,7 @@ def _build_body(template):
     body = template
     for k, v in row.items():
         body = body.replace("{{{{" + str(k) + "}}}}", str(v))
+        body = body.replace("$" + "{{" + str(k) + "}}", str(v))
     return body
 
 class PerformanceTestUser(HttpUser):
@@ -529,14 +530,122 @@ class PerformanceTestUser(HttpUser):
                     "name": c.name,
                 }
         elif target_type == "api_scenario":
-            from app.models.api_test import ApiScenario
+            from app.models.api_test import ApiScenario, ApiScenarioStep, ApiDefinition, ApiTestCase
             s = self.db.query(ApiScenario).filter(ApiScenario.id == target_id).first()
             if s:
+                # 取第一个启用的 API 步骤作为预览信息，避免硬编码 GET /
+                step = (
+                    self.db.query(ApiScenarioStep)
+                    .filter(
+                        ApiScenarioStep.scenario_id == target_id,
+                        ApiScenarioStep.is_deleted == False,  # noqa: E712
+                        ApiScenarioStep.enabled == True,  # noqa: E712
+                    )
+                    .order_by(ApiScenarioStep.sort_order.asc(), ApiScenarioStep.id.asc())
+                    .first()
+                )
+                method, path = "GET", "/"
+                step_count = 0
+                if step:
+                    step_count = 1
+                    if step.step_type == "api" and step.api_id:
+                        api = self.db.query(ApiDefinition).filter(ApiDefinition.id == step.api_id).first()
+                        if api:
+                            method, path = api.method, api.path
+                    elif step.step_type == "case" and step.case_id:
+                        case = self.db.query(ApiTestCase).filter(ApiTestCase.id == step.case_id).first()
+                        if case:
+                            method, path = case.method or "GET", case.path or "/"
                 return {
-                    "method": "GET",
-                    "path": "/",
+                    "method": method,
+                    "path": path,
                     "headers": {},
                     "body": None,
                     "name": s.name,
+                    "step_count": step_count,
                 }
         return {}
+
+    def get_scenario_targets(self, scenario_id: int, base_url: str = "") -> list:
+        """将接口场景展开为可压测的接口列表
+
+        场景中每个启用的 api/case 步骤都会变成一个独立的压测目标；
+        script/wait/condition/loop 等控制类步骤无法转换为 HTTP 任务，直接跳过。
+
+        返回: [{method, url, name, weight, body, headers}]
+        """
+        from app.models.api_test import ApiScenario, ApiScenarioStep, ApiDefinition, ApiTestCase
+
+        scenario = self.db.query(ApiScenario).filter(ApiScenario.id == scenario_id).first()
+        if not scenario:
+            return []
+
+        steps = (
+            self.db.query(ApiScenarioStep)
+            .filter(
+                ApiScenarioStep.scenario_id == scenario_id,
+                ApiScenarioStep.is_deleted == False,  # noqa: E712
+            )
+            .order_by(ApiScenarioStep.sort_order.asc(), ApiScenarioStep.id.asc())
+            .all()
+        )
+
+        targets = []
+        for step in steps:
+            if not step.enabled:
+                continue
+            request_config = step.request_config or {}
+            method = None
+            path = None
+            headers = None
+            body = None
+            name = step.step_name or "接口"
+
+            if step.step_type == "api" and step.api_id:
+                api = self.db.query(ApiDefinition).filter(ApiDefinition.id == step.api_id).first()
+                if not api:
+                    continue
+                method = request_config.get("method") or api.method
+                path = request_config.get("path") or api.path
+                headers = request_config.get("headers", api.headers)
+                body_type = request_config.get("body_type") or api.body_type
+                if request_config.get("body_override"):
+                    # body_override 为步骤级覆盖体，直接作为请求体
+                    body = self._convert_body(request_config["body_override"], "json")
+                else:
+                    body = self._convert_body(api.body_content, body_type)
+                name = step.step_name or api.name
+            elif step.step_type == "case" and step.case_id:
+                case = self.db.query(ApiTestCase).filter(ApiTestCase.id == step.case_id).first()
+                if not case:
+                    continue
+                method = request_config.get("method") or case.method
+                path = request_config.get("path") or case.path
+                if (not method or not path) and case.api_id:
+                    api = self.db.query(ApiDefinition).filter(ApiDefinition.id == case.api_id).first()
+                    if api:
+                        method = method or api.method
+                        path = path or api.path
+                headers = request_config.get("headers", case.headers)
+                body_type = request_config.get("body_type") or case.body_type
+                if request_config.get("body_override"):
+                    body = self._convert_body(request_config["body_override"], "json")
+                else:
+                    body = self._convert_body(case.body_content, body_type)
+                name = step.step_name or case.name
+            else:
+                # script/wait/condition/loop 等步骤不生成 HTTP 压测任务
+                continue
+
+            if not method or not path:
+                continue
+            targets.append({
+                "method": method.upper(),
+                "url": f"{base_url}{path}",
+                "name": name,
+                "weight": 1,
+                "body": body,
+                "headers": self._convert_headers(headers),
+            })
+
+        return targets

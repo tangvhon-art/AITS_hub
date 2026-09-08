@@ -180,6 +180,26 @@ def run_test(
             target_info = {}
             if t.get("target_id"):
                 target_info = runner.get_target_info(t.get("target_type", "api_definition"), t["target_id"])
+
+            # 接口场景：展开为多个独立压测目标（场景内每个 api/case 步骤）
+            if t.get("target_type") == "api_scenario" and t.get("target_id"):
+                expanded = runner.get_scenario_targets(t["target_id"], base_url)
+                if not expanded:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"接口场景「{target_info.get('name', '')}」没有可压测的接口步骤，请先在场景中添加 API 步骤",
+                    )
+                for st in expanded:
+                    targets.append({
+                        "method": st.get("method", "GET"),
+                        "url": st.get("url", "/"),
+                        "name": st.get("name", "接口"),
+                        "weight": int(t.get("weight", 1)),
+                        "body": st.get("body"),
+                        "headers": st.get("headers"),
+                    })
+                continue
+
             url = t.get("url") or f"{base_url}{target_info.get('path', '/')}"
             targets.append({
                 "method": t.get("method") or target_info.get("method", "GET"),
@@ -191,18 +211,24 @@ def run_test(
             })
     else:
         # 单接口兼容模式
-        target_info = runner.get_target_info(test.target_type, test.target_id)
-        if not target_info and not test.target_url:
-            raise HTTPException(status_code=400, detail="无法获取目标接口信息，请设置 target_url 或 targets")
-        target_url = test.target_url or f"{base_url}{target_info.get('path', '/')}"
-        targets.append({
-            "method": target_info.get("method", "GET"),
-            "url": target_url,
-            "name": target_info.get("name", "接口"),
-            "weight": 1,
-            "body": test.body_template or target_info.get("body"),
-            "headers": target_info.get("headers"),
-        })
+        if test.target_type == "api_scenario" and test.target_id:
+            expanded = runner.get_scenario_targets(test.target_id, base_url)
+            if not expanded:
+                raise HTTPException(status_code=400, detail="接口场景没有可压测的接口步骤，请先在场景中添加 API 步骤")
+            targets = expanded
+        else:
+            target_info = runner.get_target_info(test.target_type, test.target_id)
+            if not target_info and not test.target_url:
+                raise HTTPException(status_code=400, detail="无法获取目标接口信息，请设置 target_url 或 targets")
+            target_url = test.target_url or f"{base_url}{target_info.get('path', '/')}"
+            targets.append({
+                "method": target_info.get("method", "GET"),
+                "url": target_url,
+                "name": target_info.get("name", "接口"),
+                "weight": 1,
+                "body": test.body_template or target_info.get("body"),
+                "headers": target_info.get("headers"),
+            })
 
     headers = {**(test.headers or {})}
     # 合并第一个 target 的 headers
