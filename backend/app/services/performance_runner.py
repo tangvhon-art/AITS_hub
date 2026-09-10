@@ -26,14 +26,29 @@ _data_cycle = itertools.cycle(TEST_DATA) if TEST_DATA else None
 SCENARIO_STEPS = __SCENARIO_STEPS_JSON__
 
 
+def _json_safe(value):
+    """将变量值转为可安全嵌入 JSON 字符串值的转义字符串。
+
+    dict/list 先序列化为 JSON 字符串；所有值再做 JSON 字符串转义
+    （双引号→\\"、反斜杠→\\\\、换行→\\n 等），避免嵌入 body 时破坏 JSON 结构。
+    """
+    if isinstance(value, (dict, list)):
+        raw = json.dumps(value, ensure_ascii=False)
+    else:
+        raw = str(value)
+    # json.dumps 会在首尾加引号，[1:-1] 去掉引号得到转义后的字符串内容
+    return json.dumps(raw, ensure_ascii=False)[1:-1]
+
+
 def _substitute(text, vars_dict):
-    """替换文本中的 {{var_name}} 和 ${var_name} 变量"""
+    """替换文本中的 {{var_name}} 和 ${var_name} 变量（值做 JSON 安全转义）"""
     if not text:
         return text
     result = str(text)
     for k, v in vars_dict.items():
-        result = result.replace("{{" + str(k) + "}}", str(v))
-        result = result.replace("${" + str(k) + "}", str(v))
+        safe_v = _json_safe(v)
+        result = result.replace("{{" + str(k) + "}}", safe_v)
+        result = result.replace("${" + str(k) + "}", safe_v)
     return result
 
 
@@ -45,8 +60,9 @@ def _build_body(template, vars_dict):
     if _data_cycle:
         row = next(_data_cycle)
         for k, v in row.items():
-            body = body.replace("{{" + str(k) + "}}", str(v))
-            body = body.replace("${" + str(k) + "}", str(v))
+            safe_v = _json_safe(v)
+            body = body.replace("{{" + str(k) + "}}", safe_v)
+            body = body.replace("${" + str(k) + "}", safe_v)
     return body
 
 
@@ -90,6 +106,19 @@ def _extract_vars(response, extract_configs, vars_dict):
                 vars_dict[var_name] = default
 
 
+def _normalize_url(url):
+    """参数化 URL 替换后若为完整地址（含 http(s)://），移除前面误拼接的 base_url。
+    检测到多个协议头时取最后一个（如 http://gatewayhttps://oss... -> https://oss...）。
+    """
+    if not url:
+        return url
+    import re as _re
+    matches = list(_re.finditer(r'https?://', url))
+    if len(matches) >= 2:
+        return url[matches[-1].start():]
+    return url
+
+
 class PerformanceTestUser(HttpUser):
     """模拟用户行为：每个用户按顺序执行完整场景链路"""
     wait_time = between(0.5, 2.0)
@@ -103,6 +132,8 @@ class PerformanceTestUser(HttpUser):
         for step in SCENARIO_STEPS:
             # 1. 用已提取的场景变量替换 URL / Headers / Body
             url = _substitute(step.get("url", "/"), self.scenario_vars)
+            # 参数化 URL 替换后若是完整地址，移除前面误拼接的 base_url
+            url = _normalize_url(url)
             step_headers = dict(HEADERS)
             step_headers.update(step.get("headers") or {})
             step_headers = {k: _substitute(v, self.scenario_vars) for k, v in step_headers.items()}
@@ -228,9 +259,11 @@ class PerformanceTestUser(HttpUser):
         scenario_steps: [{method, url, name, body, headers, extract_vars}]
         每个虚拟用户按顺序执行所有步骤，上一步响应中提取的变量可在后续步骤的 URL/Body/Header 中引用。
         """
-        headers_json = json.dumps(headers or {}, ensure_ascii=False)
-        test_data_json = json.dumps(test_data, ensure_ascii=False) if test_data else "[]"
-        steps_json = json.dumps(scenario_steps, ensure_ascii=False)
+        # 用 repr() 而非 json.dumps()：注入到 Python 脚本中需合法 Python 字面量，
+        # json.dumps 产生的 null/true/false 不是合法 Python（None/True/False）
+        headers_json = repr(headers or {})
+        test_data_json = repr(test_data) if test_data else "[]"
+        steps_json = repr(scenario_steps)
 
         script = SCENARIO_SCRIPT_TEMPLATE
         script = script.replace("__HEADERS_JSON__", headers_json)
@@ -817,7 +850,16 @@ class PerformanceTestUser(HttpUser):
                 # script/wait/condition/loop 等步骤不生成 HTTP 压测任务
                 continue
 
-            if not method or not path:
+            # request_config.url 非空时作为完整请求 URL（支持外部地址如 OSS 预签名 URL），否则用 base_url + path
+            url_override = (request_config.get("url") or "").strip()
+            if url_override:
+                target_url = url_override
+            elif path:
+                target_url = f"{base_url}{path}"
+            else:
+                continue
+
+            if not method:
                 continue
 
             # 加载该步骤的响应变量提取配置（jsonpath/regex/header/cookie）
@@ -825,7 +867,7 @@ class PerformanceTestUser(HttpUser):
 
             targets.append({
                 "method": method.upper(),
-                "url": f"{base_url}{path}",
+                "url": target_url,
                 "name": name,
                 "weight": 1,
                 "body": body,

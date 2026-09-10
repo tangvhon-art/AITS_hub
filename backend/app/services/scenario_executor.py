@@ -321,9 +321,13 @@ class ScenarioExecutor:
 
         # 原始请求上下文（变量替换前），base_url 从上下文对象读取
         base_url = self.var_store.get("base_url") or ""
-        raw_url = base_url + path
+        # request_config.url 非空时作为完整请求 URL（支持外部地址如 OSS 预签名 URL），否则用 base_url + path
+        url_override = (request_config.get("url") or "").strip()
+        raw_url = url_override if url_override else (base_url + path)
         raw_headers = request_config.get("headers", api.headers) or []
-        raw_params = request_config.get("query_params", api.query_params) or []
+        # URL 全量覆盖时，完整 URL 已自带 query params（如 OSS 签名参数），不再叠加步骤配置的 query_params，
+        # 否则 httpx 会用 params 覆盖 URL 中的同名参数，导致签名失效/过期
+        raw_params = [] if url_override else (request_config.get("query_params", api.query_params) or [])
         body_type = request_config.get("body_type", api.body_type)
 
         # 第一遍替换：静态层 + 响应缓存（此时动态缓存必为空，上一请求已清理）
@@ -333,8 +337,9 @@ class ScenarioExecutor:
         resolved_body = self.var_store.replace_body(body_type, request_config.get("body_content", api.body_content))
 
         # Query Params 覆盖：{"name":"${name}"} 格式，合并到原参数列表
+        # URL 全量覆盖时跳过（完整 URL 已自带签名参数，额外参数会破坏签名）
         params_override = request_config.get("query_params_override")
-        if params_override:
+        if params_override and not url_override:
             try:
                 if isinstance(params_override, str):
                     override_str = self.var_store.replace(params_override)
@@ -394,6 +399,8 @@ class ScenarioExecutor:
 
         # 第二遍替换：动态环境变量就绪后重新解析（如 {{signature}}、{{timestamp}}）
         url = self.var_store.replace(request_ctx["url"])
+        # 参数化 URL 替换后若是完整地址（含 https://），移除前面误拼接的 base_url
+        url = self._normalize_full_url(url)
         if request_ctx["url"] != url:
             logger.info(f"步骤 {step.get('step_name')} URL动态变量替换: {request_ctx['url']} -> {url}")
         headers = self.var_store.replace_headers(request_ctx["headers"])
@@ -481,10 +488,14 @@ class ScenarioExecutor:
             path = case.path or ""
 
         # 原始请求上下文（变量替换前）
+        request_config = step.get("request_config", {})
         base_url = self.var_store.get("base_url") or ""
-        raw_url = base_url + path
+        # request_config.url 非空时作为完整请求 URL（支持外部地址如 OSS 预签名 URL），否则用 base_url + path
+        url_override = (request_config.get("url") or "").strip()
+        raw_url = url_override if url_override else (base_url + path)
         raw_headers = case.headers or []
-        raw_params = case.query_params or []
+        # URL 全量覆盖时，完整 URL 已自带 query params（如 OSS 签名参数），不再叠加用例配置的 query_params
+        raw_params = [] if url_override else (case.query_params or [])
 
         # 第一遍替换：静态层 + 响应缓存
         resolved_url = self.var_store.replace(raw_url)
@@ -493,10 +504,9 @@ class ScenarioExecutor:
         body_type = case.body_type
         resolved_body = self.var_store.replace_body(body_type, case.body_content)
 
-        # Query Params 覆盖（用例步骤同样支持）
-        request_config = step.get("request_config", {})
+        # Query Params 覆盖（用例步骤同样支持），URL 全量覆盖时跳过
         params_override = request_config.get("query_params_override")
-        if params_override:
+        if params_override and not url_override:
             try:
                 if isinstance(params_override, str):
                     override_str = self.var_store.replace(params_override)
@@ -539,6 +549,8 @@ class ScenarioExecutor:
 
         # 第二遍替换：动态环境变量就绪后重新解析
         url = self.var_store.replace(request_ctx["url"])
+        # 参数化 URL 替换后若是完整地址（含 https://），移除前面误拼接的 base_url
+        url = self._normalize_full_url(url)
         if request_ctx["url"] != url:
             logger.info(f"用例步骤 {step.get('step_name')} URL动态变量替换: {request_ctx['url']} -> {url}")
         headers = self.var_store.replace_headers(request_ctx["headers"])
@@ -744,6 +756,21 @@ class ScenarioExecutor:
             else:
                 result[key] = value
         return result
+
+    @staticmethod
+    def _normalize_full_url(url: str) -> str:
+        """参数化 URL 替换后若为完整地址（含 http(s)://），移除前面误拼接的 base_url。
+
+        场景：path 配置 ${oss_url}，系统先拼 base_url 再替换变量，
+        替换后变成 http://gatewayhttps://oss...，检测到多个协议头时取最后一个。
+        """
+        if not url:
+            return url
+        import re
+        matches = list(re.finditer(r'https?://', url))
+        if len(matches) >= 2:
+            return url[matches[-1].start():]
+        return url
 
     @staticmethod
     def _merge_query_params(original: list, override: dict) -> list:

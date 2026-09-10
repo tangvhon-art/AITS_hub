@@ -56,7 +56,7 @@ class ApiDefinitionBase(BaseModel):
     query_params: Optional[List[Dict[str, Any]]] = []
     path_params: Optional[List[Dict[str, Any]]] = []
     body_type: str = "none"
-    body_content: Optional[Dict[str, Any]] = {}
+    body_content: Optional[Any] = {}
     pre_script: Optional[str] = ""
     post_script: Optional[str] = ""
     raw_language: Optional[str] = "Text"
@@ -79,7 +79,7 @@ class ApiDefinitionUpdate(BaseModel):
     query_params: Optional[List[Dict[str, Any]]] = None
     path_params: Optional[List[Dict[str, Any]]] = None
     body_type: Optional[str] = None
-    body_content: Optional[Dict[str, Any]] = None
+    body_content: Optional[Any] = None
     pre_script: Optional[str] = None
     post_script: Optional[str] = None
     raw_language: Optional[str] = None
@@ -100,7 +100,7 @@ class ApiDefinitionResponse(BaseModel):
     query_params: Optional[List[Dict[str, Any]]] = []
     path_params: Optional[List[Dict[str, Any]]] = []
     body_type: str = "none"
-    body_content: Optional[Dict[str, Any]] = {}
+    body_content: Optional[Any] = {}
     pre_script: Optional[str] = ""
     post_script: Optional[str] = ""
     raw_language: Optional[str] = "Text"
@@ -164,7 +164,7 @@ class ApiTestCaseBase(BaseModel):
     headers: Optional[List[Dict[str, Any]]] = []
     query_params: Optional[List[Dict[str, Any]]] = []
     body_type: str = "none"
-    body_content: Optional[Dict[str, Any]] = {}
+    body_content: Optional[Any] = {}
     pre_script: Optional[str] = ""
     post_script: Optional[str] = ""
     param_source: str = "none"
@@ -188,7 +188,7 @@ class ApiTestCaseUpdate(BaseModel):
     headers: Optional[List[Dict[str, Any]]] = None
     query_params: Optional[List[Dict[str, Any]]] = None
     body_type: Optional[str] = None
-    body_content: Optional[Dict[str, Any]] = None
+    body_content: Optional[Any] = None
     pre_script: Optional[str] = None
     post_script: Optional[str] = None
     param_source: Optional[str] = None
@@ -210,7 +210,7 @@ class ApiTestCaseResponse(BaseModel):
     headers: Optional[List[Dict[str, Any]]] = []
     query_params: Optional[List[Dict[str, Any]]] = []
     body_type: str = "none"
-    body_content: Optional[Dict[str, Any]] = {}
+    body_content: Optional[Any] = {}
     pre_script: Optional[str] = ""
     post_script: Optional[str] = ""
     param_source: str = "none"
