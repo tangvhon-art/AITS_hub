@@ -8,7 +8,7 @@ REM ============================================================
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
-set "FRONTEND_DIR=%SCRIPT_DIR%\frontend"
+set "FRONTEND_DIR=%SCRIPT_DIR%\aits_hub_web"
 set "PORT=5173"
 set "MODE=dev"
 

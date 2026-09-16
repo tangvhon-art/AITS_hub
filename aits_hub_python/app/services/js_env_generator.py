@@ -7,7 +7,7 @@
    解析后写入请求级 DynamicVarContext；
 2. JS 脚本支持两种来源：
    - 内联字符串（直接写脚本内容）
-   - 外部文件：以 "@file:xxx.js" 引用 backend/app/js_scripts/ 下的文件；
+   - 外部文件：以 "@file:xxx.js" 引用 aits_hub_python/app/js_scripts/ 下的文件；
 3. api_request_lifecycle 装饰器保证固定生命周期：
    JS 生成变量 -> 发起 HTTP 请求 -> finally 清理全部动态变量，
    无论成功/失败/抛出异常，清理必定执行，杜绝变量残留污染下一次请求。
@@ -33,7 +33,7 @@ except ImportError:
     execjs = None
     HAS_EXECJS = False
 
-# 外部 JS 脚本根目录：backend/app/js_scripts/
+# 外部 JS 脚本根目录：aits_hub_python/app/js_scripts/
 JS_SCRIPT_DIR = Path(__file__).resolve().parent.parent / "js_scripts"
 
 # @file: 前缀，标识脚本引用外部 js 文件

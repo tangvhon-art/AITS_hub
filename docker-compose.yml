@@ -44,7 +44,7 @@ services:
   # ═══════════════════════════════════════════════
   backend:
     build:
-      context: ./backend
+      context: ./aits_hub_python
       dockerfile: Dockerfile
     image: aits-backend:latest
     container_name: aits-backend
@@ -201,7 +201,7 @@ services:
   # ═══════════════════════════════════════════════
   frontend:
     build:
-      context: ./frontend
+      context: ./aits_hub_web
       dockerfile: Dockerfile
     container_name: aits-frontend
     restart: unless-stopped

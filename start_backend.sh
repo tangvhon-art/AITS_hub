@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BACKEND_DIR="$SCRIPT_DIR/backend"
+BACKEND_DIR="$SCRIPT_DIR/aits_hub_python"
 VENV_DIR="$BACKEND_DIR/venv"
 PORT=8000
 RELOAD="--reload"

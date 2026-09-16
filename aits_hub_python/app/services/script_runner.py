@@ -541,8 +541,8 @@ def run_script_sync(content: str, script_id: int, project_id: int = None, run_id
         with os.fdopen(tmp_fd, "w") as f:
             f.write(content)
 
-        # 子进程执行：cwd 设为 backend 目录，确保 app.* 模块可 import
-        # script_runner.py 在 backend/app/services/ 下，需三层 dirname 才到 backend/
+        # 子进程执行：cwd 设为 aits_hub_python 目录，确保 app.* 模块可 import
+        # script_runner.py 在 aits_hub_python/app/services/ 下，需三层 dirname 才到 aits_hub_python/
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         # 用 venv python 绝对路径，避免 sys.executable 在 venv symlink/eventlet 下解析到系统 python
         venv_python = os.path.join(backend_dir, "venv", "bin", "python")

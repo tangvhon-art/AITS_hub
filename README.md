@@ -619,10 +619,10 @@ AI 测评是**系统级功能，不归属任何项目**，从侧边栏「AI 模�
 ./start_frontend.sh --port 5173
 
 # 一键启动全部 Worker + Beat + Flower（含 AI 测评 Worker）
-cd backend && ./start_all_workers.sh
+cd aits_hub_python && ./start_all_workers.sh
 
 # 停止全部
-cd backend && ./stop_all_workers.sh
+cd aits_hub_python && ./stop_all_workers.sh
 ```
 
 `start_all_workers.sh` 启动的 4 个队列 Worker：
@@ -641,7 +641,7 @@ cd backend && ./stop_all_workers.sh
 redis-server --daemonize yes
 
 # 2. 后端
-cd backend
+cd aits_hub_python
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
@@ -649,18 +649,18 @@ cp .env.example .env   # 编辑数据库连接信息和 Redis 地址
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 3. Celery Worker（按队列分终端启动）
-cd backend && source venv/bin/activate
+cd aits_hub_python && source venv/bin/activate
 celery -A app.celery_app.celery_app worker -Q ai --loglevel=info --concurrency=2
 celery -A app.celery_app.celery_app worker -Q execution --loglevel=info --concurrency=4
 celery -A app.celery_app.celery_app worker -Q eval --loglevel=info --concurrency=2
 celery -A app.celery_app.celery_app worker -Q default --loglevel=info --concurrency=2
 
 # 4. Beat 定时调度（另一个终端）
-cd backend && source venv/bin/activate
+cd aits_hub_python && source venv/bin/activate
 celery -A app.celery_app.celery_app beat --loglevel=info
 
 # 5. 前端
-cd frontend
+cd aits_hub_web
 npm install
 npm run dev
 ```
@@ -735,7 +735,7 @@ pm.environment.set("api_url", apiUrl);
 
 ```
 AITS_hub/
-├── backend/                 # FastAPI 后端
+├── aits_hub_python/         # FastAPI 后端
 │   ├── app/
 │   │   ├── api/             # 路由层（含 eval.py AI测评、workflow.py、agent_tasks.py 任务监控、data_factory.py 造数工厂等）
 │   │   ├── agents/          # 智能体（Supervisor / BDD 生成器等；tools/builtin 含 data_factory_tools.py MCP 动态注册）
@@ -750,7 +750,7 @@ AITS_hub/
 │   ├── start_all_workers.sh # 启动 Beat + 4 Worker + Flower
 │   ├── stop_all_workers.sh
 │   └── requirements.txt
-├── frontend/                # Vue 3 前端
+├── aits_hub_web/            # Vue 3 前端
 │   └── src/
 │       ├── views/data/      # 造数工厂页面（DataFactory 双Tab / DataTools 六类导航 / DataSchemaForm / ToolPanel / ResultViewer / DataPools / DataPoolEdit）
 │       ├── views/eval/      # AI 模型测评页面（EvalLayout/Dashboard/Targets/Tasks/Reports...）

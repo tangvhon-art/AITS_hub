@@ -18,15 +18,15 @@ REM
 REM  说明:
 REM    1. 各服务在独立窗口中运行（后端 / 前端 / Redis / 4个Celery Worker / Beat / Flower），
 REM       关闭主窗口不会停止它们，请运行 start.bat stop 停止。
-REM    2. 首次运行会自动创建 backend\venv（Windows 版）并安装依赖；
-REM       如果 backend\venv 是从 Mac/Linux 复制来的（只有 bin 目录），请先删除再运行本脚本。
+REM    2. 首次运行会自动创建 aits_hub_python\venv（Windows 版）并安装依赖；
+REM       如果 aits_hub_python\venv 是从 Mac/Linux 复制来的（只有 bin 目录），请先删除再运行本脚本。
 REM    3. Celery 在 Windows 下无法使用 prefork 池（无 fork），本脚本使用 threads 线程池，
 REM       如需与 macOS 一致可改用 eventlet（已在 requirements.txt 中）: -P eventlet -c 2
 REM ============================================================
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
-set "BACKEND_DIR=%SCRIPT_DIR%\backend"
+set "BACKEND_DIR=%SCRIPT_DIR%\aits_hub_python"
 set "VENV=%BACKEND_DIR%\venv\Scripts\python.exe"
 
 set "ACTION=start"

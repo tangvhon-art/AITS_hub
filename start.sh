@@ -196,7 +196,7 @@ fi
 # 启动 Celery 多队列 Worker + Beat
 if [ "$START_CELERY" = true ]; then
     echo ">>> 启动 Celery 多队列 Worker..."
-    cd "$SCRIPT_DIR/backend"
+    cd "$SCRIPT_DIR/aits_hub_python"
     unset PYTHONHOME PYTHONPATH
     mkdir -p "$SCRIPT_DIR/logs"
 
@@ -306,7 +306,7 @@ if [ "$START_CELERY" = true ]; then
     sleep 3
     WORKER_READY=false
     for i in $(seq 1 10); do
-        if cd "$SCRIPT_DIR/backend" && ./venv/bin/celery -A app.celery_app.celery_app inspect ping -d "ai-worker@$(hostname)" > /dev/null 2>&1; then
+        if cd "$SCRIPT_DIR/aits_hub_python" && ./venv/bin/celery -A app.celery_app.celery_app inspect ping -d "ai-worker@$(hostname)" > /dev/null 2>&1; then
             WORKER_READY=true
         fi
         cd "$SCRIPT_DIR"
@@ -325,7 +325,7 @@ fi
 # 启动 Flower 监控面板
 if [ "$START_FLOWER" = true ]; then
     echo ">>> 启动 Flower 监控面板 (port=$PORT_FLOWER)..."
-    cd "$SCRIPT_DIR/backend"
+    cd "$SCRIPT_DIR/aits_hub_python"
     unset PYTHONHOME PYTHONPATH
     export FLOWER_UNAUTHENTICATED_API=true
     FLOWER_LOG="$SCRIPT_DIR/logs/flower.log"

@@ -8,7 +8,7 @@ REM ============================================================
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
-set "BACKEND_DIR=%SCRIPT_DIR%\backend"
+set "BACKEND_DIR=%SCRIPT_DIR%\aits_hub_python"
 set "VENV_DIR=%BACKEND_DIR%\venv"
 set "PY=%VENV_DIR%\Scripts\python.exe"
 set "PORT=8000"
@@ -26,7 +26,7 @@ goto parse
 REM ---- 虚拟环境 ----
 if not exist "%PY%" (
     echo [后端] 未找到 Windows 虚拟环境，正在创建 venv\Scripts ...
-    REM 若 backend\venv 是从 Mac/Linux 复制来的（仅含 bin 目录），建议删除后重新创建
+    REM 若 aits_hub_python\venv 是从 Mac/Linux 复制来的（仅含 bin 目录），建议删除后重新创建
     cd /d "%BACKEND_DIR%"
     where python >nul 2>&1
     if errorlevel 1 (
