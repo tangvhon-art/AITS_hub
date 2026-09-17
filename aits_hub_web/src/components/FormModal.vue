@@ -15,8 +15,8 @@
       ref="formRef"
       :model="modelValue"
       :layout="formLayout"
-      :label-col="labelCol"
-      :wrapper-col="wrapperCol"
+      :label-col="effectiveLabelCol"
+      :wrapper-col="effectiveWrapperCol"
     >
       <slot />
     </a-form>
@@ -47,7 +47,7 @@
  *     </a-form-item>
  *   </FormModal>
  */
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import type { FormInstance } from 'ant-design-vue'
 
 const props = withDefaults(
@@ -85,6 +85,16 @@ const emit = defineEmits<{
   ok: []
   cancel: []
 }>()
+
+// vertical 布局下不应用 label-col / wrapper-col 的栅格宽度分配，
+// 否则 ant-design-vue 会把控件宽度限制为内容区的一部分（默认 18/24），
+// 无法填满整行。horizontal 布局时保持原有 6/18 分配。
+const effectiveLabelCol = computed(() =>
+  props.formLayout === 'vertical' ? undefined : props.labelCol,
+)
+const effectiveWrapperCol = computed(() =>
+  props.formLayout === 'vertical' ? undefined : props.wrapperCol,
+)
 
 const formRef = ref<FormInstance>()
 
