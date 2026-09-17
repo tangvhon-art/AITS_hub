@@ -51,7 +51,7 @@ export interface UseListReturn<T> {
   loading: Ref<boolean>
   list: Ref<T[]>
   total: Ref<number>
-  pagination: { current: number; pageSize: number }
+  pagination: { current: number; pageSize: number; total: number }
   filters: Record<string, unknown>
   loadData: () => Promise<void>
   refresh: () => Promise<void>
@@ -71,7 +71,7 @@ export function useList<T = any>(
   const loading = ref(false)
   const list = ref<T[]>([]) as Ref<T[]>
   const total = ref(0)
-  const pagination = reactive({ current: 1, pageSize: 20 })
+  const pagination = reactive({ current: 1, pageSize: 20, total: 0 })
   const filters = reactive<Record<string, unknown>>({ ...defaultParams })
 
   // 保存默认参数的深拷贝，用于 reset
@@ -87,6 +87,7 @@ export function useList<T = any>(
       })
       list.value = res.items || []
       total.value = res.total || 0
+      pagination.total = res.total || 0
       onSuccess?.(list.value)
     } catch (error) {
       onError?.(error)

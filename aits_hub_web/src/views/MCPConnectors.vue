@@ -42,10 +42,7 @@
       :loading="loading"
       row-key="id"
       @change="handleTableChange"
-    >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+    :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'status'">
           <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>

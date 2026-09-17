@@ -38,10 +38,7 @@
         :loading="loading"
         @change="handleTableChange"
         row-key="id"
-      >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+      :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'version'">
             <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
@@ -63,10 +60,28 @@
             <span v-else style="color:#999">-</span>
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button type="link" size="small" @click="handleExecute(record)" :disabled="record.status === 'running'">执行</a-button>
-            <a-button type="link" size="small" @click="editPlan(record)">编辑</a-button>
-            <a-button type="link" size="small" @click="viewReport(record)" v-if="record.last_execution_id">报告</a-button>
-            <a-button type="link" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">删除</a-button>
+            <a-space :size="2">
+              <a-tooltip title="执行">
+                <a-button type="text" size="small" style="color: #1677ff" :disabled="record.status === 'running'" @click="handleExecute(record)">
+                  <template #icon><PlayCircleOutlined /></template>
+                </a-button>
+              </a-tooltip>
+              <a-tooltip title="编辑">
+                <a-button type="text" size="small" style="color: #1677ff" @click="editPlan(record)">
+                  <template #icon><EditOutlined /></template>
+                </a-button>
+              </a-tooltip>
+              <a-tooltip v-if="record.last_execution_id" title="报告">
+                <a-button type="text" size="small" style="color: #1677ff" @click="viewReport(record)">
+                  <template #icon><FileTextOutlined /></template>
+                </a-button>
+              </a-tooltip>
+              <a-tooltip title="删除">
+                <a-button type="text" size="small" danger @click="confirmDelete(record, () => handleDelete(record))">
+                  <template #icon><DeleteOutlined /></template>
+                </a-button>
+              </a-tooltip>
+            </a-space>
           </template>
         </template>
       </DataTable>
@@ -174,7 +189,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
-  PlusOutlined, EnvironmentOutlined
+  PlusOutlined, EnvironmentOutlined, PlayCircleOutlined, EditOutlined, FileTextOutlined, DeleteOutlined
 } from '@ant-design/icons-vue'
 import {
   testPlansApi, testPlanExecutionsApi,
@@ -227,7 +242,7 @@ const envForm = ref({
 })
 
 const columns = [
-  { title: '计划名称', dataIndex: 'name', key: 'name' },
+  { title: '计划名称', dataIndex: 'name', key: 'name', ellipsis: true, width: 260 },
   { title: '所属版本', dataIndex: 'version_id', key: 'version', width: 120 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
@@ -235,7 +250,7 @@ const columns = [
   { title: '最近通过率', dataIndex: 'last_pass_rate', key: 'last_pass_rate', width: 120 },
   { title: '最近执行', dataIndex: 'last_execution_id', key: 'last_execution_id', width: 120 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 280, fixed: 'right' as const }
+  { title: '操作', key: 'action', width: 170, fixed: 'right' as const }
 ]
 
 const envColumns = [
@@ -445,7 +460,8 @@ async function deleteEnv(record: TestEnvironment) {
 
 async function loadVersions() {
   try {
-    versions.value = (await getVersions(projectId, { page_size: 200 })).items
+    const res = await getVersions(projectId, { page_size: 200 })
+    versions.value = ((res as any).items ?? res) as ProjectVersion[]
   } catch (e) {
     console.error('加载版本列表失败', e)
   }

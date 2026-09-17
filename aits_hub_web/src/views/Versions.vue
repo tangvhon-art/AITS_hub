@@ -35,10 +35,7 @@
       :loading="loading"
       row-key="id"
       @change="handleTableChange"
-    >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+    :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'status'">
           <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
@@ -47,9 +44,13 @@
           <span>{{ record.start_date ? formatDate(record.start_date) : '-' }} ~ {{ record.end_date ? formatDate(record.end_date) : '-' }}</span>
         </template>
         <template v-else-if="column.key === 'action'">
-          <a-space>
-            <a-button type="link" size="small" @click="openEdit(record.id, record)">编辑</a-button>
-            <a-button type="link" size="small" danger @click="handleDelete(record.id, record.name)">删除</a-button>
+          <a-space :size="2">
+            <a-tooltip title="编辑">
+              <a-button type="text" size="small" style="color: #1677ff" @click="openEdit(record.id, record)"><EditOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="删除">
+              <a-button type="text" size="small" danger @click="handleDelete(record.id, record.name)"><DeleteOutlined /></a-button>
+            </a-tooltip>
           </a-space>
         </template>
       </template>
@@ -111,7 +112,7 @@ import { useRoute } from 'vue-router'
 import { useList } from '@/composables/useList'
 import { useCRUD } from '@/composables/useCRUD'
 import { message } from 'ant-design-vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { formatDateTime, formatDate } from '@/utils/date'
 import dayjs from 'dayjs'
 import PageHeader from '@/components/PageHeader.vue'

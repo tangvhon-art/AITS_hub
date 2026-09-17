@@ -75,10 +75,7 @@
       @change="handleTableChange"
       row-key="id"
       size="middle"
-    >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+    :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'healing_level'">
           <a-tag :color="levelColor[record.healing_level]">{{ record.healing_level }}</a-tag>

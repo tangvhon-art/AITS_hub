@@ -51,10 +51,7 @@
       :scroll="{ x: 1200 }"
       :row-selection="rowSelection"
       @change="handleTableChange"
-    >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+    :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
       <template #title>
         <div v-if="selectedRowKeys.length > 0" style="display: flex; align-items: center; gap: 8px;">
           <span>已选 {{ selectedRowKeys.length }} 项</span>
@@ -93,10 +90,20 @@
           </a-space>
         </template>
         <template v-else-if="column.key === 'action'">
-          <a-button type="link" size="small" @click="openAddToSuite([record.id])">加入用例集</a-button>
-          <a-button type="link" size="small" @click="runCase(record)">执行</a-button>
-          <a-button type="link" size="small" @click="editCase(record)">编辑</a-button>
-          <a-button type="link" size="small" danger @click="handleDelete(record.id, record.title)">删除</a-button>
+          <a-space :size="2">
+            <a-tooltip title="加入用例集">
+              <a-button type="text" size="small" style="color: #1677ff" @click="openAddToSuite([record.id])"><FolderAddOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="执行">
+              <a-button type="text" size="small" style="color: #1677ff" @click="runCase(record)"><PlayCircleOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="编辑">
+              <a-button type="text" size="small" style="color: #1677ff" @click="editCase(record)"><EditOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="删除">
+              <a-button type="text" size="small" danger @click="handleDelete(record.id, record.title)"><DeleteOutlined /></a-button>
+            </a-tooltip>
+          </a-space>
         </template>
       </template>
     </DataTable>
@@ -314,7 +321,7 @@ import { formatDateTime } from '@/utils/date'
 import { ref, computed, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ThunderboltOutlined, DeleteOutlined, PlayCircleOutlined, EditOutlined, FolderAddOutlined } from '@ant-design/icons-vue'
 import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, getRequirements, getFeatures, splitFeatures, batchUpdateStatus, type FeatureModuleGroup } from '@/api/cases'
 import { getCaseSuites, addCasesToSuite } from '@/api/caseSuites'
 import { getLLMConfigs } from '@/api/llm'
@@ -543,7 +550,7 @@ const splitting = ref(false)
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
-  { title: '用例名称', dataIndex: 'title', key: 'title', ellipsis: true },
+  { title: '用例名称', dataIndex: 'title', key: 'title', ellipsis: true, width: 280, minWidth: 220 },
   { title: '模块', dataIndex: 'module', key: 'module', width: 120 },
   { title: '关联需求', key: 'requirement', width: 180, ellipsis: true },
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
@@ -551,7 +558,7 @@ const columns = [
   { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
   { title: '用例集', key: 'suites', width: 160, ellipsis: true },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 200, fixed: 'right' },
+  { title: '操作', key: 'action', width: 180, fixed: 'right' },
 ]
 
 const priorityOptions = [

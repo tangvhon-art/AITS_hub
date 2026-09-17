@@ -252,10 +252,7 @@
         :sub-title="`通过 ${runResult.passed_steps || 0} / 失败 ${runResult.failed_steps || 0} / 跳过 ${runResult.skipped_steps || 0}，耗时 ${runResult.total_duration || 0}s`"
       />
       <a-divider>步骤详情</a-divider>
-      <DataTable :columns="resultColumns" :data-source="runResults" @change="handleResultTableChange" size="small" row-key="id">
-        :page="resultPagination.current"
-        :page-size="resultPagination.pageSize"
-        :total="resultPagination.total"
+      <DataTable :columns="resultColumns" :data-source="runResults" @change="handleResultTableChange" size="small" row-key="id" :page="resultPagination.current" :page-size="resultPagination.pageSize" :total="resultPagination.total">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="getRunStatusColor(record.status)">{{ getRunStatusText(record.status) }}</a-tag>
@@ -276,10 +273,7 @@
         @change="handleSuiteRunsTableChange"
         size="small"
         row-key="id"
-      >
-        :page="suiteRunsPagination.current"
-        :page-size="suiteRunsPagination.pageSize"
-        :total="suiteRunsPagination.total"
+      :page="suiteRunsPagination.current" :page-size="suiteRunsPagination.pageSize" :total="suiteRunsPagination.total">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="getRunStatusColor(record.status)">{{ getRunStatusText(record.status) }}</a-tag>

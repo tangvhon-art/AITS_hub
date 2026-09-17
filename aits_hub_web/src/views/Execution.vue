@@ -110,10 +110,7 @@
               @change="handleRunsTableChange"
               row-key="id"
               size="small"
-            >
-        :page="runsPagination.current"
-        :page-size="runsPagination.pageSize"
-        :total="runsPagination.total"
+            :page="runsPagination.current" :page-size="runsPagination.pageSize" :total="runsPagination.total">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'status'">
                   <a-tag :color="runStatusColor(record.status)">{{ runStatusLabel(record.status) }}</a-tag>

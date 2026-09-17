@@ -30,14 +30,19 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'action'">
-            <a-space>
-              <a-button type="link" size="small" @click="openMind(record)">
-                <template #icon><ShareAltOutlined /></template>
-                打开导图
-              </a-button>
-              <a-button type="link" size="small" @click="openAddCases(record)">添加用例</a-button>
-              <a-button type="link" size="small" @click="openEdit(record)">编辑</a-button>
-              <a-button type="link" size="small" danger @click="handleDelete(record)">删除</a-button>
+            <a-space :size="2">
+              <a-tooltip title="打开导图">
+                <a-button type="text" size="small" style="color: #1677ff" @click="openMind(record)"><ShareAltOutlined /></a-button>
+              </a-tooltip>
+              <a-tooltip title="添加用例">
+                <a-button type="text" size="small" style="color: #1677ff" @click="openAddCases(record)"><FolderAddOutlined /></a-button>
+              </a-tooltip>
+              <a-tooltip title="编辑">
+                <a-button type="text" size="small" style="color: #1677ff" @click="openEdit(record)"><EditOutlined /></a-button>
+              </a-tooltip>
+              <a-tooltip title="删除">
+                <a-button type="text" size="small" danger @click="handleDelete(record)"><DeleteOutlined /></a-button>
+              </a-tooltip>
             </a-space>
           </template>
         </template>
@@ -122,7 +127,13 @@
             :pagination="{ current: reqPage, pageSize: 10, total: reqTotal, showSizeChanger: false }"
             :row-selection="{ selectedRowKeys: selectedReqIds, onChange: (keys: any[]) => { selectedReqIds = keys } }"
             @change="(p: any) => loadReqs(p.current)"
-          />
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'status'">
+                <a-tag :color="REQ_STATUS_MAP[record.status]?.color || 'default'">{{ REQ_STATUS_MAP[record.status]?.label || record.status }}</a-tag>
+              </template>
+            </template>
+          </a-table>
           <div style="margin-top: 8px; color: #888;">按需求关联：将该需求下全部有效用例加入用例集（可在导图中按模块分组）</div>
         </a-tab-pane>
 
@@ -147,7 +158,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, ShareAltOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ShareAltOutlined, FolderAddOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import DataTable from '@/components/DataTable.vue'
@@ -162,6 +173,7 @@ import {
 } from '@/api/caseSuites'
 import { getRequirements } from '@/api/cases'
 import { formatDateTime } from '@/utils/date'
+import { REQ_STATUS_MAP } from '@/constants'
 
 const route = useRoute()
 const router = useRouter()

@@ -351,7 +351,7 @@ onMounted(async () => {
   loadAll()
   try {
     const data = await getVersions(projectId, { page_size: 200 })
-    versions.value = data.items
+    versions.value = ((data as any).items ?? data)
   } catch {
     // ignore
   }

@@ -34,10 +34,7 @@
             row-key="id"
             size="middle"
             :scroll="{ x: 1400 }"
-          >
-        :page="taskPagination.current"
-        :page-size="taskPagination.pageSize"
-        :total="taskPagination.total"
+          :page="taskPagination.current" :page-size="taskPagination.pageSize" :total="taskPagination.total">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'task'">
                 <a-tooltip :title="record.task">
@@ -119,10 +116,7 @@
             row-key="id"
             size="middle"
             :scroll="{ x: 1300 }"
-          >
-        :page="logPagination.current"
-        :page-size="logPagination.pageSize"
-        :total="logPagination.total"
+          :page="logPagination.current" :page-size="logPagination.pageSize" :total="logPagination.total">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'task_name'">
                 <a-tooltip :title="record.task_name">

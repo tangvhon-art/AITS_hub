@@ -55,10 +55,7 @@
       row-key="id"
       size="middle"
       @change="handleTableChange"
-    >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+    :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'">
           <span>{{ record.name }}</span>

@@ -82,10 +82,7 @@
             :loading="loading"
             @change="handleDocTableChange"
             row-key="id"
-          >
-        :page="docPagination.current"
-        :page-size="docPagination.pageSize"
-        :total="docPagination.total"
+          :page="docPagination.current" :page-size="docPagination.pageSize" :total="docPagination.total">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'title'">
                 <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '500px' }">
@@ -149,10 +146,7 @@
             @change="handleChunkTableChange"
             row-key="id"
             size="middle"
-          >
-        :page="chunkPagination.current"
-        :page-size="chunkPagination.pageSize"
-        :total="chunkPagination.total"
+          :page="chunkPagination.current" :page-size="chunkPagination.pageSize" :total="chunkPagination.total">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'doc_title'">
                 <a-tooltip placement="topLeft" :overlay-style="{ maxWidth: '400px' }">

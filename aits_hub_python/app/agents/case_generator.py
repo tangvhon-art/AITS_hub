@@ -205,6 +205,7 @@ DEFAULT_SYSTEM_PROMPT = """# 测试用例生成提示词
 9. 禁止产出重复、高度相似的测试用例
 10. 预期结果必须可验证：明确到具体的界面提示、页面跳转、数据状态，禁止使用"正常""正确"等模糊描述
 11. 用例应互相独立、可单独执行，避免用例之间存在状态依赖
+12. preconditions 的前置条件不能只填写无，示例：已进入订单页面，系统存在已发货状态的订单
 
 ## 顶层硬性约束（不可违背）
 1. **零虚构原则**：每一条用例都必须能追溯到文档记载的需求。找不到依据就不写这条用例。
@@ -254,16 +255,20 @@ class CaseGeneratorAgent(BaseAgent):
         """
         effective_system_prompt = system_prompt.strip() if system_prompt and system_prompt.strip() else DEFAULT_SYSTEM_PROMPT
 
+        # 手动替换占位符（不用 .format()）：提示词中包含 {"action": ...} 等 JSON 示例花括号，
+        # 会被 .format() 误当作模板占位符而抛 KeyError
+        human_content = (
+            CASE_GENERATOR_PROMPT
+            .replace("{requirement_content}", requirement_content)
+            .replace("{count}", str(count))
+            .replace("{requirement_title}", requirement_title or "未指定")
+            .replace("{project_name}", project_name or "未指定")
+            .replace("{existing_count}", str(existing_count))
+        )
         # 直接构造消息，system prompt 不经过 .format() 解析，避免其中的 JSON 花括号被当作模板变量
         messages = [
             SystemMessage(content=effective_system_prompt),
-            HumanMessage(content=CASE_GENERATOR_PROMPT.format(
-                requirement_content=requirement_content,
-                count=count,
-                requirement_title=requirement_title or "未指定",
-                project_name=project_name or "未指定",
-                existing_count=existing_count,
-            )),
+            HumanMessage(content=human_content),
         ]
 
         _, used_config_id = llm_factory.get_llm_with_fallback(
@@ -362,7 +367,8 @@ class CaseGeneratorAgent(BaseAgent):
 4. 优先级只能使用 P0/P1/P2/P3，分级合理，核心流程P0、异常边界P1、优化场景P2、边缘场景P3
 5. module 和 feature_name 必须严格使用给定的模块名、功能点名，不可自行修改、新增、错配
 6. title 必须规范：测试场景类型+具体描述，禁止模糊、重复标题
-7. 所有用例保证前置条件精准、步骤独立、预期唯一可验证，杜绝前置冲突、描述模糊、用例依赖问题"""
+7. 所有用例保证前置条件精准、步骤独立、预期唯一可验证，杜绝前置冲突、描述模糊、用例依赖问题
+8. 输出必须包含前置preconditions的内容"""
 
     FEATURE_CASE_HUMAN_TEMPLATE = """## 需求：{title}
 

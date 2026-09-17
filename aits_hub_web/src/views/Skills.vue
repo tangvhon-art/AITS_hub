@@ -39,10 +39,7 @@
       </a-form>
     </SearchBar>
 
-    <DataTable :columns="columns" :data-source="filteredList" :loading="loading" row-key="id" @change="handleTableChange">
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="filteredList.length"
+    <DataTable :columns="columns" :data-source="filteredList" :loading="loading" row-key="id" @change="handleTableChange" :page="pagination.current" :page-size="pagination.pageSize" :total="filteredList.length">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'source'">
           <a-tag :color="sourceColor(record.source)">{{ sourceLabel(record.source) }}</a-tag>

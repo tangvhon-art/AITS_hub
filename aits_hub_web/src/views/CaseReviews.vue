@@ -24,10 +24,7 @@
         :loading="loading"
         row-key="id"
         @change="handleTableChange"
-      >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+      :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
@@ -60,7 +57,9 @@
             <a v-else style="color: #999; cursor: pointer" @click="openScopeModal(record)">全部</a>
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button type="link" size="small" @click="viewDetail(record)">查看详情</a-button>
+            <a-tooltip title="查看详情">
+              <a-button type="text" size="small" style="color: #1677ff" @click="viewDetail(record)"><EyeOutlined /></a-button>
+            </a-tooltip>
           </template>
         </template>
       </DataTable>
@@ -454,7 +453,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { AuditOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
+import { AuditOutlined, ThunderboltOutlined, EyeOutlined } from '@ant-design/icons-vue'
 import { listCaseReviews, getCaseReviewDetail, reviewCases, optimizeCasesFromReview, type CaseReviewItem } from '@/api/caseReviews'
 import { getCases, getRequirements, type TestCase } from '@/api/cases'
 import { promptsApi, type Prompt } from '@/api/prompts'

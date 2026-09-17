@@ -58,10 +58,7 @@
         :loading="loading"
         @change="handleTableChange"
         row-key="id"
-      >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+      :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'version'">
             <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
@@ -402,7 +399,8 @@ function statusText(s?: string) {
 
 async function loadVersions() {
   try {
-    versions.value = (await getVersions(projectId, { page_size: 200 })).items
+    const res = await getVersions(projectId, { page_size: 200 })
+    versions.value = ((res as any).items ?? res) as ProjectVersion[]
   } catch (e) {
     console.error('加载版本列表失败', e)
   }

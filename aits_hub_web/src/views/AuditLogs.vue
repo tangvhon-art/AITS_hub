@@ -55,10 +55,7 @@
         :loading="loading"
         @change="handleTableChange"
         row-key="id"
-      >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+      :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'action'">
             <a-tag :color="getActionColor(record.action)">{{ getActionText(record.action) }}</a-tag>

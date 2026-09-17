@@ -516,7 +516,7 @@ onMounted(async () => {
   loadAlerts()
   loadCoverage()
   if (projectId) {
-    getVersions(projectId, { page_size: 200 }).then(data => { versions.value = data.items }).catch(() => {})
+    getVersions(projectId, { page_size: 200 }).then(data => { versions.value = ((data as any).items ?? data) }).catch(() => {})
   }
   window.addEventListener('resize', handleResize)
 })

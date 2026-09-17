@@ -63,11 +63,9 @@
       :loading="loading"
       row-key="id"
       size="middle"
+      :scroll="{ x: 1160 }"
       @change="handleTableChange"
-    >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+    :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'version'">
           <a-tag v-if="record.version_id" color="blue">{{ getVersionName(record.version_id) }}</a-tag>
@@ -90,11 +88,23 @@
           </a-tooltip>
         </template>
         <template v-else-if="column.key === 'action'">
-          <a-button type="link" size="small" @click="viewRequirement(record)"><EyeOutlined /> 查看</a-button>
-          <a-button type="link" size="small" @click="editRequirement(record)">编辑</a-button>
-          <a-button type="link" size="small" @click="generateCases(record)">生成用例</a-button>
-          <a-button type="link" size="small" @click="syncOneToKnowledge(record)">同步知识库</a-button>
-          <a-button type="link" size="small" danger @click="handleDelete(record.id, record.title)">删除</a-button>
+          <a-space :size="2">
+            <a-tooltip title="查看">
+              <a-button type="text" size="small" style="color: #1677ff" @click="viewRequirement(record)"><EyeOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="编辑">
+              <a-button type="text" size="small" style="color: #1677ff" @click="editRequirement(record)"><EditOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="生成用例">
+              <a-button type="text" size="small" style="color: #1677ff" @click="generateCases(record)"><RobotOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="同步知识库">
+              <a-button type="text" size="small" style="color: #1677ff" @click="syncOneToKnowledge(record)"><CloudUploadOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="删除">
+              <a-button type="text" size="small" danger @click="handleDelete(record.id, record.title)"><DeleteOutlined /></a-button>
+            </a-tooltip>
+          </a-space>
         </template>
       </template>
     </DataTable>
@@ -266,7 +276,7 @@ import { formatDateTime } from '@/utils/date'
 import { ref, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, UploadOutlined, InboxOutlined, RobotOutlined, CloudUploadOutlined, EyeOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, UploadOutlined, InboxOutlined, RobotOutlined, CloudUploadOutlined, EyeOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getRequirements, createRequirement, updateRequirement, uploadRequirement as uploadRequirementApi, deleteRequirement, generateRequirement as generateRequirementApi, splitFeatures as splitFeaturesApi } from '@/api/cases'
 import { syncRequirementsToKnowledge } from '@/api/knowledge'
 import { getLLMConfigs } from '@/api/llm'
@@ -390,14 +400,14 @@ function editRequirement(row: any) {
 }
 
 const columns = [
-  { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
-  { title: '需求标题', dataIndex: 'title', key: 'title', ellipsis: true },
-  { title: '所属版本', dataIndex: 'version_id', key: 'version', width: 120 },
-  { title: '来源', dataIndex: 'source', key: 'source', width: 100 },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
-  { title: '功能点', dataIndex: 'feature_split_status', key: 'feature_status', width: 120 },
-  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 380, fixed: 'right' },
+  { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
+  { title: '需求标题', dataIndex: 'title', key: 'title', ellipsis: true, width: 340, minWidth: 260 },
+  { title: '所属版本', dataIndex: 'version_id', key: 'version', width: 110 },
+  { title: '来源', dataIndex: 'source', key: 'source', width: 90 },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
+  { title: '功能点', dataIndex: 'feature_split_status', key: 'feature_status', width: 100 },
+  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 160, customRender: ({ text }: { text: string }) => formatDateTime(text) },
+  { title: '操作', key: 'action', width: 200, fixed: 'right' },
 ]
 
 function getVersionName(versionId?: number | null) {

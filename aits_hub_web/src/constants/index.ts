@@ -39,6 +39,22 @@ export const PRIORITY_MAP: Record<string, EnumItem> = {
   P3: { label: 'P3 低', color: 'default' },
 }
 
+// ─── 需求状态 ───
+export const REQ_STATUS_MAP: Record<string, EnumItem> = {
+  pending: { label: '待生成', color: 'default' },
+  generated: { label: '已生成', color: 'processing' },
+  reviewed: { label: '已评审', color: 'success' },
+  failed: { label: '失败', color: 'error' },
+}
+
+// ─── 功能点拆分状态 ───
+export const FEATURE_SPLIT_STATUS_MAP: Record<string, EnumItem> = {
+  pending: { label: '待拆分', color: 'default' },
+  splitting: { label: '拆分中', color: 'processing' },
+  split: { label: '已拆分', color: 'success' },
+  failed: { label: '拆分失败', color: 'error' },
+}
+
 // ─── 严重程度 ───
 export const SEVERITY_MAP: Record<string, EnumItem> = {
   blocker: { label: '致命', color: 'red' },

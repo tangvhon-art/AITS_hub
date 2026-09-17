@@ -23,10 +23,7 @@
       @change="handleTableChange"
       row-key="id"
       size="middle"
-    >
-        :page="pagination.current"
-        :page-size="pagination.pageSize"
-        :total="pagination.total"
+    :page="pagination.current" :page-size="pagination.pageSize" :total="pagination.total">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'success_rate'">
           <a-progress :percent="Math.round((record.success_rate || 0) * 100)" size="small" :stroke-color="rateColor(record.success_rate)" />
