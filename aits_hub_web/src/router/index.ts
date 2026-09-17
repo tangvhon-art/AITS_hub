@@ -45,6 +45,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '用例管理', icon: 'UnorderedListOutlined' }
       },
       {
+        path: 'projects/:id/case-suites',
+        name: 'CaseSuites',
+        component: () => import('@/views/CaseSuites.vue'),
+        meta: { title: '测试用例集', icon: 'AppstoreAddOutlined' }
+      },
+      {
+        path: 'projects/:id/case-suites/:suiteId/mind',
+        name: 'CaseSuiteMind',
+        component: () => import('@/views/CaseSuiteMind.vue'),
+        meta: { title: '用例集导图', hideInMenu: true }
+      },
+      {
         path: 'projects/:id/case-reviews',
         name: 'CaseReviews',
         component: () => import('@/views/CaseReviews.vue'),

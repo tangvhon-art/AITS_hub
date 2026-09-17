@@ -327,6 +327,30 @@ class GenerateCasesTask(BaseTask):
             feature_name_map=feature_name_map or None,
         )
 
+        # 关联所选测试用例集（suite_ids 来自「AI 生成用例」弹窗选择）
+        suite_ids = (task.input_params or {}).get("suite_ids") or []
+        if suite_ids and created_cases:
+            from app.models.case_suite import TestCaseSuite, TestCaseSuiteCase
+            valid_suite_ids = [
+                sid for (sid,) in db.query(TestCaseSuite.id).filter(
+                    TestCaseSuite.id.in_(list(suite_ids)),
+                    TestCaseSuite.project_id == project_id,
+                    TestCaseSuite.is_deleted == False,
+                ).all()
+            ]
+            if valid_suite_ids:
+                linked = 0
+                for case in created_cases:
+                    for sid in valid_suite_ids:
+                        exists = db.query(TestCaseSuiteCase).filter(
+                            TestCaseSuiteCase.suite_id == sid,
+                            TestCaseSuiteCase.case_id == case.id,
+                        ).first()
+                        if not exists:
+                            db.add(TestCaseSuiteCase(suite_id=sid, case_id=case.id))
+                            linked += 1
+                logger.info(f"用例已关联用例集: task_id={task_id}, suites={valid_suite_ids}, linked={linked}")
+
         # 更新需求状态
         if req_id:
             req = db.query(TestRequirement).filter(TestRequirement.id == req_id).first()

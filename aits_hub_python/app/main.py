@@ -13,6 +13,7 @@ from app.api import (
     projects_router,
     requirements_router,
     cases_router,
+    case_suites_router,
     execution_router,
     llm_configs_router,
     defects_router,
@@ -213,6 +214,7 @@ app.include_router(auth_router)
 app.include_router(projects_router)
 app.include_router(requirements_router)
 app.include_router(cases_router)
+app.include_router(case_suites_router)
 app.include_router(execution_router)
 app.include_router(llm_configs_router)
 app.include_router(defects_router)

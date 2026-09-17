@@ -36,6 +36,7 @@ class TestCaseBase(BaseModel):
 class TestCaseCreate(TestCaseBase):
     req_id: Optional[int] = None
     status: Optional[str] = None
+    suite_ids: Optional[List[int]] = Field(default=None, description="关联测试用例集ID列表")
 
 
 class TestCaseUpdate(BaseModel):
@@ -49,6 +50,7 @@ class TestCaseUpdate(BaseModel):
     expected_result: Optional[str] = None
     status: Optional[str] = None
     bdd_content: Optional[str] = None
+    suite_ids: Optional[List[int]] = Field(default=None, description="关联测试用例集ID列表（传 null/缺省 不改动；传 [] 清空）")
 
 
 class TestCaseResponse(TestCaseBase):
@@ -59,6 +61,8 @@ class TestCaseResponse(TestCaseBase):
     created_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+    suite_ids: List[int] = Field(default=[], description="所属用例集ID列表")
+    suites: List[dict] = Field(default=[], description="所属用例集简要信息")
 
     class Config:
         from_attributes = True

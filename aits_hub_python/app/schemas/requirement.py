@@ -45,6 +45,7 @@ class CaseGenerateRequest(BaseModel):
     llm_config_id: Optional[int] = None
     prompt_id: Optional[int] = None
     backend: Optional[str] = Field(default=None, description="页面选择的执行后端 local/workflow，不传则跟随系统配置")
+    suite_ids: Optional[List[int]] = Field(default=None, description="关联测试用例集ID列表（生成完成后自动关联）")
 
 
 class RequirementGenerateRequest(BaseModel):

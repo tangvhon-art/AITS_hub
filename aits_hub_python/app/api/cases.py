@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.test_case import TestCase
 from app.models.requirement import TestRequirement, RequirementFeature
+from app.models.case_suite import TestCaseSuite, TestCaseSuiteCase
 from app.models.agent_task import AgentTask
 from app.schemas.test_case import TestCaseCreate, TestCaseUpdate, TestCaseResponse, TestCaseBatchCreate
 from app.schemas.requirement import (
@@ -22,6 +23,46 @@ from app.schemas.requirement import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/cases", tags=["用例管理"])
+
+
+def _attach_suite_info(db: Session, cases) -> None:
+    """为用例对象附加 suite_ids / suites 属性（用于响应回显）"""
+    if not cases:
+        return
+    case_ids = [c.id for c in cases]
+    rels = (
+        db.query(TestCaseSuiteCase, TestCaseSuite)
+        .join(TestCaseSuite, TestCaseSuite.id == TestCaseSuiteCase.suite_id)
+        .filter(
+            TestCaseSuiteCase.case_id.in_(case_ids),
+            TestCaseSuite.is_deleted == False,
+        )
+        .all()
+    )
+    by_case: dict = {}
+    for rel, suite in rels:
+        by_case.setdefault(rel.case_id, []).append({"id": suite.id, "name": suite.name})
+    for c in cases:
+        c.suite_ids = [s["id"] for s in by_case.get(c.id, [])]
+        c.suites = by_case.get(c.id, [])
+
+
+def _sync_case_suites(db: Session, case_id: int, suite_ids, project_id: int) -> None:
+    """同步用例的用例集关联（全量替换；suite_ids 为 None 时不处理）"""
+    if suite_ids is None:
+        return
+    valid_ids = [
+        sid for (sid,) in db.query(TestCaseSuite.id).filter(
+            TestCaseSuite.id.in_(list(suite_ids)),
+            TestCaseSuite.project_id == project_id,
+            TestCaseSuite.is_deleted == False,
+        ).all()
+    ]
+    db.query(TestCaseSuiteCase).filter(TestCaseSuiteCase.case_id == case_id).delete(
+        synchronize_session=False
+    )
+    for sid in valid_ids:
+        db.add(TestCaseSuiteCase(suite_id=sid, case_id=case_id))
 
 @router.post("/search", response_model=List[TestCaseResponse])
 def list_cases(
@@ -50,7 +91,9 @@ def list_cases(
         query = query.filter(TestCase.case_type == case_type)
     if req_id is not None:
         query = query.filter(TestCase.req_id == req_id)
-    return query.order_by(TestCase.created_at.desc()).all()
+    cases = query.order_by(TestCase.created_at.desc()).all()
+    _attach_suite_info(db, cases)
+    return cases
 
 @router.post("", response_model=TestCaseResponse, status_code=status.HTTP_201_CREATED)
 def create_case(
@@ -77,16 +120,18 @@ def create_case(
     )
     db.add(case)
     db.flush()
+    _sync_case_suites(db, case.id, case_data.suite_ids, project_id)
     log_audit(
         db, action="create", resource_type="case",
         resource_id=case.id, resource_name=case.title,
         user=current_user,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
-        detail={"project_id": project_id, "title": case.title, "priority": case.priority},
+        detail={"project_id": project_id, "title": case.title, "priority": case.priority, "suite_ids": case_data.suite_ids},
     )
     db.commit()
     db.refresh(case)
+    _attach_suite_info(db, [case])
     return case
 
 @router.post("/batch", response_model=List[TestCaseResponse], status_code=status.HTTP_201_CREATED)
@@ -176,6 +221,7 @@ def get_case(
     ).first()
     if not case:
         raise HTTPException(status_code=404, detail="用例不存在")
+    _attach_suite_info(db, [case])
     return case
 
 @router.put("/{case_id}", response_model=TestCaseResponse)
@@ -198,20 +244,23 @@ def update_case(
 
     old_data = {"title": case.title, "priority": case.priority, "status": case.status}
     update_data = case_data.model_dump(exclude_unset=True)
+    suite_ids = update_data.pop("suite_ids", None)
     if "steps" in update_data and isinstance(update_data["steps"], list):
         update_data["steps"] = json.dumps(update_data["steps"], ensure_ascii=False)
     for key, value in update_data.items():
         setattr(case, key, value)
+    _sync_case_suites(db, case.id, suite_ids, project_id)
     log_audit(
         db, action="update", resource_type="case",
         resource_id=case.id, resource_name=case.title,
         user=current_user,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
-        detail={"before": old_data, "after": {k: v for k, v in update_data.items() if k != "steps"}},
+        detail={"before": old_data, "after": {k: v for k, v in update_data.items() if k != "steps"}, "suite_ids": suite_ids},
     )
     db.commit()
     db.refresh(case)
+    _attach_suite_info(db, [case])
     return case
 
 @router.delete("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -288,6 +337,7 @@ def generate_cases(
             "prompt_id": gen_request.prompt_id,
             "feature_ids": gen_request.feature_ids or [],
             "page_backend": gen_request.backend,
+            "suite_ids": gen_request.suite_ids or [],
         },
         llm_config_id=gen_request.llm_config_id,
         created_by=current_user.id,

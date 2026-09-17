@@ -65,6 +65,7 @@
             :options="statusOptions"
             @change="onBatchStatusChange"
           />
+          <a-button size="small" type="primary" ghost @click="openAddToSuite(selectedRowKeys)">加入用例集</a-button>
           <a-button size="small" @click="selectedRowKeys = []">取消选择</a-button>
         </div>
       </template>
@@ -85,7 +86,14 @@
           </a-tooltip>
           <span v-else style="color: #999">-</span>
         </template>
+        <template v-else-if="column.key === 'suites'">
+          <a-space wrap :size="2">
+            <a-tag v-for="s in (record.suites || [])" :key="s.id" color="blue" style="margin-right: 0;">{{ s.name }}</a-tag>
+            <span v-if="!(record.suites || []).length" style="color: #999">-</span>
+          </a-space>
+        </template>
         <template v-else-if="column.key === 'action'">
+          <a-button type="link" size="small" @click="openAddToSuite([record.id])">加入用例集</a-button>
           <a-button type="link" size="small" @click="runCase(record)">执行</a-button>
           <a-button type="link" size="small" @click="editCase(record)">编辑</a-button>
           <a-button type="link" size="small" danger @click="handleDelete(record.id, record.title)">删除</a-button>
@@ -162,6 +170,16 @@
       </a-form-item>
       <a-form-item label="预期结果">
         <a-textarea v-model:value="formData.expected_result" :rows="2" placeholder="最终预期结果" />
+      </a-form-item>
+      <a-form-item label="所属用例集">
+        <a-select
+          v-model:value="formData.suite_ids"
+          mode="multiple"
+          placeholder="选择所属测试用例集（可多选）"
+          style="width: 100%"
+          allow-clear
+          :options="suiteOptions"
+        />
       </a-form-item>
     </FormModal>
 
@@ -250,6 +268,42 @@
         <a-form-item v-if="showCaseBackend" label="执行方式">
           <a-radio-group v-model:value="caseBackend" :options="AI_BACKEND_OPTIONS" />
         </a-form-item>
+        <a-form-item label="关联测试用例集">
+          <a-select
+            v-model:value="selectedSuiteIds"
+            mode="multiple"
+            placeholder="选择用例集，生成完成后自动关联（可多选）"
+            style="width: 100%"
+            allow-clear
+            :options="suiteOptions"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 加入用例集弹窗 -->
+    <a-modal
+      v-model:open="addToSuiteVisible"
+      title="加入测试用例集"
+      width="480px"
+      :confirm-loading="addingToSuite"
+      @ok="doAddToSuite"
+    >
+      <div style="margin-bottom: 12px; padding: 8px 12px; background: #f5f7fa; border-radius: 6px;">
+        <span style="color: #606266;">已选用例：</span>
+        <span style="font-weight: 500;">{{ addToSuiteCaseIds.length }} 条</span>
+      </div>
+      <a-form layout="vertical">
+        <a-form-item label="目标用例集" required>
+          <a-select
+            v-model:value="addToSuiteId"
+            placeholder="选择用例集"
+            style="width: 100%"
+            show-search
+            option-filter-prop="label"
+            :options="suiteOptions"
+          />
+        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -262,6 +316,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ThunderboltOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getCases, createCase, updateCase, deleteCase as deleteCaseApi, generateCases, getRequirements, getFeatures, splitFeatures, batchUpdateStatus, type FeatureModuleGroup } from '@/api/cases'
+import { getCaseSuites, addCasesToSuite } from '@/api/caseSuites'
 import { getLLMConfigs } from '@/api/llm'
 import { promptsApi, type Prompt } from '@/api/prompts'
 import { useWorkflowBackend } from '@/composables/useWorkflowBackend'
@@ -308,6 +363,8 @@ async function onBatchStatusChange(val: string) {
 
 const requirements = ref<any[]>([])
 const llmConfigs = ref<any[]>([])
+const suites = ref<any[]>([])
+const suiteOptions = computed(() => suites.value.map((s: any) => ({ label: s.name, value: s.id })))
 
 const filterPriority = ref<string | undefined>(undefined)
 const filterModule = ref('')
@@ -358,6 +415,7 @@ const defaultCaseForm = {
   preconditions: '',
   steps: [{ action: '', expected: '' }] as any[],
   expected_result: '',
+  suite_ids: [] as number[],
 }
 
 const {
@@ -371,8 +429,8 @@ const {
   handleDelete,
 } = useCRUD<any>({
   api: {
-    create: (data) => createCase(projectId, { ...data, req_id: data.req_id ?? null }),
-    update: (id, data) => updateCase(projectId, id, { ...data, req_id: data.req_id ?? null }),
+    create: (data) => createCase(projectId, { ...data, req_id: data.req_id ?? null, suite_ids: data.suite_ids || [] }),
+    update: (id, data) => updateCase(projectId, id, { ...data, req_id: data.req_id ?? null, suite_ids: data.suite_ids ?? null }),
     remove: (id) => deleteCaseApi(projectId, id),
   },
   resourceName: '用例',
@@ -401,6 +459,7 @@ function editCase(row: any) {
     preconditions: row.preconditions,
     steps: typeof row.steps === 'string' ? JSON.parse(row.steps || '[]') : (row.steps || []),
     expected_result: row.expected_result,
+    suite_ids: row.suite_ids || [],
   })
 }
 
@@ -444,6 +503,38 @@ const selectedReqId = ref<number | null>(null)
 const selectedLLMConfig = ref<number | null>(null)
 const prompts = ref<Prompt[]>([])
 const selectedPromptId = ref<number | null>(null)
+const selectedSuiteIds = ref<number[]>([])
+
+// ── 加入用例集 ──
+const addToSuiteVisible = ref(false)
+const addingToSuite = ref(false)
+const addToSuiteCaseIds = ref<number[]>([])
+const addToSuiteId = ref<number | undefined>(undefined)
+
+function openAddToSuite(caseIds: number[]) {
+  addToSuiteCaseIds.value = caseIds
+  addToSuiteId.value = undefined
+  addToSuiteVisible.value = true
+}
+
+async function doAddToSuite() {
+  if (!addToSuiteId.value) {
+    message.warning('请选择目标用例集')
+    return
+  }
+  addingToSuite.value = true
+  try {
+    const res = await addCasesToSuite(projectId, addToSuiteId.value, { case_ids: addToSuiteCaseIds.value })
+    message.success(res.message || '已加入用例集')
+    addToSuiteVisible.value = false
+    selectedRowKeys.value = []
+    loadData()
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '加入用例集失败')
+  } finally {
+    addingToSuite.value = false
+  }
+}
 
 const featureModules = ref<FeatureModuleGroup[]>([])
 const selectedFeatureIds = ref<number[]>([])
@@ -458,8 +549,9 @@ const columns = [
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
   { title: '类型', dataIndex: 'case_type', key: 'case_type', width: 100 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
+  { title: '用例集', key: 'suites', width: 160, ellipsis: true },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170, customRender: ({ text }: { text: string }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 140, fixed: 'right' },
+  { title: '操作', key: 'action', width: 200, fixed: 'right' },
 ]
 
 const priorityOptions = [
@@ -577,6 +669,7 @@ async function doGenerate() {
       llm_config_id: selectedLLMConfig.value || undefined,
       prompt_id: selectedPromptId.value || undefined,
       backend: showCaseBackend.value ? caseBackend.value : undefined,
+      suite_ids: selectedSuiteIds.value.length ? selectedSuiteIds.value : undefined,
     }
     if (selectedFeatureIds.value.length > 0) {
       params.feature_ids = selectedFeatureIds.value
@@ -591,6 +684,7 @@ async function doGenerate() {
     featureModules.value = []
     selectedFeatureIds.value = []
     selectedPromptId.value = null
+    selectedSuiteIds.value = []
     setTimeout(() => loadData(), 5000)
   } catch (e: any) {
     message.error('提交生成任务失败：' + (e.message || '未知错误'))
@@ -602,6 +696,7 @@ async function doGenerate() {
 getRequirements(projectId).then(data => { requirements.value = data })
 getLLMConfigs().then(data => { llmConfigs.value = data })
 promptsApi.list('case_generation').then(data => { prompts.value = data }).catch(() => {})
+getCaseSuites(projectId, { page: 1, page_size: 200 }).then(data => { suites.value = data.items }).catch(() => {})
 fetchCaseBackend('case.generate', projectId).then(() => {
   caseBackend.value = caseDefaultBackend.value || 'local'
 })
