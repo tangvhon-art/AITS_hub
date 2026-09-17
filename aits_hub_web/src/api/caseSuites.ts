@@ -72,6 +72,13 @@ export function getSuiteMind(projectId: number, suiteId: number) {
   return request.get<any>(`/projects/${projectId}/case-suites/${suiteId}/mind`)
 }
 
+/** 更新用例集内用例的执行状态（upsert） */
+export function updateCaseExecStatus(projectId: number, suiteId: number, caseId: number, execStatus: string) {
+  return request.put(`/projects/${projectId}/case-suites/${suiteId}/cases/${caseId}/exec-status`, {
+    exec_status: execStatus,
+  })
+}
+
 /** 按用例集导出 .xmind 文件 */
 export function exportSuiteXmind(projectId: number, suiteId: number) {
   return request.get(`/projects/${projectId}/case-suites/${suiteId}/export-xmind`, { responseType: 'blob' })

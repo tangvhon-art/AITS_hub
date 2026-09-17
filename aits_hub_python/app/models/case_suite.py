@@ -36,3 +36,25 @@ class TestCaseSuiteCase(Base):
     suite_id = Column(Integer, ForeignKey("test_case_suites.id"), nullable=False, index=True, comment="用例集ID")
     case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True, comment="用例ID")
     created_at = Column(DateTime, default=china_now_naive, comment="加入时间")
+
+
+class CaseSuiteCaseExecStatus(SoftDeleteMixin, TimestampMixin, Base):
+    """用例集内用例的执行状态表
+
+    执行状态是「用例集 + 用例」维度的独立状态，与用例管理状态（draft/active/archived）区分：
+    - 表中无记录 = 默认待执行（pending）；
+    - 执行后写入本表（upsert），记录执行状态、执行时间与执行人。
+    """
+    __tablename__ = "case_suite_case_exec_status"
+    __table_args__ = (
+        UniqueConstraint("suite_id", "case_id", name="uk_suite_case_exec"),
+        {"comment": "用例集内用例执行状态表"},
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
+    project_id = Column(Integer, ForeignKey("test_projects.id"), nullable=False, index=True, comment="所属项目ID")
+    suite_id = Column(Integer, ForeignKey("test_case_suites.id"), nullable=False, index=True, comment="用例集ID")
+    case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True, comment="用例ID")
+    exec_status = Column(String(20), default="pending", comment="执行状态：pending-待执行，passed-通过，failed-失败，blocked-阻塞，skipped-跳过")
+    executed_at = Column(DateTime, nullable=True, comment="执行时间")
+    executed_by = Column(Integer, ForeignKey("users.id"), nullable=True, comment="执行人ID")

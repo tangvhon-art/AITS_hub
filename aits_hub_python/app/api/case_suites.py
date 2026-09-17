@@ -19,15 +19,18 @@ from urllib.parse import quote
 from app.database import get_db
 from app.core.audit import log_audit
 from app.core.deps import get_current_user, get_project
+from app.core.timezone import china_now_naive
 from app.models.user import User
 from app.models.test_case import TestCase
-from app.models.case_suite import TestCaseSuite, TestCaseSuiteCase
+from app.models.requirement import TestRequirement, RequirementFeature
+from app.models.case_suite import TestCaseSuite, TestCaseSuiteCase, CaseSuiteCaseExecStatus
 from app.schemas.case_suite import (
     CaseSuiteCreate,
     CaseSuiteUpdate,
     CaseSuiteCasesBody,
     CaseSuiteResponse,
     CaseSuiteListResponse,
+    CaseExecStatusUpdate,
 )
 from app.api.import_export import _make_xmind_topic
 
@@ -123,6 +126,48 @@ def _build_mind_data(db: Session, project_id: int, suite: TestCaseSuite) -> Dict
     """构建导图树数据：根=用例集名 → 模块 → 用例 → 前置条件/步骤/预期结果"""
     cases = _suite_cases(db, project_id, suite.id)
 
+    # 用例集内用例的执行状态：无记录默认为待执行（pending）
+    exec_map: Dict[int, str] = {}
+    if cases:
+        exec_rows = (
+            db.query(CaseSuiteCaseExecStatus)
+            .filter(CaseSuiteCaseExecStatus.suite_id == suite.id)
+            .all()
+        )
+        exec_map = {row.case_id: row.exec_status for row in exec_rows}
+
+    # 需求回显：优先取用例直接关联的需求（req_id），缺失时按模块反查功能点模块名
+    req_title_map: Dict[int, str] = {}
+    req_ids = {c.req_id for c in cases if c.req_id}
+    if req_ids:
+        req_title_map = {
+            rid: title
+            for rid, title in db.query(TestRequirement.id, TestRequirement.title)
+            .filter(TestRequirement.id.in_(req_ids), TestRequirement.is_deleted == False)
+            .all()
+        }
+    module_req_map: Dict[str, int] = {}
+    no_req_modules = {c.module for c in cases if not c.req_id and c.module}
+    if no_req_modules:
+        for mname, rid in (
+            db.query(RequirementFeature.module_name, RequirementFeature.requirement_id)
+            .filter(
+                RequirementFeature.module_name.in_(no_req_modules),
+                RequirementFeature.project_id == project_id,
+                RequirementFeature.is_deleted == False,
+            )
+            .all()
+        ):
+            module_req_map.setdefault(mname, rid)
+        extra_ids = set(module_req_map.values()) - set(req_title_map)
+        if extra_ids:
+            req_title_map.update({
+                rid: title
+                for rid, title in db.query(TestRequirement.id, TestRequirement.title)
+                .filter(TestRequirement.id.in_(extra_ids), TestRequirement.is_deleted == False)
+                .all()
+            })
+
     # 按模块分组（未分类归为「未分类模块」）
     modules: Dict[str, List[TestCase]] = {}
     for case in cases:
@@ -137,6 +182,9 @@ def _build_mind_data(db: Session, project_id: int, suite: TestCaseSuite) -> Dict
         module_cases.sort(key=lambda c: (PRIORITY_ORDER.get(c.priority, 9), c.id))
         case_nodes = []
         for case in module_cases:
+            req_name = req_title_map.get(case.req_id) if case.req_id else (
+                req_title_map.get(module_req_map.get(case.module or "")) if (case.module and case.module in module_req_map) else None
+            )
             case_nodes.append({
                 "id": case.id,
                 "title": f"[{case.priority}] {case.title}",
@@ -144,6 +192,9 @@ def _build_mind_data(db: Session, project_id: int, suite: TestCaseSuite) -> Dict
                 "preconditions": case.preconditions or "",
                 "steps": _steps_text(case.steps),
                 "expected_result": case.expected_result or "",
+                "exec_status": exec_map.get(case.id, "pending"),
+                "req_id": case.req_id,
+                "req_name": req_name,
             })
         module_nodes.append({
             "module": module_name,
@@ -553,6 +604,74 @@ def suite_mind_data(
     get_project(project_id, db, current_user)
     suite = _get_suite(project_id, suite_id, db)
     return _build_mind_data(db, project_id, suite)
+
+
+@router.put("/{suite_id}/cases/{case_id}/exec-status")
+def update_case_exec_status(
+    project_id: int,
+    suite_id: int,
+    case_id: int,
+    body: CaseExecStatusUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新用例集内用例的执行状态（upsert：无记录则写入，有记录则更新）"""
+    get_project(project_id, db, current_user)
+    suite = _get_suite(project_id, suite_id, db)
+
+    # 校验用例确实存在于本用例集
+    link = (
+        db.query(TestCaseSuiteCase)
+        .filter(
+            TestCaseSuiteCase.suite_id == suite_id,
+            TestCaseSuiteCase.case_id == case_id,
+        )
+        .first()
+    )
+    if not link:
+        raise HTTPException(status_code=404, detail="用例不在该用例集中")
+
+    row = (
+        db.query(CaseSuiteCaseExecStatus)
+        .filter(
+            CaseSuiteCaseExecStatus.suite_id == suite_id,
+            CaseSuiteCaseExecStatus.case_id == case_id,
+        )
+        .first()
+    )
+    now = china_now_naive()
+    if row:
+        row.exec_status = body.exec_status
+        row.executed_at = now
+        row.executed_by = current_user.id
+    else:
+        row = CaseSuiteCaseExecStatus(
+            project_id=project_id,
+            suite_id=suite_id,
+            case_id=case_id,
+            exec_status=body.exec_status,
+            executed_at=now,
+            executed_by=current_user.id,
+        )
+        db.add(row)
+
+    log_audit(
+        db, action="update", resource_type="case_exec_status",
+        resource_id=case_id, resource_name=f"用例#{case_id}执行状态",
+        user=current_user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        detail={"project_id": project_id, "suite_id": suite_id, "case_id": case_id, "exec_status": body.exec_status},
+    )
+    db.commit()
+    db.refresh(row)
+    return {
+        "case_id": case_id,
+        "suite_id": suite_id,
+        "exec_status": row.exec_status,
+        "executed_at": row.executed_at.isoformat() if row.executed_at else None,
+    }
 
 
 @router.get("/{suite_id}/export-xmind")

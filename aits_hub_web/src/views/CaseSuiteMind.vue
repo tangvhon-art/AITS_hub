@@ -33,7 +33,22 @@
       <template v-if="detailCase">
         <a-descriptions :column="1" bordered size="small">
           <a-descriptions-item label="优先级">
-            <a-tag :color="priorityColor(detailCase.priority)">{{ detailCase.priority }}</a-tag>
+            <a-select
+              v-model:value="detailCase.priority"
+              size="small"
+              style="width: 130px"
+              :options="priorityOptions"
+              @change="onPriorityChange"
+            />
+          </a-descriptions-item>
+          <a-descriptions-item label="执行状态">
+            <a-select
+              v-model:value="detailCase.exec_status"
+              size="small"
+              style="width: 150px"
+              :options="execStatusOptions"
+              @change="onExecStatusChange"
+            />
           </a-descriptions-item>
           <a-descriptions-item label="模块">{{ detailCase.module || '-' }}</a-descriptions-item>
           <a-descriptions-item label="前置条件">{{ detailCase.preconditions || '无' }}</a-descriptions-item>
@@ -45,7 +60,7 @@
           </a-descriptions-item>
           <a-descriptions-item label="预期结果">{{ detailCase.expected_result || '无' }}</a-descriptions-item>
           <a-descriptions-item label="所属需求">
-            <span>{{ detailCase.req_id ? `需求 #${detailCase.req_id}` : '-' }}</span>
+            <span>{{ detailCase.req_name || (detailCase.req_id ? `需求 #${detailCase.req_id}` : '-') }}</span>
           </a-descriptions-item>
         </a-descriptions>
         <div style="margin-top: 16px; text-align: right;">
@@ -63,7 +78,8 @@ import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import MindElixir from 'mind-elixir'
 import 'mind-elixir/style'
-import { getSuiteMind, exportSuiteXmind } from '@/api/caseSuites'
+import { getSuiteMind, exportSuiteXmind, updateCaseExecStatus } from '@/api/caseSuites'
+import { updateCase } from '@/api/cases'
 
 const route = useRoute()
 const router = useRouter()
@@ -80,6 +96,23 @@ const detailVisible = ref(false)
 const detailCase = ref<any>(null)
 
 const CASE_DETAIL = new Map<number, any>()
+
+/** 优先级选项（可编辑） */
+const priorityOptions = [
+  { value: 'P0', label: 'P0' },
+  { value: 'P1', label: 'P1' },
+  { value: 'P2', label: 'P2' },
+  { value: 'P3', label: 'P3' },
+]
+
+/** 执行状态选项（可编辑） */
+const execStatusOptions = [
+  { value: 'pending', label: '待执行' },
+  { value: 'passed', label: '通过' },
+  { value: 'failed', label: '失败' },
+  { value: 'blocked', label: '阻塞' },
+  { value: 'skipped', label: '跳过' },
+]
 
 function priorityColor(p: string) {
   return { P0: 'red', P1: 'orange', P2: 'blue', P3: 'default' }[p] || 'default'
@@ -110,9 +143,16 @@ function fieldNodeHtml(name: string, body: string, plain = false) {
   return `<div class="me-fldnode"><div class="me-fld-name">${name}</div><div class="me-fld-body">${bodyHtml}</div></div>`
 }
 
-/** 用例标题节点 HTML（优先级 [Px] 着色） */
+/** 执行状态中文标签 */
+function execStatusLabel(s: string) {
+  return { pending: '待执行', passed: '通过', failed: '失败', blocked: '阻塞', skipped: '跳过' }[s] || s
+}
+
+/** 用例标题节点 HTML（优先级 [Px] 着色 + 执行状态色标） */
 function caseTitleHtml(c: any) {
-  return `<div class="me-fldnode"><div class="me-fld-name">用例标题</div><div class="me-fld-body">${buildTitleHtml(c.title)}</div></div>`
+  const s = c.exec_status || 'pending'
+  const tag = s !== 'pending' ? `<span class="me-exec-tag me-exec-tag-${s}">${execStatusLabel(s)}</span>` : ''
+  return `<div class="me-fldnode me-exec-${s}"><div class="me-fld-name">用例标题${tag}</div><div class="me-fld-body">${buildTitleHtml(c.title)}</div></div>`
 }
 
 /**
@@ -144,6 +184,8 @@ function buildMindData(data: any) {
           expected_result: c.expected_result,
           stepsList: c.steps ? c.steps.split(/[；;]\s*/).filter(Boolean) : [],
           req_id: (c as any).req_id,
+          req_name: (c as any).req_name || '',
+          exec_status: (c as any).exec_status || 'pending',
         })
         return {
           topic: '',
@@ -354,6 +396,54 @@ function goEditCase() {
   router.push(`/projects/${projectId}/cases?highlight=${detailCase.value.id}`)
 }
 
+/** 抽屉内编辑优先级：更新用例 + 同步刷新脑图节点标题（[Px] 着色） */
+async function onPriorityChange(value: string) {
+  if (!detailCase.value) return
+  const d = detailCase.value
+  const old = d.priority
+  try {
+    await updateCase(projectId, d.id, { priority: value })
+    d.priority = value
+    // 同步节点标题中的 [Px] 前缀
+    d.title = d.title.replace(/^[【\[]P\d[】\]]\s*/, `[${value}] `)
+    refreshCaseNode(d.id)
+    message.success('优先级已更新')
+  } catch (e: any) {
+    d.priority = old
+    message.error(e?.response?.data?.detail || '更新失败')
+  }
+}
+
+/** 抽屉内编辑执行状态：写入用例集执行状态表（upsert）+ 同步刷新脑图节点色标 */
+async function onExecStatusChange(value: string) {
+  if (!detailCase.value) return
+  const d = detailCase.value
+  const old = d.exec_status
+  try {
+    await updateCaseExecStatus(projectId, suiteId, d.id, value)
+    d.exec_status = value
+    refreshCaseNode(d.id)
+    message.success('执行状态已更新')
+  } catch (e: any) {
+    d.exec_status = old
+    message.error(e?.response?.data?.detail || '更新失败')
+  }
+}
+
+/** 按用例 id 重渲染对应脑图节点（用于优先级变化后标题同步） */
+function refreshCaseNode(caseId: number) {
+  if (!mind) return
+  const walk = (node: any): boolean => {
+    if (node.metadata?.kind === 'case' && node.metadata.caseId === caseId) {
+      const d = CASE_DETAIL.get(caseId)
+      if (d) node.dangerouslySetInnerHTML = caseTitleHtml(d)
+      return true
+    }
+    return (node.children || []).some(walk)
+  }
+  if (walk(mind.nodeData)) mind.refresh()
+}
+
 onMounted(() => {
   renderMind()
 })
@@ -474,6 +564,8 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 19px;
   max-width: 220px;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 .map-container .me-fldnode .me-fld-name {
   font-size: 10.5px;
@@ -506,6 +598,37 @@ onBeforeUnmount(() => {
   padding: 7px 14px;
   box-shadow: 0 2px 6px rgba(51, 112, 255, 0.25);
 }
+/* 执行状态色标：通过绿 / 失败红 / 跳过黄 / 阻塞橙（待执行无标记） */
+.map-container .me-exec-passed {
+  border: 1.5px solid #52c41a;
+  background: rgba(82, 196, 26, 0.05);
+}
+.map-container .me-exec-failed {
+  border: 1.5px solid #f5222d;
+  background: rgba(245, 34, 45, 0.05);
+}
+.map-container .me-exec-skipped {
+  border: 1.5px solid #faad14;
+  background: rgba(250, 173, 20, 0.08);
+}
+.map-container .me-exec-blocked {
+  border: 1.5px solid #fa8c16;
+  background: rgba(250, 140, 22, 0.08);
+}
+.map-container .me-exec-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 2px;
+  font-size: 10px;
+  line-height: 14px;
+  color: #fff;
+  vertical-align: 1px;
+}
+.map-container .me-exec-tag-passed { background: #52c41a; }
+.map-container .me-exec-tag-failed { background: #f5222d; }
+.map-container .me-exec-tag-skipped { background: #faad14; }
+.map-container .me-exec-tag-blocked { background: #fa8c16; }
 .map-container .me-prio {
   font-weight: 600;
   margin-right: 2px;

@@ -45,3 +45,8 @@ class CaseSuiteListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class CaseExecStatusUpdate(BaseModel):
+    """用例集内用例执行状态更新"""
+    exec_status: str = Field(..., description="执行状态：pending-待执行，passed-通过，failed-失败，blocked-阻塞，skipped-跳过")

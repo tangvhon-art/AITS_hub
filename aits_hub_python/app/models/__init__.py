@@ -3,7 +3,7 @@ from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.requirement import TestRequirement, RequirementFeature
 from app.models.test_case import TestCase
-from app.models.case_suite import TestCaseSuite, TestCaseSuiteCase
+from app.models.case_suite import TestCaseSuite, TestCaseSuiteCase, CaseSuiteCaseExecStatus
 from app.models.test_run import TestRun
 from app.models.agent_task import AgentTask
 from app.models.llm_config import LLMConfig
