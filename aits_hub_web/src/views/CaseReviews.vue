@@ -183,7 +183,7 @@
             <DataTable
               :columns="groupReviewColumns"
               :data-source="currentDetail.output_result.group_reviews"
-                            row-key="(_r: any, i: number) => i"
+              row-key="(_r: any, i: number) => i"
               size="small"
             >
               <template #bodyCell="{ column, record }">
@@ -237,7 +237,7 @@
               v-else
               :columns="issueColumns"
               :data-source="currentDetail.output_result.issues"
-                            row-key="case_id"
+              row-key="case_id"
               size="small"
             >
               <template #bodyCell="{ column, record }">

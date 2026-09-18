@@ -118,7 +118,7 @@
           <a-card size="small">
             <a-collapse>
               <a-collapse-panel
-                v-for="result in results"
+                v-for="result in pagedResults"
                 :key="result.id"
               >
                 <template #header>
@@ -189,6 +189,16 @@
                 </div>
               </a-collapse-panel>
             </a-collapse>
+            <a-pagination
+              v-if="results.length > detailPageSize"
+              :current="detailPage"
+              :page-size="detailPageSize"
+              :total="results.length"
+              show-size-changer
+              @change="onDetailPageChange"
+              @showSizeChange="onDetailSizeChange"
+              style="margin-top: 12px; text-align: right"
+            />
           </a-card>
         </a-tab-pane>
 
@@ -196,7 +206,7 @@
         <a-tab-pane key="logs" tab="执行日志">
           <a-card size="small">
             <div class="log-container">
-              <div v-for="(log, idx) in logs" :key="idx" class="log-line">
+              <div v-for="(log, idx) in pagedLogs" :key="idx" class="log-line">
                 <span class="log-time">{{ log.time }}</span>
                 <a-tag :color="log.level === 'ERROR' ? 'red' : log.level === 'WARN' ? 'orange' : 'blue'" size="small">
                   {{ log.level }}
@@ -207,6 +217,16 @@
                 暂无日志信息
               </div>
             </div>
+            <a-pagination
+              v-if="logs.length > logPageSize"
+              :current="logPage"
+              :page-size="logPageSize"
+              :total="logs.length"
+              show-size-changer
+              @change="onLogPageChange"
+              @showSizeChange="onLogSizeChange"
+              style="margin-top: 12px; text-align: right"
+            />
           </a-card>
         </a-tab-pane>
 
@@ -270,6 +290,36 @@ const execution = ref<TestPlanExecution | null>(null)
 const results = ref<TestPlanExecutionResult[]>([])
 const activeTab = ref('overview')
 const detailTabs = ref<Record<number, string>>({})
+
+// 执行详情分页（前端分页）
+const detailPage = ref(1)
+const detailPageSize = ref(20)
+const pagedResults = computed(() => {
+  const start = (detailPage.value - 1) * detailPageSize.value
+  return results.value.slice(start, start + detailPageSize.value)
+})
+function onDetailPageChange(page: number) {
+  detailPage.value = page
+}
+function onDetailSizeChange(_current: number, size: number) {
+  detailPageSize.value = size
+  detailPage.value = 1
+}
+
+// 执行日志分页
+const logPage = ref(1)
+const logPageSize = ref(100)
+const pagedLogs = computed(() => {
+  const start = (logPage.value - 1) * logPageSize.value
+  return logs.value.slice(start, start + logPageSize.value)
+})
+function onLogPageChange(page: number) {
+  logPage.value = page
+}
+function onLogSizeChange(_current: number, size: number) {
+  logPageSize.value = size
+  logPage.value = 1
+}
 
 const failedResults = computed(() =>
   results.value.filter(r => r.status === 'failed' || r.status === 'error')
